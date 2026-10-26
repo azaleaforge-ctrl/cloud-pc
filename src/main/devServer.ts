@@ -218,7 +218,7 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
     const line = stripAnsi(rawLine).replace(/\r$/, '').trim();
     if (!line) return;
     onLog(line);
-    if (/(EADDRINUSE|address already in use|port[^.*already in use|could not find a production build|could not open input file: artisan|no module named|is not recognized as an internal or external command)/i.test(line)
+    if (/(EADDRINUSE|address already in use|port.*already in use|could not find a production build|could not open input file: artisan|no module named|is not recognized as an internal or external command)/i.test(line)
       && (status === 'starting' || status === 'idle')) {
       emit('error', null, line);
       clearProbe();
