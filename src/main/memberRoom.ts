@@ -286,7 +286,7 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
         path: f.path,
         size: f.size,
         mtime: f.mtime,
-        modified: new Date(f.mtime * 1000).toISOString(),
+        modified: new Date(f.mtime).toISOString(),
       })),
     });
     startWatcher();
