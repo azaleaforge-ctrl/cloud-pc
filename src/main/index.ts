@@ -111,7 +111,7 @@ const initialState: AppState = {
   hostAddress: null,
   projectPath: null,
   members: [],
-  queue: { holder: null, queue: [] },
+  queue: { holder: null, queue: [], holderLastActivity: null, holderActivitySource: null },
   framework: null,
   server: { status: 'idle', url: null, port: null, logs: [] },
   ides: [],
@@ -243,7 +243,7 @@ async function handleCreateRoom(input: CreateRoomInput): Promise<ActionResult> {
       projectPath: folder,
       framework,
       members: [{ id: settings.selfId, name: memberName, isHost: true }],
-      queue: { holder: settings.selfId, queue: [] },
+      queue: { holder: settings.selfId, queue: [], holderLastActivity: Date.now(), holderActivitySource: 'room-start' },
       lanAddress: getLanIp(),
     });
     notify({ kind: 'info', message: `Ruangan aktif. Kode: ${room.code}` });
