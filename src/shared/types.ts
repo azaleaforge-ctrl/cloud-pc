@@ -123,6 +123,12 @@ export interface UpdateState {
   version: string | null;
   progress: number | null;
   error: string | null;
+  /** Byte terunduh menurut event electron-updater. */
+  transferred?: number;
+  /** Total byte installer yang sedang diunduh. */
+  total?: number;
+  /** Kecepatan unduh aktual yang dilaporkan downloader, byte/detik. */
+  bytesPerSecond?: number;
 }
 
 export interface CreateRoomInput {
@@ -236,4 +242,4 @@ export const IGNORED_DIRS = [
   '.DS_Store',
 ];
 
-export const APP_VERSION = '0.3.2';
+export const APP_VERSION = '0.3.3';
