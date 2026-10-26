@@ -49,8 +49,14 @@ export type ServerStatus = 'idle' | 'starting' | 'running' | 'stopped' | 'error'
 
 export interface ServerState {
   status: ServerStatus;
+  /** URL that can be opened on this machine (localhost / local proxy). */
   url: string | null;
+  /** Port advertised to room members (possibly a LAN proxy port). */
   port: number | null;
+  /** Port the framework itself is listening on, before the optional LAN proxy. */
+  targetPort?: number | null;
+  /** True when Ruang Kerja has to expose a localhost-bound server through a proxy. */
+  proxied?: boolean;
   logs: string[];
   error?: string | null;
 }
@@ -58,9 +64,14 @@ export interface ServerState {
 export interface IdeInfo {
   id: string;
   name: string;
-  exe: string;
+  /** Executable path; null if this catalog entry is not installed. */
+  exe: string | null;
+  /** Whether this IDE was found on the current Windows installation. */
+  installed: boolean;
+  /** Official vendor download page, when known. */
+  downloadUrl?: string | null;
   /** Dari mana IDE ditemukan */
-  source: 'registry' | 'folder' | 'path';
+  source: 'registry' | 'folder' | 'path' | 'shortcut' | 'catalog';
 }
 
 export type SyncStatus = 'off' | 'syncing' | 'ready' | 'error';
@@ -154,9 +165,12 @@ export interface ServerLogLine {
 export interface ProjectFile {
   path: string;
   size: number;
+  /** Filesystem modification timestamp in milliseconds since Unix epoch. */
   mtime: number;
   /** ISO string of last modification */
   modified: string;
+  /** True when this entry represents a directory rather than a file. */
+  isDirectory?: boolean;
 }
 
 export interface ReleaseInfo {
