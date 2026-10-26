@@ -28,7 +28,10 @@ import { scanFiles } from './fsScan';
 import { openEmbeddedIde, closeEmbeddedIde, resizeEmbeddedIde } from './nativeHost';
 import { startActivityMonitor } from './activityMonitor';
 
-let updateState: UpdateState = { status: 'idle', version: null, progress: null, error: null };
+let updateState: UpdateState = { status: 'idle', version: null, progress: null, error: null, transferred: 0, total: 0, bytesPerSecond: 0 };
+let updateCheckPromise: Promise<void> | null = null;
+let lastProgressEmitAt = 0;
+let updateInstallRequested = false;
 
 function emitUpdateState(state: UpdateState): void {
   updateState = state;
@@ -37,40 +40,83 @@ function emitUpdateState(state: UpdateState): void {
 
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
+// Differential NSIS updates stay enabled. A version-aware override lets GitHub find
+// the blockmap attached to the installed version's release instead of falling back
+// to a full installer download when the release base URL changes.
+autoUpdater.disableDifferentialDownload = false;
+autoUpdater.previousBlockmapBaseUrlOverride = `https://github.com/azaleaforge-ctrl/cloud-pc/releases/download/v${APP_VERSION}`;
 
 autoUpdater.on('checking-for-update', () => {
-  notify({ kind: 'info', message: 'Memeriksa pembaruan...' });
-  emitUpdateState({ status: 'checking', version: null, progress: null, error: null });
+  emitUpdateState({ status: 'checking', version: updateState.version, progress: null, error: null, transferred: 0, total: 0, bytesPerSecond: 0 });
 });
 autoUpdater.on('update-available', (info) => {
-  notify({ kind: 'info', message: 'Pembaruan ' + info.version + ' tersedia. Mengunduh otomatis...' });
-  emitUpdateState({ status: 'available', version: info.version, progress: 0, error: null });
+  updateInstallRequested = false;
+  emitUpdateState({ status: 'available', version: info.version, progress: 0, error: null, transferred: 0, total: 0, bytesPerSecond: 0 });
 });
 autoUpdater.on('update-not-available', () => {
-  notify({ kind: 'info', message: 'Sudah versi terbaru.' });
-  emitUpdateState({ status: 'latest', version: null, progress: null, error: null });
+  emitUpdateState({ status: 'latest', version: null, progress: null, error: null, transferred: 0, total: 0, bytesPerSecond: 0 });
 });
 autoUpdater.on('error', (err: Error) => {
-  notify({ kind: 'error', message: `Gagal cek pembaruan: ${err.message}` });
-  emitUpdateState({ status: 'error', version: null, progress: null, error: err.message });
+  emitUpdateState({
+    status: 'error',
+    version: updateState.version,
+    progress: updateState.progress,
+    error: err.message,
+    transferred: updateState.transferred ?? 0,
+    total: updateState.total ?? 0,
+    bytesPerSecond: updateState.bytesPerSecond ?? 0,
+  });
 });
 autoUpdater.on('download-progress', (progress) => {
-  notify({ kind: 'info', message: `Mengunduh pembaruan: ${Math.round(progress.percent)}%` });
-  emitUpdateState({ status: 'downloading', version: null, progress: progress.percent, error: null });
+  // Avoid flooding React/Electron with redundant progress events while still keeping
+  // the visible progress and speed smooth. Always publish the final progress event.
+  const now = Date.now();
+  if (now - lastProgressEmitAt < 250 && progress.percent < 100) return;
+  lastProgressEmitAt = now;
+  emitUpdateState({
+    status: 'downloading',
+    version: updateState.version,
+    progress: progress.percent,
+    error: null,
+    transferred: progress.transferred,
+    total: progress.total,
+    bytesPerSecond: progress.bytesPerSecond,
+  });
 });
 autoUpdater.on('update-downloaded', (info) => {
-  notify({ kind: 'info', message: 'Pembaruan ' + info.version + ' sudah diunduh.' });
-  emitUpdateState({ status: 'downloaded', version: info.version, progress: 100, error: null });
+  emitUpdateState({
+    status: 'downloaded',
+    version: info.version,
+    progress: 100,
+    error: null,
+    transferred: updateState.total ?? updateState.transferred ?? 0,
+    total: updateState.total ?? 0,
+    bytesPerSecond: 0,
+  });
   if (store.get().role === 'none') {
     setTimeout(() => autoUpdater.quitAndInstall(), 2500).unref?.();
   }
 });
 
-function checkForUpdates(): void {
-  if (process.env.NODE_ENV === 'development') return;
-  autoUpdater.checkForUpdates().catch(() => undefined);
+function checkForUpdates(): Promise<void> {
+  if (process.env.NODE_ENV === 'development') return Promise.resolve();
+  if (updateCheckPromise) return updateCheckPromise;
+  // autoDownload is enabled: don't start another check/download while one is
+  // already available, downloading, or ready to install.
+  if (['available', 'downloading', 'downloaded'].includes(updateState.status)) return Promise.resolve();
+  updateCheckPromise = autoUpdater.checkForUpdates()
+    .then(() => undefined)
+    .catch((err: Error) => {
+      if (updateState.status !== 'error' || updateState.error !== err.message) {
+        emitUpdateState({
+          status: 'error', version: updateState.version, progress: updateState.progress, error: err.message,
+          transferred: updateState.transferred ?? 0, total: updateState.total ?? 0, bytesPerSecond: updateState.bytesPerSecond ?? 0,
+        });
+      }
+    })
+    .finally(() => { updateCheckPromise = null; });
+  return updateCheckPromise;
 }
-
 interface Settings {
   selfId: string;
   selfName: string;
