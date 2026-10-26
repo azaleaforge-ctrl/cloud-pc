@@ -13,6 +13,7 @@ import type {
   JoinRoomInput,
   NotifyPayload,
   ProjectFile,
+  ReleaseInfo,
   ServerState,
   UpdateState,
 } from '../shared/types';
@@ -465,6 +466,166 @@ async function scanIdesAndUpdate(): Promise<IdeInfo[]> {
   }
 }
 
+const RELEASE_HISTORY_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+
+type ReleaseHistoryCache = { savedAt: number; releases: ReleaseInfo[] };
+
+function releaseHistoryCachePath(): string {
+  return join(app.getPath('userData'), 'release-history-cache.json');
+}
+
+function readReleaseHistoryCache(): ReleaseHistoryCache | null {
+  try {
+    const cachePath = releaseHistoryCachePath();
+    if (!existsSync(cachePath)) return null;
+    const parsed = JSON.parse(readFileSync(cachePath, 'utf8')) as ReleaseHistoryCache;
+    if (!Array.isArray(parsed.releases) || typeof parsed.savedAt !== 'number') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeReleaseHistoryCache(releases: ReleaseInfo[]): void {
+  try {
+    const cachePath = releaseHistoryCachePath();
+    mkdirSync(dirname(cachePath), { recursive: true });
+    writeFileSync(cachePath, JSON.stringify({ savedAt: Date.now(), releases }, null, 2), 'utf8');
+  } catch {
+    // The feature should continue working even if the local cache cannot be saved.
+  }
+}
+
+function decodeXmlEntities(value: string): string {
+  return value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&#(\\d+);/g, (_match, code: string) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_match, code: string) => String.fromCodePoint(parseInt(code, 16)))
+    .replace(/&amp;/g, '&')
+    .replace(/&nbsp;/g, ' ');
+}
+
+function atomHtmlToMarkdown(value: string): string {
+  return decodeXmlEntities(value)
+    .replace(/<h([1-6])\\b[^>]*>([\\s\\S]*?)<\\/h\\1>/gi, (_m, level: string, body: string) => '\\n\\n' + '#'.repeat(Number(level)) + ' ' + body + '\\n\\n')
+    .replace(/<br\\s*\\/?\\s*>/gi, '\\n')
+    .replace(/<li\\b[^>]*>/gi, '\\n- ')
+    .replace(/<\\/li>/gi, '')
+    .replace(/<a\\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>([\\s\\S]*?)<\\/a>/gi, '[$2]($1)')
+    .replace(/<strong\\b[^>]*>([\\s\\S]*?)<\\/strong>/gi, '**$1**')
+    .replace(/<b\\b[^>]*>([\\s\\S]*?)<\\/b>/gi, '**$1**')
+    .replace(/<em\\b[^>]*>([\\s\\S]*?)<\\/em>/gi, '*$1*')
+    .replace(/<i\\b[^>]*>([\\s\\S]*?)<\\/i>/gi, '*$1*')
+    .replace(/<p\\b[^>]*>/gi, '')
+    .replace(/<\\/p>/gi, '\\n\\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/[\\t ]+\\n/g, '\\n')
+    .replace(/\\n{3,}/g, '\\n\\n')
+    .trim();
+}
+
+function atomText(entry: string, tag: string): string | null {
+  const match = entry.match(new RegExp('<' + tag + '\\\\b[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));
+  return match ? decodeXmlEntities(match[1].replace(/<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>/g, '$1')).trim() : null;
+}
+
+async function fetchReleaseHistoryFromAtom(): Promise<ReleaseInfo[]> {
+  const response = await fetch('https://github.com/azaleaforge-ctrl/cloud-pc/releases.atom', {
+    headers: { Accept: 'application/atom+xml, application/xml;q=0.9, text/xml;q=0.8', 'User-Agent': 'Ruang-Kerja-Version-History' },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) throw new Error('GitHub release feed HTTP ' + response.status);
+  const xml = await response.text();
+  const entries = [...xml.matchAll(/<entry\\b[^>]*>([\\s\\S]*?)<\\/entry>/gi)].map((match) => match[1]);
+  const releases: ReleaseInfo[] = [];
+  for (const entry of entries) {
+    const linkTags = [...entry.matchAll(/<link\\b[^>]*\\/?\\s*>/gi)].map((match) => match[0]);
+    const linkTag = linkTags.find((tag) => /rel=[\"']alternate[\"']/i.test(tag)) ?? linkTags[0] ?? '';
+    const href = linkTag.match(/href=[\"']([^\"']+)[\"']/i)?.[1];
+    const tag = href?.match(/\\/releases\\/tag\\/([^/?#]+)/i)?.[1];
+    if (!tag) continue;
+    const decodedTag = decodeURIComponent(tag);
+    const title = atomText(entry, 'title') ?? decodedTag;
+    const updated = atomText(entry, 'published') ?? atomText(entry, 'updated');
+    if (!updated || !Number.isFinite(Date.parse(updated))) continue;
+    const content = entry.match(/<(?:content|summary)\\b[^>]*>([\\s\\S]*?)<\\/(?:content|summary)>/i)?.[1] ?? '';
+    const body = content ? atomHtmlToMarkdown(content) : null;
+    const isPrerelease = /(?:alpha|beta|rc|pre[- ]?release|nightly)/i.test(decodedTag + ' ' + title);
+    releases.push({
+      tag: decodedTag,
+      name: title === decodedTag ? null : title,
+      body: body || null,
+      published_at: updated,
+      prerelease: isPrerelease,
+      draft: false,
+    });
+  }
+  return releases.sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at)).slice(0, 3);
+}
+
+async function loadReleaseHistory(): Promise<{ ok: boolean; error?: string; releases?: ReleaseInfo[] }> {
+  const cached = readReleaseHistoryCache();
+  if (cached && Date.now() - cached.savedAt < RELEASE_HISTORY_CACHE_TTL_MS && cached.releases.length > 0) {
+    return { ok: true, releases: cached.releases.slice(0, 3) };
+  }
+
+  let apiError = 'unknown error';
+  try {
+    const url = 'https://api.github.com/repos/azaleaforge-ctrl/cloud-pc/releases?per_page=100';
+    const headers: Record<string, string> = { Accept: 'application/vnd.github+json', 'User-Agent': 'Ruang-Kerja-Updater' };
+    const token = process.env.GH_TOKEN;
+    if (token) headers.Authorization = 'Bearer ' + token;
+    const response = await fetch(url, { headers, signal: AbortSignal.timeout(8_000) });
+    if (!response.ok) {
+      const rateLimited = response.status === 403 || response.status === 429;
+      apiError = rateLimited
+        ? 'GitHub API membatasi permintaan (HTTP ' + response.status + '). Beralih ke release feed.'
+        : 'GitHub API HTTP ' + response.status;
+      throw new Error(apiError);
+    }
+    const raw = await response.json() as any[];
+    const releases = raw
+      .filter((item) => !item.draft && !!item.published_at)
+      .sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at))
+      .slice(0, 3)
+      .map((item) => ({
+        tag: String(item.tag_name),
+        name: item.name ? String(item.name) : null,
+        body: item.body ? String(item.body) : null,
+        published_at: String(item.published_at),
+        prerelease: Boolean(item.prerelease),
+        draft: Boolean(item.draft),
+      } satisfies ReleaseInfo));
+    if (releases.length > 0) {
+      writeReleaseHistoryCache(releases);
+      return { ok: true, releases };
+    }
+    throw new Error('GitHub tidak mengembalikan rilis yang sudah diterbitkan.');
+  } catch (error) {
+    apiError = (error as Error).message || apiError;
+  }
+
+  try {
+    const releases = await fetchReleaseHistoryFromAtom();
+    if (releases.length > 0) {
+      writeReleaseHistoryCache(releases);
+      return { ok: true, releases };
+    }
+    throw new Error('Release feed tidak memuat versi yang dapat ditampilkan.');
+  } catch (feedError) {
+    if (cached && cached.releases.length > 0) {
+      return { ok: true, releases: cached.releases.slice(0, 3) };
+    }
+    return {
+      ok: false,
+      error: 'Riwayat versi tidak dapat dimuat dari GitHub. ' + apiError + '; release feed: ' + ((feedError as Error).message || 'gagal diakses') + '. Coba lagi nanti.',
+    };
+  }
+}
+
 function registerIpc(): void {
   ipcMain.handle('rk:get-state', () => ({ ...store.get(), version: APP_VERSION }));
   ipcMain.handle('rk:pick-folder', async () => {
@@ -552,41 +713,7 @@ function registerIpc(): void {
     if (updateState.status === 'error') return { ok: false, error: updateState.error ?? 'Download pembaruan gagal.' };
     return { ok: false, error: 'Tidak ada pembaruan yang siap dipasang.' };
   });
-  ipcMain.handle('rk:fetch-release-notes', async () => {
-    try {
-      const owner = 'azaleaforge-ctrl';
-      const repo = 'cloud-pc';
-      const url = `https://api.github.com/repos/${owner}/${repo}/releases?per_page=100`;
-      const headers: Record<string, string> = {
-        Accept: 'application/vnd.github+json',
-        'User-Agent': 'Ruang-Kerja-Updater',
-      };
-      const token = process.env.GH_TOKEN;
-      if (token) headers.Authorization = `Bearer ${token}`;
-      const res = await fetch(url, { headers });
-      if (!res.ok) throw new Error(`GitHub API ${res.status}`);
-      const releases = await res.json();
-      const published = releases
-        .filter((r: any) => !r.draft && !!r.published_at)
-        .sort((a: any, b: any) => Date.parse(b.published_at) - Date.parse(a.published_at));
-      // Detail Version deliberately shows only the newest release and two prior versions.
-      // Older GitHub releases remain available from the browser, but never crowd this panel.
-      const visible = published.slice(0, 3);
-      return {
-        ok: true,
-        releases: visible.map((r: any) => ({
-          tag: r.tag_name,
-          name: r.name,
-          body: r.body,
-          published_at: r.published_at,
-          prerelease: r.prerelease,
-          draft: r.draft,
-        })),
-      };
-    } catch (err) {
-      return { ok: false, error: (err as Error).message };
-    }
-  });
+  ipcMain.handle('rk:fetch-release-notes', async () => loadReleaseHistory());
   ipcMain.handle('rk:list-project-files', async () => {
     const state = store.get();
     if (!state.projectPath) return [];
