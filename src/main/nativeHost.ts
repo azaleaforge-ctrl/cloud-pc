@@ -16,7 +16,7 @@ function ps(script: string, timeoutMs = 8_000): Promise<string> {
   });
 }
 
-const WIN32_TYPE = "Add-Type @'\nusing System;\nusing System.Text;\nusing System.Runtime.InteropServices;\npublic static class RuangKerjaWin32 {\n  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);\n  [DllImport(\"user32.dll\")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);\n  [DllImport(\"user32.dll\")] public static extern bool IsWindowVisible(IntPtr hWnd);\n  [DllImport(\"user32.dll\")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);\n  [DllImport(\"user32.dll\")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);\n  [DllImport(\"user32.dll\")] public static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);\n  [DllImport(\"user32.dll\", SetLastError=true)] public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);\n  [DllImport(\"user32.dll\", SetLastError=true)] public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr value);\n  [DllImport(\"user32.dll\", SetLastError=true)] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint flags);\n  [DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);\n  [DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow();\n  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }\n  [DllImport(\"user32.dll\")] public static extern bool GetClientRect(IntPtr hWnd, out RECT rect);\n  [DllImport(\"user32.dll\")] public static extern uint GetDpiForWindow(IntPtr hWnd);\n  [DllImport(\"user32.dll\")] public static extern IntPtr GetParent(IntPtr hWnd);\n  [DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr hWnd);\n  [DllImport(\"user32.dll\")] public static extern IntPtr SetFocus(IntPtr hWnd);\n}\n'@\n";
+const WIN32_TYPE = "Add-Type @'\nusing System;\nusing System.Text;\nusing System.Runtime.InteropServices;\npublic static class RuangKerjaWin32 {\n  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);\n  [DllImport(\"user32.dll\")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);\n  [DllImport(\"user32.dll\")] public static extern bool IsWindowVisible(IntPtr hWnd);\n  [DllImport(\"user32.dll\")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);\n  [DllImport(\"user32.dll\")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);\n  [DllImport(\"user32.dll\")] public static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);\n  [DllImport(\"user32.dll\", SetLastError=true)] public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);\n  [DllImport(\"user32.dll\", SetLastError=true)] public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr value);\n  [DllImport(\"user32.dll\", SetLastError=true)] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint flags);\n  [DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);\n  [DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow();\n  [DllImport(\"user32.dll\")] public static extern bool IsWindow(IntPtr hWnd);\n  [DllImport(\"user32.dll\")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);\n  [DllImport(\"kernel32.dll\")] public static extern uint GetCurrentThreadId();\n  [DllImport(\"user32.dll\")] public static extern IntPtr SetActiveWindow(IntPtr hWnd);\n  [DllImport(\"user32.dll\")] public static extern bool BringWindowToTop(IntPtr hWnd);\n  [DllImport(\"user32.dll\")] public static extern bool RedrawWindow(IntPtr hWnd, IntPtr rect, IntPtr region, uint flags);\n  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }\n  [DllImport(\"user32.dll\")] public static extern bool GetClientRect(IntPtr hWnd, out RECT rect);\n  [DllImport(\"user32.dll\")] public static extern uint GetDpiForWindow(IntPtr hWnd);\n  [DllImport(\"user32.dll\")] public static extern IntPtr GetParent(IntPtr hWnd);\n  [DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr hWnd);\n  [DllImport(\"user32.dll\")] public static extern IntPtr SetFocus(IntPtr hWnd);\n}\n'@\n";
 
 function psQuote(value: string): string {
   return "'" + value.replace(/'/g, "''") + "'";
@@ -117,6 +117,54 @@ function mutateWindow(mode: 'embed' | 'unembed', hwnd: bigint, parent: bigint, w
   return ps(script, 6_000).then((out) => out.split(/\r?\n/).some((line) => line.trim() === 'RK_WINDOW_OK'));
 }
 
+function resizeNativeIdeWindow(hwnd: bigint, parent: bigint, width: number, height: number): Promise<boolean> {
+  const script = WIN32_TYPE + [
+    '$h = [IntPtr]::new([long]' + hwnd.toString() + ')',
+    '$p = [IntPtr]::new([long]' + parent.toString() + ')',
+    '$RDW_INVALIDATE = 0x0001; $RDW_ERASE = 0x0004; $RDW_ALLCHILDREN = 0x0080; $RDW_UPDATENOW = 0x0100',
+    '$SWP_NOZORDER = 0x0004; $SWP_NOACTIVATE = 0x0010; $SWP_SHOWWINDOW = 0x0040',
+    'if (-not [RuangKerjaWin32]::IsWindow($h)) { Write-Output "RK_WINDOW_FAIL"; exit 2 }',
+    '$rect = New-Object RuangKerjaWin32+RECT',
+    '$hasRect = [RuangKerjaWin32]::GetClientRect($p, [ref]$rect)',
+    '$dpi = [RuangKerjaWin32]::GetDpiForWindow($p); if ($dpi -lt 96) { $dpi = 96 }',
+    '$toolbarPx = [int][Math]::Round(' + TOOLBAR_HEIGHT + ' * $dpi / 96.0)',
+    '$clientWidth = if ($hasRect) { $rect.Right - $rect.Left } else { ' + width + ' }',
+    '$clientHeight = if ($hasRect) { $rect.Bottom - $rect.Top } else { ' + height + ' }',
+    '$moved = [RuangKerjaWin32]::SetWindowPos($h, [IntPtr]::Zero, 0, $toolbarPx, $clientWidth, [Math]::Max(100, $clientHeight - $toolbarPx), $SWP_NOZORDER -bor $SWP_NOACTIVATE -bor $SWP_SHOWWINDOW)',
+    '[void][RuangKerjaWin32]::RedrawWindow($h, [IntPtr]::Zero, [IntPtr]::Zero, $RDW_INVALIDATE -bor $RDW_ERASE -bor $RDW_ALLCHILDREN -bor $RDW_UPDATENOW)',
+    '[void][RuangKerjaWin32]::RedrawWindow($p, [IntPtr]::Zero, [IntPtr]::Zero, $RDW_INVALIDATE -bor $RDW_ALLCHILDREN -bor $RDW_UPDATENOW)',
+    'if (-not $moved) { Write-Output "RK_WINDOW_FAIL"; exit 2 }',
+    'Write-Output "RK_WINDOW_OK"',
+  ].join('\n');
+  return ps(script, 6_000).then((out) => out.split(/\r?\n/).some((line) => line.trim() === 'RK_WINDOW_OK'));
+}
+
+function focusNativeIdeWindow(hwnd: bigint, parent: bigint): Promise<boolean> {
+  const script = WIN32_TYPE + [
+    '$h = [IntPtr]::new([long]' + hwnd.toString() + ')',
+    '$p = [IntPtr]::new([long]' + parent.toString() + ')',
+    '$RDW_INVALIDATE = 0x0001; $RDW_ALLCHILDREN = 0x0080; $RDW_UPDATENOW = 0x0100',
+    'if (-not [RuangKerjaWin32]::IsWindow($h) -or -not [RuangKerjaWin32]::IsWindow($p)) { Write-Output "RK_WINDOW_FAIL"; exit 2 }',
+    '$targetProcessId = 0; $hostProcessId = 0',
+    '$ideThread = [RuangKerjaWin32]::GetWindowThreadProcessId($h, [ref]$targetProcessId)',
+    '$hostThread = [RuangKerjaWin32]::GetWindowThreadProcessId($p, [ref]$hostProcessId)',
+    '$currentThread = [RuangKerjaWin32]::GetCurrentThreadId()',
+    '$attached = New-Object System.Collections.ArrayList',
+    'foreach ($thread in @($hostThread, $ideThread) | Select-Object -Unique) {',
+    '  if ($thread -and $thread -ne $currentThread -and [RuangKerjaWin32]::AttachThreadInput($currentThread, [uint32]$thread, $true)) { [void]$attached.Add([uint32]$thread) }',
+    '}',
+    'try {',
+    '  [void][RuangKerjaWin32]::SetForegroundWindow($p)',
+    '  [void][RuangKerjaWin32]::BringWindowToTop($p)',
+    '  [void][RuangKerjaWin32]::SetActiveWindow($p)',
+    '  [void][RuangKerjaWin32]::SetFocus($h)',
+    '  [void][RuangKerjaWin32]::RedrawWindow($h, [IntPtr]::Zero, [IntPtr]::Zero, $RDW_INVALIDATE -bor $RDW_ALLCHILDREN -bor $RDW_UPDATENOW)',
+    '} finally { foreach ($thread in $attached) { [void][RuangKerjaWin32]::AttachThreadInput($currentThread, [uint32]$thread, $false) } }',
+    'Write-Output "RK_WINDOW_OK"',
+  ].join('\n');
+  return ps(script, 6_000).then((out) => out.split(/\r?\n/).some((line) => line.trim() === 'RK_WINDOW_OK'));
+}
+
 export async function openEmbeddedIde(ide: IdeInfo, folder: string, win: BrowserWindow): Promise<{ ok: true } | { ok: false; error: string }> {
   if (process.platform !== 'win32') return { ok: false, error: 'IDE terintegrasi saat ini hanya didukung di Windows.' };
   await closeEmbeddedIde();
@@ -145,16 +193,44 @@ export async function openEmbeddedIde(ide: IdeInfo, folder: string, win: Browser
   const embedded = await mutateWindow('embed', match.hwnd, parentHwnd, bounds.width, bounds.height);
   if (!embedded) return { ok: false, error: `Windows menolak menanamkan jendela ${ide.name} ke Ruang Kerja. IDE ini mungkin tidak kompatibel dengan native embedding.` };
   session = { ide, process: child, pid: match.pid, hwnd: match.hwnd };
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  await focusEmbeddedIde(win);
   // Do not clear the embedded session when an IDE launcher exits after handing
   // the folder to a long-lived IDE process. The selected window belongs to match.pid.
   return { ok: true };
 }
 
-export async function resizeEmbeddedIde(win: BrowserWindow): Promise<void> {
+let resizeInFlight: Promise<void> | null = null;
+let resizePendingWin: BrowserWindow | null = null;
+
+export function resizeEmbeddedIde(win: BrowserWindow): Promise<void> {
+  if (!session || win.isDestroyed()) return Promise.resolve();
+  if (resizeInFlight) {
+    resizePendingWin = win;
+    return resizeInFlight;
+  }
+  resizeInFlight = (async () => {
+    let current: BrowserWindow | null = win;
+    try {
+      while (current && !current.isDestroyed() && session) {
+        resizePendingWin = null;
+        const parentHwnd = current.getNativeWindowHandle().readBigUInt64LE(0);
+        const bounds = current.getContentBounds();
+        await resizeNativeIdeWindow(session.hwnd, parentHwnd, bounds.width, bounds.height);
+        current = resizePendingWin;
+      }
+    } finally {
+      resizeInFlight = null;
+      resizePendingWin = null;
+    }
+  })();
+  return resizeInFlight;
+}
+
+export async function focusEmbeddedIde(win: BrowserWindow): Promise<void> {
   if (!session || win.isDestroyed()) return;
   const parentHwnd = win.getNativeWindowHandle().readBigUInt64LE(0);
-  const bounds = win.getContentBounds();
-  await mutateWindow('embed', session.hwnd, parentHwnd, bounds.width, bounds.height);
+  await focusNativeIdeWindow(session.hwnd, parentHwnd);
 }
 
 export async function closeEmbeddedIde(): Promise<void> {
@@ -170,9 +246,9 @@ export function isEmbeddedIdeForeground(): Promise<boolean> {
   if (!session || process.platform !== 'win32') return Promise.resolve(false);
   const script = WIN32_TYPE + [
     '$fg = [RuangKerjaWin32]::GetForegroundWindow()',
-    '$pid = 0',
-    '[void][RuangKerjaWin32]::GetWindowThreadProcessId($fg, [ref]$pid)',
-    'Write-Output $pid',
+    '$foregroundProcessId = 0',
+    '[void][RuangKerjaWin32]::GetWindowThreadProcessId($fg, [ref]$foregroundProcessId)',
+    'Write-Output $foregroundProcessId',
   ].join('\n');
   return ps(script, 2_500).then((out) => Number(out.split(/\r?\n/).pop() || 0) === session?.pid);
 }

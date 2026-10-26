@@ -139,24 +139,32 @@ function FileTreeNode({ node }: { node: TreeNode }) {
 export function FileTab({ state }: { state: AppState }) {
   const [files, setFiles] = useState<ProjectFile[]>(state.projectFiles ?? []);
 
-  // Read local filesystem entries (files + directories) after sync or file-tree updates.
-  // A short debounce avoids rescanning repeatedly during a burst of file synchronization.
+  // Read the live filesystem on entry and every time chokidar observes a save,
+  // rename, create, delete, or directory change. This works for IDE saves and remote sync writes.
   useEffect(() => {
     if (!state.projectPath) {
       setFiles([]);
       return;
     }
     let active = true;
-    const timer = window.setTimeout(() => {
-      window.rk.listProjectFiles()
-        .then((entries) => { if (active) setFiles(entries); })
-        .catch(() => undefined);
-    }, 250);
+    let timer: number | null = null;
+    const refresh = (): void => {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = null;
+        window.rk.listProjectFiles()
+          .then((entries) => { if (active) setFiles(entries); })
+          .catch(() => undefined);
+      }, 120);
+    };
+    const unsubscribe = window.rk.onProjectFilesChanged(refresh);
+    refresh();
     return () => {
       active = false;
-      window.clearTimeout(timer);
+      unsubscribe();
+      if (timer !== null) window.clearTimeout(timer);
     };
-  }, [state.projectPath, state.projectFiles, state.sync.lastSync, state.sync.status]);
+  }, [state.projectPath]);
 
   const tree = buildTree(files);
 

@@ -26,7 +26,8 @@ import { createHostRoom, type HostRoom } from './hostRoom';
 import { joinAsMember, type MemberRoom } from './memberRoom';
 import { startDevServer, type DevServerHandle } from './devServer';
 import { scanProjectEntries } from './fsScan';
-import { openEmbeddedIde, closeEmbeddedIde, resizeEmbeddedIde } from './nativeHost';
+import { watchProjectFileChanges, type ProjectFileWatch } from './projectFileWatcher';
+import { openEmbeddedIde, closeEmbeddedIde, resizeEmbeddedIde, focusEmbeddedIde } from './nativeHost';
 import { startActivityMonitor } from './activityMonitor';
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -238,6 +239,31 @@ let memberRoom: MemberRoom | null = null;
 let devServer: DevServerHandle | null = null;
 let framework: FrameworkInfo | null = null;
 let stopActivityMonitor: (() => void) | null = null;
+let projectFileWatcher: ProjectFileWatch | null = null;
+let watchedProjectPath: string | null = null;
+
+function startProjectFilesWatcher(root: string): void {
+  if (projectFileWatcher && watchedProjectPath === root) return;
+  const previous = projectFileWatcher;
+  projectFileWatcher = null;
+  watchedProjectPath = root;
+  if (previous) void previous.close().catch(() => undefined);
+  try {
+    projectFileWatcher = watchProjectFileChanges(root, () => {
+      if (store.get().projectPath !== root) return;
+      send('rk:project-files-changed', { changedAt: Date.now() });
+    });
+  } catch {
+    projectFileWatcher = null;
+  }
+}
+
+async function stopProjectFilesWatcher(): Promise<void> {
+  const current = projectFileWatcher;
+  projectFileWatcher = null;
+  watchedProjectPath = null;
+  if (current) await current.close().catch(() => undefined);
+}
 
 function send(channel: string, payload: unknown): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -291,6 +317,7 @@ function resetRoomState(): void {
 }
 
 async function shutdownRoom(): Promise<void> {
+  await stopProjectFilesWatcher();
   stopActivityMonitor?.();
   stopActivityMonitor = null;
   await closeEmbeddedIde().catch(() => undefined);
@@ -351,6 +378,7 @@ async function handleCreateRoom(input: CreateRoomInput): Promise<ActionResult> {
       queue: { holder: settings.selfId, queue: [], holderLastActivity: Date.now(), holderActivitySource: 'room-start' },
       lanAddress: getLanIp(),
     });
+    startProjectFilesWatcher(folder);
     notify({ kind: 'info', message: `Ruangan aktif. Kode: ${room.code}` });
     return { ok: true };
   } catch (err) {
@@ -404,6 +432,7 @@ async function handleJoinRoom(input: JoinRoomInput): Promise<ActionResult> {
       projectPath: localDir,
       lanAddress: getLanIp(),
     });
+    startProjectFilesWatcher(localDir);
     notify({ kind: 'info', message: `Masuk ke ruangan ${room.name} (${code})` });
     return { ok: true };
   } catch (err) {
@@ -771,9 +800,31 @@ async function createWindow(): Promise<void> {
     if (!win.isMaximized()) win.maximize();
     win.show();
   });
-  win.on('resize', () => {
-    void resizeEmbeddedIde(win!);
-  });
+  let ideLayoutTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleIdeLayout = (): void => {
+    if (ideLayoutTimer) clearTimeout(ideLayoutTimer);
+    ideLayoutTimer = setTimeout(() => {
+      ideLayoutTimer = null;
+      if (win && !win.isDestroyed() && store.get().ideMode) {
+        void resizeEmbeddedIde(win);
+      }
+    }, 90);
+    ideLayoutTimer.unref?.();
+  };
+  const restoreIdeFocus = (): void => {
+    const current = win;
+    if (!current || current.isDestroyed() || !store.get().ideMode) return;
+    void resizeEmbeddedIde(current).finally(() => {
+      if (win === current && !current.isDestroyed() && store.get().ideMode) {
+        void focusEmbeddedIde(current);
+      }
+    });
+  };
+
+  win.on('resize', scheduleIdeLayout);
+  win.on('maximize', scheduleIdeLayout);
+  win.on('unmaximize', scheduleIdeLayout);
+  win.on('restore', scheduleIdeLayout);
   win.on('close', (e) => {
     // Klik X / Alt+F4: sembunyikan ke tray, jangan keluar.
     e.preventDefault();
@@ -781,6 +832,10 @@ async function createWindow(): Promise<void> {
   });
   win.on('focus', () => {
     win?.setOpacity(1);
+    if (store.get().ideMode) {
+      const focusTimer = setTimeout(restoreIdeFocus, 120);
+      focusTimer.unref?.();
+    }
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);

@@ -36,6 +36,11 @@ const api: RkApi = {
   installUpdate: () => ipcRenderer.invoke('rk:install-update'),
   fetchReleaseNotes: () => ipcRenderer.invoke('rk:fetch-release-notes'),
   listProjectFiles: (): Promise<ProjectFile[]> => ipcRenderer.invoke('rk:list-project-files'),
+  onProjectFilesChanged: (cb: () => void) => {
+    const listener = () => cb();
+    ipcRenderer.on('rk:project-files-changed', listener);
+    return () => ipcRenderer.removeListener('rk:project-files-changed', listener);
+  },
   onState: (cb: (state: AppState) => void) => {
     const listener = (_e: unknown, state: AppState) => cb(state);
     ipcRenderer.on('rk:state', listener);
