@@ -10,15 +10,29 @@ function formatSize(bytes: number): string {
   return `${value.toFixed(exp === 0 ? 0 : 1)} ${SIZE_UNITS[exp]}`;
 }
 
-function timeAgo(iso: string): string {
-  const now = Date.now();
-  const target = new Date(iso).getTime();
-  const diff = now - target;
-  if (diff < 5000) return 'baru saja';
-  if (diff < 60_000) return `${Math.floor(diff / 1000)} detik lalu`;
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} menit lalu`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} jam lalu`;
-  return new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+function formatModifiedDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return 'Waktu tidak diketahui';
+  return date.toLocaleString('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatFullDateTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return 'Waktu tidak diketahui';
+  return date.toLocaleString('id-ID', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
 }
 
 interface TreeNode {
@@ -27,31 +41,35 @@ interface TreeNode {
   isDir: boolean;
   children?: TreeNode[];
   file?: ProjectFile;
+  metadata?: ProjectFile;
 }
 
 function buildTree(files: ProjectFile[]): TreeNode {
   const root: TreeNode = { name: '', path: '', isDir: true, children: [] };
-  for (const file of files) {
-    const parts = file.path.split('/');
+  for (const entry of files) {
+    const parts = entry.path.split('/');
     let current = root;
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
-      const isFile = i === parts.length - 1;
+      const isLast = i === parts.length - 1;
+      const isDir = !isLast || entry.isDirectory === true;
       if (!current.children) current.children = [];
-      let child = current.children.find((c) => c.name === part && c.isDir === !isFile);
+      let child = current.children.find((item) => item.name === part && item.isDir === isDir);
       if (!child) {
         child = {
           name: part,
           path: parts.slice(0, i + 1).join('/'),
-          isDir: !isFile,
-          children: isFile ? undefined : [],
-          file: isFile ? file : undefined,
+          isDir,
+          children: isDir ? [] : undefined,
+          file: isLast && !isDir ? entry : undefined,
+          metadata: isLast && isDir ? entry : undefined,
         };
         current.children.push(child);
-      } else if (isFile) {
-        child.file = file;
+      } else if (isLast) {
+        if (isDir) child.metadata = entry;
+        else child.file = entry;
       }
-      if (!isFile) current = child;
+      if (isDir) current = child;
     }
   }
   const sortChildren = (node: TreeNode): void => {
@@ -81,8 +99,8 @@ function FileTreeNode({ node }: { node: TreeNode }) {
         <span className="tree-file-name" title={f.path}>
           {f.path.split('/').pop()}
         </span>
-        <span className="tree-file-meta">
-          {formatSize(f.size)} · {timeAgo(f.modified)}
+        <span className="tree-file-meta" title={formatFullDateTime(f.modified)}>
+          {formatSize(f.size)} · {formatModifiedDate(f.modified)}
         </span>
       </div>
     );
@@ -99,9 +117,13 @@ function FileTreeNode({ node }: { node: TreeNode }) {
         onClick={handleToggle}
         role={hasChildren ? 'button' : undefined}
         aria-expanded={hasChildren ? expanded : undefined}
+        title={node.metadata?.modified ? formatFullDateTime(node.metadata.modified) : node.path}
       >
         <IconFolder size={13} />
         <span className="tree-dir-name">{node.name || 'Project'}</span>
+        {node.metadata?.modified ? (
+          <span className="tree-dir-meta">{formatModifiedDate(node.metadata.modified)}</span>
+        ) : null}
       </div>
       {expanded && hasChildren && (
         <div className="tree-children">
@@ -117,18 +139,24 @@ function FileTreeNode({ node }: { node: TreeNode }) {
 export function FileTab({ state }: { state: AppState }) {
   const [files, setFiles] = useState<ProjectFile[]>(state.projectFiles ?? []);
 
-  useEffect(() => {
-    setFiles(state.projectFiles ?? []);
-  }, [state.projectFiles]);
-
-  // Auto-refresh ketika sync state berubah (real-time)
+  // Read local filesystem entries (files + directories) after sync or file-tree updates.
+  // A short debounce avoids rescanning repeatedly during a burst of file synchronization.
   useEffect(() => {
     if (!state.projectPath) {
       setFiles([]);
       return;
     }
-    window.rk.listProjectFiles().then((f) => setFiles(f)).catch(() => undefined);
-  }, [state.projectPath, state.sync.lastSync, state.sync.status]);
+    let active = true;
+    const timer = window.setTimeout(() => {
+      window.rk.listProjectFiles()
+        .then((entries) => { if (active) setFiles(entries); })
+        .catch(() => undefined);
+    }, 250);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [state.projectPath, state.projectFiles, state.sync.lastSync, state.sync.status]);
 
   const tree = buildTree(files);
 

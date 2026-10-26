@@ -16,14 +16,14 @@ function ps(script: string, timeoutMs = 8_000): Promise<string> {
   });
 }
 
-const WIN32_TYPE = "Add-Type @'\nusing System;\nusing System.Text;\nusing System.Runtime.InteropServices;\npublic static class RuangKerjaWin32 {\n  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);\n  [DllImport(\"user32.dll\")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);\n  [DllImport(\"user32.dll\")] public static extern bool IsWindowVisible(IntPtr hWnd);\n  [DllImport(\"user32.dll\")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);\n  [DllImport(\"user32.dll\")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);\n  [DllImport(\"user32.dll\")] public static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);\n  [DllImport(\"user32.dll\", SetLastError=true)] public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);\n  [DllImport(\"user32.dll\", SetLastError=true)] public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr value);\n  [DllImport(\"user32.dll\", SetLastError=true)] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint flags);\n  [DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);\n  [DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow();\n}\n'@\n";
+const WIN32_TYPE = "Add-Type @'\nusing System;\nusing System.Text;\nusing System.Runtime.InteropServices;\npublic static class RuangKerjaWin32 {\n  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);\n  [DllImport(\"user32.dll\")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);\n  [DllImport(\"user32.dll\")] public static extern bool IsWindowVisible(IntPtr hWnd);\n  [DllImport(\"user32.dll\")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);\n  [DllImport(\"user32.dll\")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);\n  [DllImport(\"user32.dll\")] public static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);\n  [DllImport(\"user32.dll\", SetLastError=true)] public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);\n  [DllImport(\"user32.dll\", SetLastError=true)] public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr value);\n  [DllImport(\"user32.dll\", SetLastError=true)] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint flags);\n  [DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);\n  [DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow();\n  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }\n  [DllImport(\"user32.dll\")] public static extern bool GetClientRect(IntPtr hWnd, out RECT rect);\n  [DllImport(\"user32.dll\")] public static extern uint GetDpiForWindow(IntPtr hWnd);\n  [DllImport(\"user32.dll\")] public static extern IntPtr GetParent(IntPtr hWnd);\n  [DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr hWnd);\n  [DllImport(\"user32.dll\")] public static extern IntPtr SetFocus(IntPtr hWnd);\n}\n'@\n";
 
 function psQuote(value: string): string {
   return "'" + value.replace(/'/g, "''") + "'";
 }
 
 function findWindowForIde(ide: IdeInfo, folder: string): Promise<{ hwnd: bigint; pid: number } | null> {
-  if (process.platform !== 'win32') return Promise.resolve(null);
+  if (process.platform !== 'win32' || !ide.exe) return Promise.resolve(null);
   const exePath = psQuote(ide.exe.toLowerCase());
   const exeName = psQuote(ide.exe.split(/[\\/]/).pop() ?? '');
   const folderName = psQuote(folder.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '');
@@ -73,8 +73,8 @@ function mutateWindow(mode: 'embed' | 'unembed', hwnd: bigint, parent: bigint, w
     '$h = [IntPtr]::new([long]' + child + ')',
     '$p = [IntPtr]::new([long]' + owner + ')',
     '$GWL_STYLE = -16; $GWL_EXSTYLE = -20',
-    '$WS_CHILD = 0x40000000; $WS_VISIBLE = 0x10000000',
-    '$WS_CAPTION = 0x00C00000; $WS_THICKFRAME = 0x00040000',
+    '$WS_CHILD = 0x40000000; $WS_VISIBLE = 0x10000000; $WS_POPUP = [long]0x80000000',
+    '$WS_CAPTION = 0x00C00000; $WS_THICKFRAME = 0x00040000; $WS_BORDER = 0x00800000',
     '$WS_MINIMIZEBOX = 0x00020000; $WS_MAXIMIZEBOX = 0x00010000; $WS_SYSMENU = 0x00080000',
     '$WS_EX_APPWINDOW = 0x00040000',
     '$SW_RESTORE = 9; $SW_MINIMIZE = 6',
@@ -82,13 +82,25 @@ function mutateWindow(mode: 'embed' | 'unembed', hwnd: bigint, parent: bigint, w
     "if ('" + mode + "' -eq 'embed') {",
     '  [void][RuangKerjaWin32]::SetParent($h, $p)',
     '  $style = [RuangKerjaWin32]::GetWindowLongPtr($h, $GWL_STYLE).ToInt64()',
-    '  $style = ($style -band (-bnot ($WS_CAPTION -bor $WS_THICKFRAME -bor $WS_MINIMIZEBOX -bor $WS_MAXIMIZEBOX -bor $WS_SYSMENU))) -bor $WS_CHILD -bor $WS_VISIBLE',
+    '  $removeStyle = [long]($WS_CAPTION -bor $WS_THICKFRAME -bor $WS_BORDER -bor $WS_MINIMIZEBOX -bor $WS_MAXIMIZEBOX -bor $WS_SYSMENU -bor $WS_POPUP)',
+    '  $style = ($style -band (-bnot $removeStyle)) -bor $WS_CHILD -bor $WS_VISIBLE',
     '  [void][RuangKerjaWin32]::SetWindowLongPtr($h, $GWL_STYLE, [IntPtr]::new($style))',
     '  $ex = [RuangKerjaWin32]::GetWindowLongPtr($h, $GWL_EXSTYLE).ToInt64()',
     '  $ex = $ex -band (-bnot $WS_EX_APPWINDOW)',
     '  [void][RuangKerjaWin32]::SetWindowLongPtr($h, $GWL_EXSTYLE, [IntPtr]::new($ex))',
-    '  [void][RuangKerjaWin32]::SetWindowPos($h, [IntPtr]::Zero, 0, ' + TOOLBAR_HEIGHT + ', ' + width + ', ' + Math.max(100, height - TOOLBAR_HEIGHT) + ', $SWP_NOZORDER -bor $SWP_NOACTIVATE -bor $SWP_SHOWWINDOW)',
+    '  $rect = New-Object RuangKerjaWin32+RECT',
+    '  $hasRect = [RuangKerjaWin32]::GetClientRect($p, [ref]$rect)',
+    '  $dpi = [RuangKerjaWin32]::GetDpiForWindow($p)',
+    '  if ($dpi -lt 96) { $dpi = 96 }',
+    '  $toolbarPx = [int][Math]::Round(' + TOOLBAR_HEIGHT + ' * $dpi / 96.0)',
+    '  $clientWidth = if ($hasRect) { $rect.Right - $rect.Left } else { ' + width + ' }',
+    '  $clientHeight = if ($hasRect) { $rect.Bottom - $rect.Top } else { ' + height + ' }',
+    '  $moved = [RuangKerjaWin32]::SetWindowPos($h, [IntPtr]::Zero, 0, $toolbarPx, $clientWidth, [Math]::Max(100, $clientHeight - $toolbarPx), $SWP_NOZORDER -bor $SWP_NOACTIVATE -bor $SWP_SHOWWINDOW)',
     '  [void][RuangKerjaWin32]::ShowWindow($h, $SW_RESTORE)',
+    '  $actualParent = [RuangKerjaWin32]::GetParent($h)',
+    '  if (-not $moved -or $actualParent -ne $p) { Write-Output "RK_WINDOW_FAIL"; exit 2 }',
+    '  [void][RuangKerjaWin32]::SetForegroundWindow($h)',
+    '  [void][RuangKerjaWin32]::SetFocus($h)',
     '  Write-Output "RK_WINDOW_OK"',
     '  exit 0',
     '}',
@@ -110,7 +122,7 @@ export async function openEmbeddedIde(ide: IdeInfo, folder: string, win: Browser
   await closeEmbeddedIde();
   if (!ide.exe) return { ok: false, error: 'Lokasi IDE tidak diketahui.' };
   const extension = ide.exe.split('.').pop()?.toLowerCase() ?? '';
-  const supportsNewWindowFlag = ['vscode', 'cursor', 'antigravity', 'windsurf', 'trae'].includes(ide.id);
+  const supportsNewWindowFlag = ['vscode', 'vscodium', 'cursor', 'antigravity', 'windsurf', 'trae'].includes(ide.id);
   const args = supportsNewWindowFlag ? ['--new-window', folder] : [folder];
   const child = extension === 'cmd' || extension === 'bat'
     ? spawn('cmd.exe', ['/d', '/s', '/c', '"' + ide.exe + '" ' + args.map((arg) => '"' + arg.replace(/"/g, '\\"') + '"').join(' ')], { windowsHide: true, detached: false, stdio: 'ignore' })

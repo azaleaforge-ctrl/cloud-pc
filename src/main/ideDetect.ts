@@ -8,29 +8,45 @@ interface IdeDef {
   name: string;
   pattern: RegExp;
   exes: string[];
+  downloadUrl: string;
 }
 
 /** Urutan menentukan prioritas tampilan; vscode harus sebelum visualstudio. */
 const CATALOG: IdeDef[] = [
-  { id: 'vscode', name: 'Visual Studio Code', pattern: /visual studio code/i, exes: ['Code.exe'] },
-  { id: 'cursor', name: 'Cursor', pattern: /\bcursor\b/i, exes: ['Cursor.exe'] },
-  { id: 'antigravity', name: 'Antigravity', pattern: /antigravity/i, exes: ['Antigravity.exe'] },
-  { id: 'windsurf', name: 'Windsurf', pattern: /windsurf/i, exes: ['Windsurf.exe'] },
-  { id: 'trae', name: 'Trae', pattern: /\btrae\b/i, exes: ['Trae.exe'] },
-  { id: 'zed', name: 'Zed', pattern: /\bzed\b/i, exes: ['Zed.exe'] },
-  { id: 'sublime', name: 'Sublime Text', pattern: /sublime text/i, exes: ['sublime_text.exe'] },
-  { id: 'intellij', name: 'IntelliJ IDEA', pattern: /intellij idea/i, exes: ['idea64.exe', 'idea.exe'] },
-  { id: 'webstorm', name: 'WebStorm', pattern: /webstorm/i, exes: ['webstorm64.exe', 'webstorm.exe'] },
-  { id: 'pycharm', name: 'PyCharm', pattern: /pycharm/i, exes: ['pycharm64.exe', 'pycharm.exe'] },
-  { id: 'phpstorm', name: 'PhpStorm', pattern: /phpstorm/i, exes: ['phpstorm64.exe', 'phpstorm.exe'] },
-  { id: 'goland', name: 'GoLand', pattern: /goland/i, exes: ['goland64.exe', 'goland.exe'] },
-  { id: 'rider', name: 'Rider', pattern: /\brider\b/i, exes: ['rider64.exe', 'rider.exe'] },
-  { id: 'androidstudio', name: 'Android Studio', pattern: /android studio/i, exes: ['studio64.exe'] },
-  { id: 'visualstudio', name: 'Visual Studio', pattern: /^visual studio(?! code)/i, exes: ['devenv.exe'] },
+  { id: 'vscode', name: 'Visual Studio Code', pattern: /visual studio code/i, exes: ['Code.exe'], downloadUrl: 'https://code.visualstudio.com/Download' },
+  { id: 'vscodium', name: 'VSCodium', pattern: /vscodium/i, exes: ['VSCodium.exe'], downloadUrl: 'https://vscodium.com/' },
+  { id: 'cursor', name: 'Cursor', pattern: /\bcursor\b/i, exes: ['Cursor.exe'], downloadUrl: 'https://cursor.com/downloads' },
+  { id: 'antigravity', name: 'Antigravity', pattern: /antigravity/i, exes: ['Antigravity.exe'], downloadUrl: 'https://antigravity.google/' },
+  { id: 'windsurf', name: 'Windsurf', pattern: /windsurf/i, exes: ['Windsurf.exe'], downloadUrl: 'https://windsurf.com/download' },
+  { id: 'trae', name: 'Trae', pattern: /\btrae\b/i, exes: ['Trae.exe'], downloadUrl: 'https://trae.ai/' },
+  { id: 'zed', name: 'Zed', pattern: /\bzed( editor)?\b/i, exes: ['Zed.exe'], downloadUrl: 'https://zed.dev/download' },
+  { id: 'sublime', name: 'Sublime Text', pattern: /sublime text/i, exes: ['sublime_text.exe'], downloadUrl: 'https://www.sublimetext.com/download' },
+  { id: 'intellij', name: 'IntelliJ IDEA', pattern: /intellij idea/i, exes: ['idea64.exe', 'idea.exe'], downloadUrl: 'https://www.jetbrains.com/idea/download/' },
+  { id: 'webstorm', name: 'WebStorm', pattern: /webstorm/i, exes: ['webstorm64.exe', 'webstorm.exe'], downloadUrl: 'https://www.jetbrains.com/webstorm/download/' },
+  { id: 'pycharm', name: 'PyCharm', pattern: /pycharm/i, exes: ['pycharm64.exe', 'pycharm.exe'], downloadUrl: 'https://www.jetbrains.com/pycharm/download/' },
+  { id: 'phpstorm', name: 'PhpStorm', pattern: /phpstorm/i, exes: ['phpstorm64.exe', 'phpstorm.exe'], downloadUrl: 'https://www.jetbrains.com/phpstorm/download/' },
+  { id: 'goland', name: 'GoLand', pattern: /goland/i, exes: ['goland64.exe', 'goland.exe'], downloadUrl: 'https://www.jetbrains.com/go/download/' },
+  { id: 'rider', name: 'Rider', pattern: /\brider\b/i, exes: ['rider64.exe', 'rider.exe'], downloadUrl: 'https://www.jetbrains.com/rider/download/' },
+  { id: 'clion', name: 'CLion', pattern: /\bclion\b/i, exes: ['clion64.exe', 'clion.exe'], downloadUrl: 'https://www.jetbrains.com/clion/download/' },
+  { id: 'rubymine', name: 'RubyMine', pattern: /rubymine/i, exes: ['rubymine64.exe', 'rubymine.exe'], downloadUrl: 'https://www.jetbrains.com/ruby/download/' },
+  { id: 'rustrover', name: 'RustRover', pattern: /rustrover/i, exes: ['rustrover64.exe', 'rustrover.exe'], downloadUrl: 'https://www.jetbrains.com/rust/' },
+  { id: 'datagrip', name: 'DataGrip', pattern: /datagrip/i, exes: ['datagrip64.exe', 'datagrip.exe'], downloadUrl: 'https://www.jetbrains.com/datagrip/download/' },
+  { id: 'androidstudio', name: 'Android Studio', pattern: /android studio/i, exes: ['studio64.exe'], downloadUrl: 'https://developer.android.com/studio' },
+  { id: 'visualstudio', name: 'Visual Studio', pattern: /^visual studio(?! code)/i, exes: ['devenv.exe'], downloadUrl: 'https://visualstudio.microsoft.com/downloads/' },
+  { id: 'eclipse', name: 'Eclipse IDE', pattern: /eclipse ide|eclipse(?! installer)/i, exes: ['eclipse.exe'], downloadUrl: 'https://www.eclipse.org/downloads/' },
+  { id: 'netbeans', name: 'Apache NetBeans', pattern: /netbeans/i, exes: ['netbeans64.exe', 'netbeans.exe'], downloadUrl: 'https://netbeans.apache.org/front/main/download/' },
+  { id: 'qtcreator', name: 'Qt Creator', pattern: /qt creator/i, exes: ['qtcreator.exe'], downloadUrl: 'https://www.qt.io/download' },
+  { id: 'codeblocks', name: 'Code::Blocks', pattern: /code::blocks|codeblocks/i, exes: ['codeblocks.exe'], downloadUrl: 'https://www.codeblocks.org/downloads/' },
+  { id: 'geany', name: 'Geany', pattern: /geany/i, exes: ['geany.exe'], downloadUrl: 'https://www.geany.org/download/releases/' },
+  { id: 'jupyterlab', name: 'JupyterLab', pattern: /jupyterlab|jupyter lab/i, exes: ['jupyter-lab.exe', 'jupyter.exe'], downloadUrl: 'https://jupyter.org/install' },
+  { id: 'rstudio', name: 'RStudio', pattern: /rstudio/i, exes: ['rstudio.exe'], downloadUrl: 'https://posit.co/download/rstudio-desktop/' },
+  { id: 'arduino', name: 'Arduino IDE', pattern: /arduino ide/i, exes: ['Arduino IDE.exe', 'arduino.exe'], downloadUrl: 'https://www.arduino.cc/en/software' },
+  { id: 'theia', name: 'Eclipse Theia IDE', pattern: /theia ide/i, exes: ['theia.exe'], downloadUrl: 'https://theia-ide.org/' },
 ];
 
 const CLI_TO_ID: Record<string, string> = {
   code: 'vscode',
+  codium: 'vscodium',
   cursor: 'cursor',
   antigravity: 'antigravity',
   windsurf: 'windsurf',
@@ -46,6 +62,16 @@ const CLI_TO_ID: Record<string, string> = {
   rider: 'rider',
   studio64: 'androidstudio',
   devenv: 'visualstudio',
+  clion: 'clion',
+  rubymine: 'rubymine',
+  rustrover: 'rustrover',
+  datagrip: 'datagrip',
+  eclipse: 'eclipse',
+  netbeans: 'netbeans',
+  qtcreator: 'qtcreator',
+  jupyter: 'jupyterlab',
+  rstudio: 'rstudio',
+  arduino: 'arduino',
 };
 
 const CATALOG_ORDER = new Map(CATALOG.map((def, index) => [def.id, index]));
@@ -236,7 +262,19 @@ export async function detectIdes(): Promise<IdeInfo[]> {
     const def = CATALOG.find((item) => item.id === ideId);
     if (!def) return;
     byId.add(ideId);
-    byPath.set(key, { id: def.id, name: def.name, exe: resolved, source });
+    byPath.set(key, { id: def.id, name: def.name, exe: resolved, installed: true, downloadUrl: def.downloadUrl, source });
+  };
+
+  const addCustomShortcut = (label: string, exe: string): void => {
+    const resolved = uniqueFile(exe);
+    if (!resolved) return;
+    const key = resolved.toLowerCase();
+    if (byPath.has(key)) return;
+    const base = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || basename(exe).toLowerCase().replace(/\.exe$/i, '');
+    const id = 'custom-' + base;
+    if (byId.has(id)) return;
+    byId.add(id);
+    byPath.set(key, { id, name: label, exe: resolved, installed: true, downloadUrl: null, source: 'shortcut' });
   };
 
   // 1. Registry (HKCU, HKLM, HKLM WOW6432Node)
@@ -300,7 +338,11 @@ export async function detectIdes(): Promise<IdeInfo[]> {
         item.pattern.test(target) ||
         item.exes.some((exe) => exe.toLowerCase() === basename(target).toLowerCase()),
       );
-      if (!def) continue;
+      if (!def) {
+        const looksLikeIde = /(\bide\b|editor|\bcode\b|studio|jetbrains|eclipse|netbeans|sublime|\bzed\b|cursor|antigravity|windsurf|trae|pycharm|webstorm|intellij|clion|rider|qt creator|geany|rstudio)/i.test(shortcut.label);
+        if (looksLikeIde && /\.exe$/i.test(target)) addCustomShortcut(shortcut.label, target);
+        continue;
+      }
       let resolved = def.exes.some((exe) => exe.toLowerCase() === basename(target).toLowerCase())
         ? uniqueFile(target)
         : null;
@@ -311,7 +353,7 @@ export async function detectIdes(): Promise<IdeInfo[]> {
         const parent = dirname(dirname(target));
         if (existsSync(parent)) resolved = await findExeIn(parent, def.exes, 4);
       }
-      if (resolved) add(def.id, resolved, 'path');
+      if (resolved) add(def.id, resolved, 'shortcut');
     }
   } catch {
     // shortcut resolver is best-effort; continue with folder and PATH scans.
@@ -375,12 +417,26 @@ export async function detectIdes(): Promise<IdeInfo[]> {
     // where.exe tidak tersedia
   }
 
-  return [...byPath.values()].sort((a, b) => {
+  const detected = [...byPath.values()];
+  const detectedById = new Map(detected.map((ide) => [ide.id, ide]));
+  const catalogEntries: IdeInfo[] = CATALOG.map((def) => detectedById.get(def.id) ?? ({
+    id: def.id,
+    name: def.name,
+    exe: null,
+    installed: false,
+    downloadUrl: def.downloadUrl,
+    source: 'catalog',
+  }));
+  const knownIds = new Set(CATALOG.map((def) => def.id));
+  const customEntries = detected.filter((ide) => !knownIds.has(ide.id));
+  catalogEntries.sort((a, b) => {
+    if (a.installed !== b.installed) return a.installed ? -1 : 1;
     const orderA = CATALOG_ORDER.get(a.id) ?? 99;
     const orderB = CATALOG_ORDER.get(b.id) ?? 99;
     if (orderA !== orderB) return orderA - orderB;
     return a.name.localeCompare(b.name);
   });
+  return [...catalogEntries, ...customEntries];
 }
 
 export async function openInIde(ide: IdeInfo, folder: string): Promise<ActionResult> {

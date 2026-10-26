@@ -1308,6 +1308,77 @@ button {
   text-align: left;
 }
 
+/* ---------- IDE catalog ---------- */
+.ide-catalog-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 18px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  background: rgba(9, 13, 22, 0.55);
+  color: var(--text-3);
+}
+.ide-catalog-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+}
+.ide-catalog-search input::placeholder { color: var(--text-3); }
+.ide-catalog-search > span {
+  flex: none;
+  color: var(--text-3);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.ide-section {
+  margin-bottom: 22px;
+}
+.ide-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+}
+.ide-section-title h3 {
+  font-size: 13px;
+  font-weight: 750;
+  color: var(--text);
+}
+.ide-section-title span {
+  color: var(--text-3);
+  font-size: 11px;
+}
+.ide-card-missing {
+  border-style: dashed;
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(148, 163, 184, 0.025);
+}
+.ide-card-missing .ide-exe {
+  color: var(--text-3);
+}
+.ide-card-missing .btn {
+  color: var(--text-2);
+}
+.ide-embedding-note {
+  margin-top: 12px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.server-proxy-note {
+  margin-top: 10px;
+}
+
 /* ---------- Tab Server ---------- */
 
 .server-tab {
@@ -2076,6 +2147,22 @@ button {
 .tree-dir-name {
   font-size: 12.5px;
   font-weight: 500;
+}
+.tree-dir-meta {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.tree-dir-header {
+  min-width: 0;
+}
+.tree-dir-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tree-children {
   padding-left: 24px;

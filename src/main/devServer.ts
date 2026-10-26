@@ -18,8 +18,10 @@ export interface DevServerOptions {
 const URL_RE = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::(\d+))?/i;
 const LOCAL_PORT_RE = /localhost:(\d+)/i;
 const ANSI_RE = /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d/#&.:=?%@~_]+)*)?\u0007)|(?:(?:\d{1,4}(?:[;:]\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
-const PROBE_AFTER_MS = 25_000;
-const STOP_TIMEOUT_MS = 3_000;
+const PROBE_AFTER_MS = 2_500;
+const PROBE_RETRY_MS = 1_000;
+const PROBE_MAX_MS = 45_000;
+const STOP_TIMEOUT_MS = 5_000;
 
 function stripAnsi(line: string): string {
   return line.replace(ANSI_RE, '').replace(/\u001B\][^\u0007]*\u0007/g, '');
@@ -81,9 +83,30 @@ async function startLanProxy(targetPort: number): Promise<{ server: http.Server;
       port: targetPort,
       method: req.method,
       path: req.url,
-      headers: { ...req.headers, host: '127.0.0.1:' + targetPort },
+      headers: {
+        ...req.headers,
+        host: '127.0.0.1:' + targetPort,
+        'x-forwarded-host': req.headers['x-forwarded-host'] ?? req.headers.host ?? '',
+        'x-forwarded-proto': 'http',
+        'x-forwarded-port': String(req.socket.localPort ?? ''),
+      },
     }, (upstream) => {
-      res.writeHead(upstream.statusCode ?? 502, upstream.headers);
+      const headers: http.OutgoingHttpHeaders = { ...upstream.headers };
+      const location = headers.location;
+      const forwardedHost = req.headers['x-forwarded-host'] ?? req.headers.host;
+      if (typeof location === 'string' && typeof forwardedHost === 'string') {
+        try {
+          const redirected = new URL(location, 'http://127.0.0.1:' + targetPort);
+          const isLocalTarget = ['localhost', '127.0.0.1', '0.0.0.0'].includes(redirected.hostname)
+            && (!redirected.port || Number(redirected.port) === targetPort);
+          if (isLocalTarget) {
+            headers.location = 'http://' + forwardedHost + redirected.pathname + redirected.search + redirected.hash;
+          }
+        } catch {
+          // Leave non-URL or application-specific Location headers untouched.
+        }
+      }
+      res.writeHead(upstream.statusCode ?? 502, headers);
       upstream.pipe(res);
     });
     request.on('error', (err) => {
@@ -137,14 +160,17 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
   let proxyServer: http.Server | null = null;
   let exposing = false;
 
-  const urlFor = (port: number): string => `http://localhost:${port}`;
+  const urlFor = (port: number): string => 'http://localhost:' + port;
+  let actualTargetPort: number | null = null;
 
-  const emit = (next: ServerStatus, port: number | null, error?: string): void => {
+  const emit = (next: ServerStatus, port: number | null, error?: string, targetPort: number | null = actualTargetPort, proxied = false): void => {
     status = next;
     onState({
       status: next,
       url: next === 'running' && port ? urlFor(port) : null,
       port: next === 'running' ? port : null,
+      targetPort: next === 'running' ? targetPort : null,
+      proxied: next === 'running' ? proxied : false,
       logs: [],
       error: error ?? null,
     });
@@ -170,6 +196,7 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
           emit('error', null, 'Server mencetak alamat, tetapi belum memberi respons HTTP. Periksa dependensi dan log framework.');
           return;
         }
+        actualTargetPort = port;
         const lanIp = getLanIp();
         const directLan = lanIp ? await checkHttpResponse(port, lanIp, 1200) : false;
         let publicPort = port;
@@ -178,7 +205,7 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
           proxyServer = proxy.server;
           publicPort = proxy.port;
         }
-        emit('running', publicPort);
+        emit('running', publicPort, undefined, port, publicPort !== port);
       } catch (err) {
         emit('error', null, 'Server hidup tetapi tidak dapat diekspos ke LAN: ' + (err as Error).message);
       } finally {
@@ -191,6 +218,12 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
     const line = stripAnsi(rawLine).replace(/\r$/, '').trim();
     if (!line) return;
     onLog(line);
+    if (/(EADDRINUSE|address already in use|port.*already in use|could not find a production build|could not open input file: artisan|no module named|is not recognized as an internal or external command)/i.test(line)
+      && (status === 'starting' || status === 'idle')) {
+      emit('error', null, line);
+      clearProbe();
+      return;
+    }
     if (status === 'starting' || status === 'idle') {
       const port = urlFromLine(line);
       if (port === null) return;
@@ -221,6 +254,9 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
       HOST: '0.0.0.0',
       HOSTNAME: '0.0.0.0',
       N_HOST: '0.0.0.0',
+      PORT: String(framework.detectedPort ?? 3000),
+      FLASK_RUN_HOST: '0.0.0.0',
+      FLASK_RUN_PORT: String(framework.detectedPort ?? 5000),
       NEXT_TELEMETRY_DISABLED: '1',
     };
     const args = framework.args ?? [];
@@ -253,13 +289,20 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
 
     if (framework.detectedPort) {
       const port = framework.detectedPort;
-      probeTimer = setTimeout(() => {
+      const probingStartedAt = Date.now();
+      const probe = async (): Promise<void> => {
         probeTimer = null;
         if (stopped || exited || status !== 'starting') return;
-        void checkHttpResponse(port).then((open) => {
-          if (open && !stopped && !exited) markRunning(port);
-        });
-      }, PROBE_AFTER_MS);
+        if (await checkHttpResponse(port) && !stopped && !exited && status === 'starting') {
+          markRunning(port);
+          return;
+        }
+        if (Date.now() - probingStartedAt < PROBE_MAX_MS && !stopped && !exited && status === 'starting') {
+          probeTimer = setTimeout(() => { void probe(); }, PROBE_RETRY_MS);
+          probeTimer.unref?.();
+        }
+      };
+      probeTimer = setTimeout(() => { void probe(); }, PROBE_AFTER_MS);
       probeTimer.unref?.();
     }
   } catch (err) {
