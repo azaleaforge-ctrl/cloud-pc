@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FrameworkInfo } from '../shared/types';
 
@@ -63,6 +63,50 @@ const NON_JS_FRAMEWORKS: NonJsFramework[] = [
     check: (dir) => existsSync(join(dir, 'manage.py')),
     command: 'python manage.py runserver 0.0.0.0:8000',
     packageManager: 'python',
+  },
+  {
+    id: 'fastapi',
+    name: 'FastAPI',
+    port: 8000,
+    check: (dir) => hasPythonPackage(dir, /\\bfastapi\\b/i) && existsSync(join(dir, 'main.py')),
+    command: 'python -m uvicorn main:app --host 0.0.0.0 --port 8000',
+    packageManager: 'python',
+  },
+  {
+    id: 'flask',
+    name: 'Flask',
+    port: 5000,
+    check: (dir) => hasPythonPackage(dir, /\\bflask\\b/i) && (existsSync(join(dir, 'app.py')) || existsSync(join(dir, 'wsgi.py'))),
+    command: 'python -m flask --app app run --host 0.0.0.0 --port 5000',
+    packageManager: 'python',
+  },
+  {
+    id: 'rails',
+    name: 'Ruby on Rails',
+    port: 3000,
+    check: (dir) => existsSync(join(dir, 'Gemfile')) && existsSync(join(dir, 'config', 'application.rb')),
+    command: 'bundle exec rails server -b 0.0.0.0 -p 3000',
+    packageManager: 'bundler',
+  },
+  {
+    id: 'symfony',
+    name: 'Symfony',
+    port: 8000,
+    check: (dir) => {
+      const composer = readJsonObject(join(dir, 'composer.json'));
+      const reqs = { ...asRecord(composer?.require), ...asRecord(composer?.['require-dev']) };
+      return Object.keys(reqs).some((key) => key.toLowerCase() === 'symfony/framework-bundle') && existsSync(join(dir, 'public'));
+    },
+    command: 'php -S 0.0.0.0:8000 -t public',
+    packageManager: 'composer',
+  },
+  {
+    id: 'dotnet',
+    name: '.NET / ASP.NET Core',
+    port: 5000,
+    check: (dir) => hasRootCsproj(dir),
+    command: 'dotnet run --urls http://0.0.0.0:5000',
+    packageManager: 'dotnet',
   },
   {
     id: 'go',
@@ -136,6 +180,52 @@ function lanArgsFor(id: string, port: number): string[] {
   return ['--host', '0.0.0.0', '--port', String(port)];
 }
 
+function readProjectText(file: string): string {
+  try { return existsSync(file) ? readFileSync(file, 'utf8') : ''; } catch { return ''; }
+}
+
+function hasPythonPackage(dir: string, pattern: RegExp): boolean {
+  const manifests = [
+    readProjectText(join(dir, 'requirements.txt')),
+    readProjectText(join(dir, 'pyproject.toml')),
+    readProjectText(join(dir, 'Pipfile')),
+  ].join('\n');
+  return pattern.test(manifests);
+}
+
+function hasRootCsproj(dir: string): boolean {
+  try { return readdirSync(dir).some((name) => name.toLowerCase().endsWith('.csproj')); } catch { return false; }
+}
+
+function defaultJsCommand(id: string, pm: PackageManager, port: number): string {
+  const commands: Record<string, string> = {
+    next: 'next dev --hostname 0.0.0.0 --port ' + port,
+    nuxt: 'nuxt dev --host 0.0.0.0 --port ' + port,
+    astro: 'astro dev --host 0.0.0.0 --port ' + port,
+    remix: 'remix vite:dev --host 0.0.0.0 --port ' + port,
+    sveltekit: 'vite --host 0.0.0.0 --port ' + port,
+    angular: 'ng serve --host 0.0.0.0 --port ' + port,
+    gatsby: 'gatsby develop --host 0.0.0.0 --port ' + port,
+    cra: 'react-scripts start',
+    vite: 'vite --host 0.0.0.0 --port ' + port,
+    'vue-cli': 'vue-cli-service serve --host 0.0.0.0 --port ' + port,
+    parcel: 'parcel serve index.html --host 0.0.0.0 --port ' + port,
+    expo: 'expo start --host lan --port ' + port,
+    docusaurus: 'docusaurus start --host 0.0.0.0 --port ' + port,
+    eleventy: 'eleventy --serve --host 0.0.0.0 --port ' + port,
+    nestjs: 'nest start --watch',
+    express: 'node index.js',
+    fastify: 'node index.js',
+    strapi: 'strapi develop',
+  };
+  const command = commands[id];
+  if (!command) return '';
+  if (pm === 'pnpm') return 'pnpm exec ' + command;
+  if (pm === 'yarn') return 'yarn ' + command;
+  if (pm === 'bun') return 'bunx ' + command;
+  return 'npx --no-install ' + command;
+}
+
 function pickScript(scripts: Record<string, unknown>): string | null {
   for (const name of SCRIPT_ORDER) {
     if (typeof scripts[name] === 'string' && scripts[name].trim()) return name;
@@ -170,17 +260,44 @@ export function detectFramework(dir: string): FrameworkInfo | null {
         if (fw.requires && !fw.requires.every((dep) => dep in deps)) continue;
         const pm = detectPackageManager(dir);
         const script = pickScript(asRecord(pkg.scripts));
-        if (!script) continue;
         const forwardedArgs = fw.hostArgs === false ? [] : lanArgsFor(fw.id, fw.port);
+        const command = script
+          ? buildCommand(pm, script, forwardedArgs)
+          : defaultJsCommand(fw.id, pm, fw.port);
+        if (!command) continue;
         return {
           id: fw.id,
           name: fw.name,
-          command: buildCommand(pm, script, forwardedArgs),
+          command,
           args: [],
           cwd: dir,
           packageManager: pm,
           detectedPort: fw.port,
-          notes: 'Perintah dijalankan otomatis dari script package.json; host/port diteruskan jika didukung framework.',
+          notes: script
+            ? 'Script package.json dipilih otomatis; host/port diteruskan bila framework mendukungnya.'
+            : 'Perintah dev dibuat otomatis dari framework yang terdeteksi.',
+        };
+      }
+    }
+
+    // Generic Node web projects: use their existing dev/start script only when web dependencies are present.
+    if (pkg) {
+      const deps = { ...asRecord(pkg.dependencies), ...asRecord(pkg.devDependencies) };
+      const scripts = asRecord(pkg.scripts);
+      const script = pickScript(scripts);
+      const webDependencies = ['express', 'fastify', 'koa', 'hono', 'h3', 'http-server', 'serve', 'vite', 'webpack', 'react', 'vue', 'svelte', '@nestjs/core', '@strapi/strapi']
+        .some((dep) => dep in deps);
+      if (script && webDependencies) {
+        const pm = detectPackageManager(dir);
+        return {
+          id: 'node-generic',
+          name: 'Node.js Web Server (' + script + ')',
+          command: buildCommand(pm, script),
+          args: [],
+          cwd: dir,
+          packageManager: pm,
+          detectedPort: 3000,
+          notes: 'Menggunakan script "' + script + '" di package.json; HOST/PORT disetel otomatis jika framework mendukung.',
         };
       }
     }
