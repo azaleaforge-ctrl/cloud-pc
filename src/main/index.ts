@@ -262,7 +262,7 @@ function resetRoomState(): void {
     hostAddress: null,
     projectPath: null,
     members: [],
-    queue: { holder: null, queue: [] },
+    queue: { holder: null, queue: [], holderLastActivity: null, holderActivitySource: null },
     framework: null,
     server: { status: 'idle', url: null, port: null, logs: [] },
     sync: { status: 'off', files: 0, lastSync: null },
