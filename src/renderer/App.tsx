@@ -3,7 +3,7 @@ import type { AppState, NotifyPayload } from '../shared/types';
 import { Landing } from './components/Landing';
 import { Shell } from './components/Shell';
 import { Toasts, type ToastItem } from './components/Toasts';
-import { LogoMark } from './components/icons';
+import { IconCheck, IconError, IconInfo, IconRefresh, LogoMark } from './components/icons';
 import { FooterBar } from './components/ui';
 
 function Splash({ error, onRetry }: { error?: string | null; onRetry?: () => void }) {
@@ -67,6 +67,99 @@ function QueueNotice({ state }: { state: AppState }) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const index = Math.max(0, Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1));
+  const amount = value / Math.pow(1024, index);
+  return amount.toFixed(index >= 2 ? 1 : 0) + ' ' + units[index];
+}
+
+function formatSpeed(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return 'Mengukur kecepatan…';
+  return formatBytes(value) + '/s';
+}
+
+function formatEta(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '';
+  if (seconds < 60) return Math.ceil(seconds) + ' dtk tersisa';
+  return Math.floor(seconds / 60) + ' m ' + Math.ceil(seconds % 60) + ' dtk tersisa';
+}
+
+function UpdateNotice({ state }: { state: AppState }) {
+  const update = state.update;
+  const [actionPending, setActionPending] = useState(false);
+  const visible = ['checking', 'available', 'downloading', 'downloaded', 'error'].includes(update.status);
+  if (!visible) return null;
+
+  const progress = Math.min(100, Math.max(0, update.progress ?? 0));
+  const transferred = update.transferred ?? 0;
+  const total = update.total ?? 0;
+  const speed = update.bytesPerSecond ?? 0;
+  const remainingBytes = Math.max(0, total - transferred);
+  const eta = speed > 0 && total > 0 ? formatEta(remainingBytes / speed) : '';
+  const retry = async () => {
+    setActionPending(true);
+    try { await window.rk.checkForUpdates(); }
+    finally { setActionPending(false); }
+  };
+  const install = async () => {
+    setActionPending(true);
+    try { await window.rk.installUpdate(); }
+    finally { setActionPending(false); }
+  };
+
+  const title = update.status === 'checking' ? 'Memeriksa pembaruan'
+    : update.status === 'available' ? 'Pembaruan ditemukan'
+    : update.status === 'downloading' ? 'Mengunduh Ruang Kerja ' + (update.version ?? '')
+    : update.status === 'downloaded' ? 'Pembaruan siap dipasang'
+    : 'Pembaruan gagal';
+
+  return (
+    <aside className={'update-notice update-notice-' + update.status} role="status" aria-live="polite">
+      <div className="update-notice-heading">
+        <span className="update-notice-icon">
+          {update.status === 'error' ? <IconError size={18} /> : update.status === 'downloaded' ? <IconCheck size={18} /> : <IconInfo size={18} />}
+        </span>
+        <div className="update-notice-copy">
+          <strong>{title}</strong>
+          <span>{update.status === 'checking' ? 'Memeriksa rilis terbaru dari GitHub…'
+            : update.status === 'available' ? 'Menyiapkan unduhan dan memeriksa file pembaruan…'
+            : update.status === 'downloading' ? 'Notifikasi ini akan tetap tampil sampai proses unduhan selesai.'
+            : update.status === 'downloaded' ? 'File sudah diunduh dan siap diverifikasi oleh installer.'
+            : (update.error ?? 'Unduhan tidak berhasil diselesaikan.')}</span>
+        </div>
+      </div>
+      {update.status === 'downloading' || update.status === 'available' || update.status === 'downloaded' ? (
+        <div className="update-notice-progress">
+          <div className="update-progress-track" aria-label={'Progres download ' + Math.round(progress) + '%'}>
+            <span style={{ width: progress + '%' }} />
+          </div>
+          <div className="update-progress-meta">
+            <b>{Math.round(progress)}%</b>
+            <span>{total > 0 ? formatBytes(transferred) + ' / ' + formatBytes(total) : update.status === 'downloaded' ? 'Download selesai' : 'Menyiapkan ukuran file…'}</span>
+          </div>
+          {update.status === 'downloading' ? (
+            <div className="update-progress-details">
+              <span>Kecepatan <b>{formatSpeed(speed)}</b></span>
+              {eta ? <span>{eta}</span> : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {update.status === 'downloaded' ? (
+        <button type="button" className="btn btn-primary btn-sm update-notice-action" onClick={() => void install()} disabled={actionPending}>
+          <IconRefresh size={14} /> Pasang & mulai ulang
+        </button>
+      ) : update.status === 'error' ? (
+        <button type="button" className="btn btn-ghost btn-sm update-notice-action" onClick={() => void retry()} disabled={actionPending}>
+          <IconRefresh size={14} /> {actionPending ? 'Memeriksa…' : 'Coba lagi'}
+        </button>
+      ) : null}
+    </aside>
   );
 }
 
@@ -166,6 +259,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <UpdateNotice state={state} />
       <QueueNotice state={state} />
       {state.role === 'none' ? (
         <Landing state={state} onError={notifyError} />

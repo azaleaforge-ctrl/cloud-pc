@@ -28,7 +28,10 @@ import { scanFiles } from './fsScan';
 import { openEmbeddedIde, closeEmbeddedIde, resizeEmbeddedIde } from './nativeHost';
 import { startActivityMonitor } from './activityMonitor';
 
-let updateState: UpdateState = { status: 'idle', version: null, progress: null, error: null };
+let updateState: UpdateState = { status: 'idle', version: null, progress: null, error: null, transferred: 0, total: 0, bytesPerSecond: 0 };
+let updateCheckPromise: Promise<void> | null = null;
+let lastProgressEmitAt = 0;
+let updateInstallRequested = false;
 
 function emitUpdateState(state: UpdateState): void {
   updateState = state;
@@ -37,44 +40,93 @@ function emitUpdateState(state: UpdateState): void {
 
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
+// Differential NSIS updates stay enabled. A version-aware override lets GitHub find
+// the blockmap attached to the installed version's release instead of falling back
+// to a full installer download when the release base URL changes.
+autoUpdater.disableDifferentialDownload = false;
+autoUpdater.previousBlockmapBaseUrlOverride = `https://github.com/azaleaforge-ctrl/cloud-pc/releases/download/v${APP_VERSION}`;
 
 autoUpdater.on('checking-for-update', () => {
-  notify({ kind: 'info', message: 'Memeriksa pembaruan...' });
-  emitUpdateState({ status: 'checking', version: null, progress: null, error: null });
+  emitUpdateState({ status: 'checking', version: updateState.version, progress: null, error: null, transferred: 0, total: 0, bytesPerSecond: 0 });
 });
 autoUpdater.on('update-available', (info) => {
-  notify({ kind: 'info', message: 'Pembaruan ' + info.version + ' tersedia. Mengunduh otomatis...' });
-  emitUpdateState({ status: 'available', version: info.version, progress: 0, error: null });
+  updateInstallRequested = false;
+  emitUpdateState({ status: 'available', version: info.version, progress: 0, error: null, transferred: 0, total: 0, bytesPerSecond: 0 });
 });
 autoUpdater.on('update-not-available', () => {
-  notify({ kind: 'info', message: 'Sudah versi terbaru.' });
-  emitUpdateState({ status: 'latest', version: null, progress: null, error: null });
+  emitUpdateState({ status: 'latest', version: null, progress: null, error: null, transferred: 0, total: 0, bytesPerSecond: 0 });
 });
 autoUpdater.on('error', (err: Error) => {
-  notify({ kind: 'error', message: `Gagal cek pembaruan: ${err.message}` });
-  emitUpdateState({ status: 'error', version: null, progress: null, error: err.message });
+  emitUpdateState({
+    status: 'error',
+    version: updateState.version,
+    progress: updateState.progress,
+    error: err.message,
+    transferred: updateState.transferred ?? 0,
+    total: updateState.total ?? 0,
+    bytesPerSecond: updateState.bytesPerSecond ?? 0,
+  });
 });
 autoUpdater.on('download-progress', (progress) => {
-  notify({ kind: 'info', message: `Mengunduh pembaruan: ${Math.round(progress.percent)}%` });
-  emitUpdateState({ status: 'downloading', version: null, progress: progress.percent, error: null });
+  // Avoid flooding React/Electron with redundant progress events while still keeping
+  // the visible progress and speed smooth. Always publish the final progress event.
+  const now = Date.now();
+  if (now - lastProgressEmitAt < 250 && progress.percent < 100) return;
+  lastProgressEmitAt = now;
+  emitUpdateState({
+    status: 'downloading',
+    version: updateState.version,
+    progress: progress.percent,
+    error: null,
+    transferred: progress.transferred,
+    total: progress.total,
+    bytesPerSecond: progress.bytesPerSecond,
+  });
 });
 autoUpdater.on('update-downloaded', (info) => {
-  notify({ kind: 'info', message: 'Pembaruan ' + info.version + ' sudah diunduh.' });
-  emitUpdateState({ status: 'downloaded', version: info.version, progress: 100, error: null });
+  emitUpdateState({
+    status: 'downloaded',
+    version: info.version,
+    progress: 100,
+    error: null,
+    transferred: updateState.total ?? updateState.transferred ?? 0,
+    total: updateState.total ?? 0,
+    bytesPerSecond: 0,
+  });
   if (store.get().role === 'none') {
     setTimeout(() => autoUpdater.quitAndInstall(), 2500).unref?.();
   }
 });
 
-function checkForUpdates(): void {
-  if (process.env.NODE_ENV === 'development') return;
-  autoUpdater.checkForUpdates().catch(() => undefined);
+function checkForUpdates(): Promise<void> {
+  if (process.env.NODE_ENV === 'development') return Promise.resolve();
+  if (updateCheckPromise) return updateCheckPromise;
+  // autoDownload is enabled: don't start another check/download while one is
+  // already available, downloading, or ready to install.
+  if (['available', 'downloading', 'downloaded'].includes(updateState.status)) return Promise.resolve();
+  updateCheckPromise = autoUpdater.checkForUpdates()
+    .then(() => undefined)
+    .catch((err: Error) => {
+      if (updateState.status !== 'error' || updateState.error !== err.message) {
+        emitUpdateState({
+          status: 'error', version: updateState.version, progress: updateState.progress, error: err.message,
+          transferred: updateState.transferred ?? 0, total: updateState.total ?? 0, bytesPerSecond: updateState.bytesPerSecond ?? 0,
+        });
+      }
+    })
+    .finally(() => { updateCheckPromise = null; });
+  return updateCheckPromise;
 }
-
 interface Settings {
   selfId: string;
   selfName: string;
   lastFolder?: string;
+  /** Last app version that successfully started, used to count real installed updates. */
+  lastLaunchedVersion?: string;
+  /** Successful version transitions since the last history cleanup. */
+  successfulUpdatesSinceHistoryCleanup?: number;
+  /** Number of oldest release-note entries hidden after completed cleanup cycles. */
+  hiddenReleaseHistoryCount?: number;
 }
 
 const settingsPath = () => join(app.getPath('userData'), 'settings.json');
@@ -87,9 +139,20 @@ function loadSettings(): Settings {
       selfId: parsed.selfId ?? randomUUID(),
       selfName: parsed.selfName ?? 'Saya',
       lastFolder: parsed.lastFolder,
+      // Prior releases did not persist this marker; use the last published baseline
+      // so the first upgrade after this feature is counted for version-history cleanup.
+      lastLaunchedVersion: parsed.lastLaunchedVersion ?? '0.3.2',
+      successfulUpdatesSinceHistoryCleanup: parsed.successfulUpdatesSinceHistoryCleanup ?? 0,
+      hiddenReleaseHistoryCount: parsed.hiddenReleaseHistoryCount ?? 0,
     };
   } catch {
-    return { selfId: randomUUID(), selfName: 'Saya' };
+    return {
+      selfId: randomUUID(),
+      selfName: 'Saya',
+      lastLaunchedVersion: APP_VERSION,
+      successfulUpdatesSinceHistoryCleanup: 0,
+      hiddenReleaseHistoryCount: 0,
+    };
   }
 }
 
@@ -98,8 +161,35 @@ function saveSettings(settings: Settings): void {
   writeFileSync(settingsPath(), JSON.stringify(settings, null, 2), 'utf8');
 }
 
+function compareVersions(a: string, b: string): number {
+  const left = a.split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const right = b.split('.').map((part) => Number.parseInt(part, 10) || 0);
+  for (let i = 0; i < Math.max(left.length, right.length); i++) {
+    const difference = (left[i] ?? 0) - (right[i] ?? 0);
+    if (difference !== 0) return difference > 0 ? 1 : -1;
+  }
+  return 0;
+}
+
+function recordSuccessfulVersionLaunch(settings: Settings): void {
+  const lastVersion = settings.lastLaunchedVersion;
+  // The first version with this feature initializes its marker. From the next release
+  // onward, a launch of a strictly newer version counts as a completed update.
+  if (lastVersion && compareVersions(APP_VERSION, lastVersion) > 0) {
+    const updates = (settings.successfulUpdatesSinceHistoryCleanup ?? 0) + 1;
+    if (updates >= 3) {
+      settings.hiddenReleaseHistoryCount = (settings.hiddenReleaseHistoryCount ?? 0) + 3;
+      settings.successfulUpdatesSinceHistoryCleanup = 0;
+    } else {
+      settings.successfulUpdatesSinceHistoryCleanup = updates;
+    }
+  }
+  settings.lastLaunchedVersion = APP_VERSION;
+  saveSettings(settings);
+}
+
 const settings = loadSettings();
-saveSettings(settings);
+recordSuccessfulVersionLaunch(settings);
 
 const initialState: AppState = {
   role: 'none',
@@ -172,12 +262,12 @@ function resetRoomState(): void {
     hostAddress: null,
     projectPath: null,
     members: [],
-    queue: { holder: null, queue: [] },
+    queue: { holder: null, queue: [], holderLastActivity: null, holderActivitySource: null },
     framework: null,
     server: { status: 'idle', url: null, port: null, logs: [] },
     sync: { status: 'off', files: 0, lastSync: null },
     projectFiles: [],
-    update: { status: 'idle', version: null, progress: null, error: null },
+    // Update state is global and must continue while the user leaves/changes a room.
     queueNotice: null,
     ideMode: false,
     activeIdeId: null,
@@ -439,38 +529,34 @@ function registerIpc(): void {
   ipcMain.handle('rk:stop-server', () => handleStopServer());
   ipcMain.handle('rk:check-for-updates', async () => {
     if (process.env.NODE_ENV === 'development') {
-      return { ok: true, error: 'Auto-update tidak berjalan di mode development.' };
+      return { ok: false, error: 'Auto-update tidak berjalan di mode development.' };
     }
-    try {
-      await autoUpdater.checkForUpdates();
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: (err as Error).message };
-    }
+    await checkForUpdates();
+    return updateState.status === 'error'
+      ? { ok: false, error: updateState.error ?? 'Gagal memeriksa pembaruan.' }
+      : { ok: true };
   });
   ipcMain.handle('rk:install-update', async () => {
-    try {
-      if (updateState.status === 'downloaded') {
+    if (updateState.status === 'downloaded') {
+      if (!updateInstallRequested) {
+        updateInstallRequested = true;
         setImmediate(() => autoUpdater.quitAndInstall());
-        return { ok: true };
       }
-      if (updateState.status === 'available' || updateState.status === 'downloading') {
-        await autoUpdater.downloadUpdate();
-        return { ok: true };
-      }
-      if (updateState.status === 'latest' || updateState.status === 'idle') {
-        return { ok: false, error: 'Tidak ada pembaruan untuk dipasang.' };
-      }
-      return { ok: false, error: 'Status pembaruan tidak dikenali.' };
-    } catch (err) {
-      return { ok: false, error: (err as Error).message };
+      return { ok: true };
     }
+    if (updateState.status === 'available' || updateState.status === 'downloading') {
+      // autoDownload is enabled. Do not call downloadUpdate() a second time from UI;
+      // this avoids duplicate download requests and keeps one authoritative progress stream.
+      return { ok: true };
+    }
+    if (updateState.status === 'error') return { ok: false, error: updateState.error ?? 'Download pembaruan gagal.' };
+    return { ok: false, error: 'Tidak ada pembaruan yang siap dipasang.' };
   });
   ipcMain.handle('rk:fetch-release-notes', async () => {
     try {
       const owner = 'azaleaforge-ctrl';
       const repo = 'cloud-pc';
-      const url = `https://api.github.com/repos/${owner}/${repo}/releases?per_page=20`;
+      const url = `https://api.github.com/repos/${owner}/${repo}/releases?per_page=100`;
       const headers: Record<string, string> = {
         Accept: 'application/vnd.github+json',
         'User-Agent': 'Ruang-Kerja-Updater',
@@ -480,9 +566,16 @@ function registerIpc(): void {
       const res = await fetch(url, { headers });
       if (!res.ok) throw new Error(`GitHub API ${res.status}`);
       const releases = await res.json();
+      const published = releases
+        .filter((r: any) => !r.draft && !!r.published_at)
+        .sort((a: any, b: any) => Date.parse(b.published_at) - Date.parse(a.published_at));
+      const hiddenOldestCount = Math.max(0, settings.hiddenReleaseHistoryCount ?? 0);
+      const visible = hiddenOldestCount > 0
+        ? published.slice(0, Math.max(0, published.length - hiddenOldestCount))
+        : published;
       return {
         ok: true,
-        releases: releases.map((r: any) => ({
+        releases: visible.map((r: any) => ({
           tag: r.tag_name,
           name: r.name,
           body: r.body,

@@ -32,6 +32,9 @@ jobs:
           echo "Setting version to $version"
           npm pkg set version="$version"
 
+      - name: Typecheck
+        run: npm run typecheck
+
       - name: Build
         run: npm run build && npx electron-builder --win nsis --publish never
 
@@ -54,7 +57,13 @@ jobs:
             throw "latest.yml menunjuk ke '$assetName', tetapi file itu tidak ditemukan di folder release."
           }
 
+          $blockMapPath = "$assetPath.blockmap"
+          if (-not (Test-Path -LiteralPath $blockMapPath -PathType Leaf)) {
+            throw "Blockmap tidak ditemukan: '$blockMapPath'."
+          }
+
           Write-Host "Validated updater URL target: $assetName"
+          Write-Host "Validated blockmap: $blockMapPath"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
