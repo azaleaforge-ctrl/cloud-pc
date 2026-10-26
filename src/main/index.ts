@@ -121,6 +121,12 @@ interface Settings {
   selfId: string;
   selfName: string;
   lastFolder?: string;
+  /** Last app version that successfully started, used to count real installed updates. */
+  lastLaunchedVersion?: string;
+  /** Successful version transitions since the last history cleanup. */
+  successfulUpdatesSinceHistoryCleanup?: number;
+  /** Number of oldest release-note entries hidden after completed cleanup cycles. */
+  hiddenReleaseHistoryCount?: number;
 }
 
 const settingsPath = () => join(app.getPath('userData'), 'settings.json');
@@ -133,9 +139,17 @@ function loadSettings(): Settings {
       selfId: parsed.selfId ?? randomUUID(),
       selfName: parsed.selfName ?? 'Saya',
       lastFolder: parsed.lastFolder,
+      lastLaunchedVersion: parsed.lastLaunchedVersion,
+      successfulUpdatesSinceHistoryCleanup: parsed.successfulUpdatesSinceHistoryCleanup ?? 0,
+      hiddenReleaseHistoryCount: parsed.hiddenReleaseHistoryCount ?? 0,
     };
   } catch {
-    return { selfId: randomUUID(), selfName: 'Saya' };
+    return {
+      selfId: randomUUID(),
+      selfName: 'Saya',
+      successfulUpdatesSinceHistoryCleanup: 0,
+      hiddenReleaseHistoryCount: 0,
+    };
   }
 }
 
@@ -144,8 +158,35 @@ function saveSettings(settings: Settings): void {
   writeFileSync(settingsPath(), JSON.stringify(settings, null, 2), 'utf8');
 }
 
+function compareVersions(a: string, b: string): number {
+  const left = a.split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const right = b.split('.').map((part) => Number.parseInt(part, 10) || 0);
+  for (let i = 0; i < Math.max(left.length, right.length); i++) {
+    const difference = (left[i] ?? 0) - (right[i] ?? 0);
+    if (difference !== 0) return difference > 0 ? 1 : -1;
+  }
+  return 0;
+}
+
+function recordSuccessfulVersionLaunch(settings: Settings): void {
+  const lastVersion = settings.lastLaunchedVersion;
+  // The first version with this feature initializes its marker. From the next release
+  // onward, a launch of a strictly newer version counts as a completed update.
+  if (lastVersion && compareVersions(APP_VERSION, lastVersion) > 0) {
+    const updates = (settings.successfulUpdatesSinceHistoryCleanup ?? 0) + 1;
+    if (updates >= 3) {
+      settings.hiddenReleaseHistoryCount = (settings.hiddenReleaseHistoryCount ?? 0) + 3;
+      settings.successfulUpdatesSinceHistoryCleanup = 0;
+    } else {
+      settings.successfulUpdatesSinceHistoryCleanup = updates;
+    }
+  }
+  settings.lastLaunchedVersion = APP_VERSION;
+  saveSettings(settings);
+}
+
 const settings = loadSettings();
-saveSettings(settings);
+recordSuccessfulVersionLaunch(settings);
 
 const initialState: AppState = {
   role: 'none',
@@ -516,7 +557,7 @@ function registerIpc(): void {
     try {
       const owner = 'azaleaforge-ctrl';
       const repo = 'cloud-pc';
-      const url = `https://api.github.com/repos/${owner}/${repo}/releases?per_page=20`;
+      const url = `https://api.github.com/repos/${owner}/${repo}/releases?per_page=100`;
       const headers: Record<string, string> = {
         Accept: 'application/vnd.github+json',
         'User-Agent': 'Ruang-Kerja-Updater',
@@ -526,9 +567,16 @@ function registerIpc(): void {
       const res = await fetch(url, { headers });
       if (!res.ok) throw new Error(`GitHub API ${res.status}`);
       const releases = await res.json();
+      const published = releases
+        .filter((r: any) => !r.draft && !!r.published_at)
+        .sort((a: any, b: any) => Date.parse(b.published_at) - Date.parse(a.published_at));
+      const hiddenOldestCount = Math.max(0, settings.hiddenReleaseHistoryCount ?? 0);
+      const visible = hiddenOldestCount > 0
+        ? published.slice(0, Math.max(0, published.length - hiddenOldestCount))
+        : published;
       return {
         ok: true,
-        releases: releases.map((r: any) => ({
+        releases: visible.map((r: any) => ({
           tag: r.tag_name,
           name: r.name,
           body: r.body,
