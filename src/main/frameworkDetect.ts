@@ -131,7 +131,7 @@ function buildCommand(pm: PackageManager, script: string, forwardedArgs: string[
 function lanArgsFor(id: string, port: number): string[] {
   if (id === 'next') return ['--hostname', '0.0.0.0', '--port', String(port)];
   if (id === 'expo') return ['--host', 'lan', '--port', String(port)];
-  // Vite/Astro/Nuxt/Angular/CRA and common CLI dev servers.
+  // Keep common JavaScript dev servers reachable from the LAN; the host also has a proxy fallback.
   return ['--host', '0.0.0.0', '--port', String(port)];
 }
 
