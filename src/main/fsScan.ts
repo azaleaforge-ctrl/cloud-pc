@@ -85,3 +85,53 @@ export async function scanFiles(root: string, limit = 20000): Promise<ScannedFil
   await walk(resolve(root));
   return out;
 }
+
+
+/**
+ * Scan entries for the File tab, including directories and their real modification times.
+ * This is UI-only; sync continues to use scanFiles() so directory entries are never
+ * treated as project files or copied over the network.
+ */
+export async function scanProjectEntries(root: string, limit = 20000): Promise<Array<ScannedFile & { isDirectory: boolean }>> {
+  const out: Array<ScannedFile & { isDirectory: boolean }> = [];
+  const walk = async (dir: string): Promise<void> => {
+    if (out.length >= limit) return;
+    let entries;
+    try {
+      entries = await fsp.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (out.length >= limit) return;
+      if (isIgnoredName(entry.name)) continue;
+      const abs = join(dir, entry.name);
+      if (!entry.isDirectory() && !entry.isFile()) continue;
+      try {
+        const stat = await fsp.stat(abs);
+        if (entry.isDirectory() && stat.isDirectory()) {
+          out.push({
+            path: toRel(root, abs),
+            abs,
+            mtime: Math.round(stat.mtime.getTime()),
+            size: 0,
+            isDirectory: true,
+          });
+          await walk(abs);
+        } else if (entry.isFile() && stat.isFile()) {
+          out.push({
+            path: toRel(root, abs),
+            abs,
+            mtime: Math.round(stat.mtime.getTime()),
+            size: stat.size,
+            isDirectory: false,
+          });
+        }
+      } catch {
+        // Entry deleted while scanning; ignore it.
+      }
+    }
+  };
+  await walk(resolve(root));
+  return out;
+}
