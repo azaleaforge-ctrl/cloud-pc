@@ -70,7 +70,7 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
   const pending = new Map<string, ReturnType<typeof setTimeout>>();
 
   const emitQueue = (): void => {
-    opts.emit({ members, queue: { holder, queue: [...queue] }, server });
+    opts.emit({ members, queue: { holder, queue: [...queue], holderLastActivity, holderActivitySource }, server });
   };
 
   const scheduleSyncEmit = (): void => {
