@@ -186,6 +186,14 @@ export function ServerTab({
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{server.url}</span>
               </div>
             ) : null}
+            {server.status === 'running' && server.proxied && server.targetPort ? (
+              <div className="server-note server-proxy-note">
+                <IconInfo size={15} />
+                <span>
+                  Framework berjalan di port {server.targetPort}. Ruang Kerja meneruskan preview melalui port {server.port} agar dapat dibuka dari aplikasi dan anggota ruangan.
+                </span>
+              </div>
+            ) : null}
 
             {isHost ? (
               <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
