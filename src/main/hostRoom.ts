@@ -32,6 +32,9 @@ export interface HostRoom {
   readonly port: number;
   takeTurn(): ActionResult;
   releaseTurn(): ActionResult;
+  approveQueue(requesterId: string): ActionResult;
+  deferQueue(requesterId: string): ActionResult;
+  reportActivity(memberId: string, source: string): void;
   setServerState(state: ServerState): void;
   close(): Promise<void>;
 }
@@ -71,8 +74,31 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   let closed = false;
   let oversizeWarned = false;
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let promptTimer: ReturnType<typeof setTimeout> | null = null;
+  let repromptTimer: ReturnType<typeof setTimeout> | null = null;
+  let holderLastActivity: number | null = holder ? Date.now() : null;
+  let holderActivitySource: string | null = holder ? 'room-start' : null;
+  let pendingPrompt: { requesterId: string; requesterName: string; expiresAt: number } | null = null;
+  const snoozedUntil = new Map<string, number>();
 
-  const resetIdleTimer = (): void => {
+  const clearPrompt = (): void => {
+    if (promptTimer) clearTimeout(promptTimer);
+    if (repromptTimer) clearTimeout(repromptTimer);
+    promptTimer = null;
+    repromptTimer = null;
+    pendingPrompt = null;
+  };
+
+  const updateStatuses = (): void => {
+    for (const [id, member] of members) {
+      member.status = id === holder ? 'working' : queue.includes(id) ? 'queued' : 'idle';
+    }
+  };
+
+  const resetIdleTimer = (source = 'file'): void => {
+    if (!holder) return;
+    holderLastActivity = Date.now();
+    holderActivitySource = source;
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
       idleTimer = null;
@@ -92,7 +118,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   const port = (wsServer.address() as AddressInfo).port;
 
   const listMembers = (): Member[] => [...members.values()];
-  const queueState = () => ({ holder, queue: [...queue] });
+  const queueState = () => ({ holder, queue: [...queue], holderLastActivity, holderActivitySource });
 
   const broadcast = (msg: WireMessage, exceptId?: string): void => {
     for (const client of clients.values()) {
@@ -115,7 +141,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   };
 
   const sendState = (): void => {
-    broadcast({ t: 'state', members: listMembers(), holder, queue: [...queue], server: serverState });
+    broadcast({ t: 'state', members: listMembers(), holder, queue: [...queue], holderLastActivity, holderActivitySource, server: serverState });
   };
 
   const scheduleSyncEmit = (): void => {
@@ -200,7 +226,8 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
 
     if (holder === null) {
       holder = byId;
-      resetIdleTimer();
+      updateStatuses();
+      resetIdleTimer('turn');
       broadcast({ t: 'turn-taken', holder: byId, name: member.name });
       broadcast({ t: 'notify', kind: 'info', message: `${member.name} mulai bekerja` });
       if (byId !== opts.hostId) opts.notify({ kind: 'info', message: `${member.name} mulai bekerja` });
@@ -211,6 +238,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
 
     if (queue.includes(byId)) return { ok: false, error: 'Kamu sudah ada di antrian.' };
     queue.push(byId);
+    updateStatuses();
     broadcast({ t: 'notify', kind: 'info', message: `${member.name} masuk antrian (posisi ${queue.length})` });
     if (byId !== opts.hostId) opts.notify({ kind: 'info', message: `${member.name} masuk antrian` });
     applyHolderChange();
@@ -428,7 +456,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
         }
         client = { id, name, ws, lastSeen: Date.now() };
         clients.set(id, client);
-        members.set(id, { id, name, isHost: false });
+        members.set(id, { id, name, isHost: false, status: queue.includes(id) ? 'queued' : 'idle' });
 
         sendWire(ws, {
           t: 'welcome',
@@ -439,6 +467,8 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
           members: listMembers(),
           holder,
           queue: [...queue],
+          holderLastActivity,
+          holderActivitySource,
           hostIp: getLanIp() ?? '127.0.0.1',
           server: serverState,
         });
