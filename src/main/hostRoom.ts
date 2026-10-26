@@ -239,6 +239,12 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     if (queue.includes(byId)) return { ok: false, error: 'Kamu sudah ada di antrian.' };
     queue.push(byId);
     updateStatuses();
+    if (holder === opts.hostId) {
+      opts.emit({ queueNotice: { mode: 'bar', requesterId: byId, requesterName: member.name, holderName: members.get(holder)?.name ?? 'Anggota', expiresAt: null, deferredUntil: null } });
+    } else {
+      const holderClient = holder ? clients.get(holder) : null;
+      if (holderClient) sendWire(holderClient.ws, { t: 'queue-prompt', requesterId: byId, requesterName: member.name, holderName: members.get(holder)?.name ?? 'Anggota', expiresAt: null, mode: 'bar' });
+    }
     broadcast({ t: 'notify', kind: 'info', message: `${member.name} masuk antrian (posisi ${queue.length})` });
     if (byId !== opts.hostId) opts.notify({ kind: 'info', message: `${member.name} masuk antrian` });
     applyHolderChange();
