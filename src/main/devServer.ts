@@ -151,11 +151,12 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
       try {
         const lanIp = getLanIp();
         const directLan = lanIp ? await checkPortOpen(port, lanIp, 900) : false;
-        const publicPort = directLan
-          ? port
-          : (proxyServer = (await startLanProxy(port)).server, proxyServer.address() && typeof proxyServer.address() !== 'string'
-              ? proxyServer.address()!.port
-              : port);
+        let publicPort = port;
+        if (!directLan) {
+          const proxy = await startLanProxy(port);
+          proxyServer = proxy.server;
+          publicPort = proxy.port;
+        }
         emit('running', publicPort);
       } catch (err) {
         emit('error', null, 'Server hidup tetapi tidak dapat diekspos ke LAN: ' + (err as Error).message);
