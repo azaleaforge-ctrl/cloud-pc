@@ -1,26 +1,23 @@
-# Ruang Kerja VFIX 0.3.2
+# Ruang Kerja VFIX 0.3.3
 
-## Perbaikan auto-update (utama)
-- Menetapkan nama installer Windows secara eksplisit menjadi `Ruang-Kerja-Setup-0.3.2.exe`, konsisten dengan URL yang dipakai metadata `latest.yml`.
-- Menyamakan nama file installer dan blockmap agar GitHub Release tidak menerbitkan nama yang berbeda dari metadata updater.
-- Workflow Release memvalidasi bahwa file yang disebut `latest.yml` benar-benar ada di folder hasil build. Proses release akan gagal lebih awal jika nama tidak cocok, alih-alih menerbitkan update yang berakhir 404.
-- Versi aplikasi dan lockfile dinaikkan ke 0.3.2 karena release 0.3.1 sudah dipublikasikan dengan metadata nama file yang tidak cocok.
+## Perbaikan pengalaman auto-update
+- Mengganti notifikasi unduhan berulang dengan satu panel update persisten yang tidak bisa di-dismiss selama proses berjalan.
+- Panel menampilkan progress bar, persentase, byte terunduh/total, kecepatan unduh aktual, dan perkiraan sisa waktu bila tersedia.
+- Indikator di footer menggunakan data progress dan kecepatan yang sama dengan panel update.
+- Event progress dipublikasikan maksimal sekitar 4 kali per detik agar tidak membebani renderer dan tidak menghasilkan tumpukan toast.
+- Status update tidak direset ketika pengguna keluar dari ruangan.
 
-## IDE di dalam Ruang Kerja
-- IDE desktop Windows yang terdeteksi dapat dibuka dalam mode jendela Ruang Kerja dengan toolbar untuk kembali ke workspace.
-- Integrasi native window embedding bersifat Windows-specific dan perlu diuji terhadap tiap IDE.
+## Perbaikan stabilitas downloader
+- Check update diserialisasi agar pemeriksaan startup, menu, dan tombol manual tidak saling menumpuk.
+- Tombol pasang tidak memulai download kedua ketika auto-download sedang berjalan.
+- NSIS differential download tetap diaktifkan; metadata blockmap dari release sebelumnya digunakan untuk membantu mengunduh bagian yang berubah apabila nama dan versi artefak kompatibel.
+- Workflow release memvalidasi kecocokan nama installer dan blockmap sebelum mengunggah release.
 
-## Sistem antrean berbasis aktivitas
-- Aktivitas IDE embedded, terminal, UI Ruang Kerja, dan proses AI coding agent dipakai sebagai sinyal aktivitas.
-- Lease kerja idle setelah 2 menit tanpa aktivitas terdeteksi.
-- Permintaan giliran ditampilkan sebagai bar persisten.
-- Saat pemegang giliran menyelesaikan pekerjaan, prompt Approve / Masih bekerja memiliki countdown 15 detik; jika tidak dijawab, persetujuan otomatis.
-- Penundaan menempatkan peminta kembali ke antrean setelah 2 menit; jika pemegang giliran kembali aktif, prompt ditahan dan ditanyakan lagi setelah 1 menit.
+## Riwayat versi otomatis
+- Setelah tiga perpindahan versi berhasil dijalankan, Detail Version menyembunyikan tiga entri rilis tertua dari daftar lokal.
+- Riwayat di GitHub dan file pengguna tidak dihapus; yang dibersihkan hanya entri yang ditampilkan di aplikasi.
+- Versi terakhir yang berhasil dijalankan dan hitungan pembersihan disimpan di settings lokal.
 
-## Server development dan preview
-- Laravel dan Django diarahkan untuk menerima koneksi LAN.
-- Server localhost-only mendapat fallback proxy LAN.
-- Framework JavaScript umum meneruskan opsi host/port LAN bila didukung CLI.
-
-## Deteksi IDE
-- Menambahkan pencarian langsung pada beberapa lokasi instalasi Windows yang umum, termasuk Antigravity.
+## Catatan
+- Peningkatan kecepatan melalui differential download bergantung pada ketersediaan blockmap versi sebelumnya. Migrasi dari versi sangat lama yang memakai nama artefak berbeda masih dapat memerlukan unduhan installer penuh satu kali.
+- Kecepatan jaringan aktual tetap bergantung pada rute/CDN GitHub; panel sekarang memperlihatkan kecepatan riil agar bottleneck bisa dibedakan dari masalah UI.
