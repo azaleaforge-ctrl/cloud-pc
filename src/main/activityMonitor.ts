@@ -6,14 +6,14 @@ const TICK_MS = 4_000;
 
 function queryProcessActivity(projectPath: string): Promise<{ agent: boolean; terminal: boolean }> {
   if (process.platform !== 'win32') return Promise.resolve({ agent: false, terminal: false });
-  const safeProject = projectPath.replace(/'/g, "''").toLowerCase();
+  const safeProject = projectPath.replace(/'/g, "''").replace(/\\/g, '/').toLowerCase();
   const script = [
     "$project = '" + safeProject + "'",
-    'Add-Type @''',
+    "Add-Type @'",
     'using System;',
     'using System.Runtime.InteropServices;',
     'public static class RKActivity { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid); }',
-    '''@',
+    "'@",
     '$fg = [RKActivity]::GetForegroundWindow()',
     '$fgPid = 0',
     '[void][RKActivity]::GetWindowThreadProcessId($fg, [ref]$fgPid)',
@@ -21,11 +21,12 @@ function queryProcessActivity(projectPath: string): Promise<{ agent: boolean; te
     '$agent = $false; $terminal = $false',
     'foreach ($p in $ps) {',
     '  $name = [string]$p.Name',
-    '  if ($name -match "(?i)claude|codex|opencode|aider|gemini|copilot|cline|goose|continue|kilocode") { $agent = $true }',
-    '  if ([int]$p.ProcessId -eq [int]$fgPid -and $name -match "(?i)cmd|powershell|pwsh|wt|windowsterminal|conhost") { $terminal = $true }',
+    '  $cmd = ([string]$p.CommandLine).ToLowerInvariant().Replace("\\", "/")',
+    '  if ($name -match "(?i)claude|codex|opencode|aider|gemini|copilot|cline|goose|continue|kilocode") { if ($cmd.Contains($project)) { $agent = $true } }',
+    '  if ([int]$p.ProcessId -eq [int]$fgPid -and $name -match "(?i)^(cmd|powershell|pwsh|wt|windowsterminal|conhost)(\.exe)?$") { $terminal = $true }',
     '}',
-    '[pscustomobject]@{agent=$agent;terminal=$terminal} | ConvertTo-Json -Compress',
-  ].join('\n');
+    '[pscustomobject]@{agent=$agent;terminal=$terminal} | ConvertTo-Json -Compress'
+  ].join('\\n');
   return new Promise((resolve) => {
     execFile(POWERSHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], {
       windowsHide: true, timeout: 3_000, maxBuffer: 512 * 1024,
