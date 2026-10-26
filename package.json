@@ -1,7 +1,7 @@
 {
   "name": "ruang-kerja",
   "productName": "Ruang Kerja",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Workspace kolaborasi LAN: folder project bersama, antrian otomatis, deteksi IDE, kontrol dev server, file browser real-time.",
   "main": "dist/main/index.js",
   "author": "Ruang Kerja",
