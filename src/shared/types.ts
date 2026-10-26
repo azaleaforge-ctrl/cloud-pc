@@ -199,7 +199,7 @@ export interface RkApi {
 /** Payload mentah protokol WebSocket host <-> member. */
 export type WireMessage =
   | { t: 'hello'; name: string; clientId: string }
-  | { t: 'welcome'; selfId: string; code: string; roomName: string; hostName: string; members: Member[]; holder: string | null; queue: string[]; hostIp: string; server: ServerState }
+  | { t: 'welcome'; selfId: string; code: string; roomName: string; hostName: string; members: Member[]; holder: string | null; queue: string[]; holderLastActivity: number | null; holderActivitySource: string | null; hostIp: string; server: ServerState }
   | { t: 'state'; members: Member[]; holder: string | null; queue: string[]; holderLastActivity: number | null; holderActivitySource: string | null; server: ServerState }
   | { t: 'tree-begin'; total: number }
   | { t: 'file'; path: string; b64: string; mtime: number }
@@ -209,8 +209,10 @@ export type WireMessage =
   | { t: 'notify'; kind: NotifyPayload['kind']; message: string }
   | { t: 'turn-taken'; holder: string; name: string }
   | { t: 'turn-released'; holder: string | null; name?: string }
-  | { t: 'queue-prompt'; requesterId: string; requesterName: string; holderName: string; expiresAt: number | null }
+  | { t: 'queue-prompt'; requesterId: string; requesterName: string; holderName: string; expiresAt: number | null; mode: 'bar' | 'decision' }
   | { t: 'queue-deferred'; requesterId: string; requesterName: string; holderName: string; until: number }
+  | { t: 'queue-approve'; requesterId: string }
+  | { t: 'queue-defer'; requesterId: string }
   | { t: 'activity'; source: string }
   | { t: 'ping' }
   | { t: 'pong' };
