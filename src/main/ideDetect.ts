@@ -235,6 +235,30 @@ export async function detectIdes(): Promise<IdeInfo[]> {
     // registry tidak terbaca; lanjut ke folder
   }
 
+  // 2. Kandidat path langsung: melewati timeout scan folder dan menangani instalasi non-standard.
+  try {
+    const localAppData = process.env.LOCALAPPDATA ?? '';
+    const programFiles = process.env.ProgramFiles ?? '';
+    const programFilesX86 = process.env['ProgramFiles(x86)'] ?? '';
+    const directCandidates: Array<{ id: string; path: string }> = [];
+    const addCandidate = (id: string, base: string, ...parts: string[]) => {
+      if (base) directCandidates.push({ id, path: join(base, ...parts) });
+    };
+    addCandidate('antigravity', localAppData, 'Antigravity', 'Antigravity.exe');
+    addCandidate('antigravity', localAppData, 'Programs', 'Antigravity', 'Antigravity.exe');
+    addCandidate('antigravity', localAppData, 'Google', 'Antigravity', 'Antigravity.exe');
+    addCandidate('antigravity', localAppData, 'Programs', 'Google', 'Antigravity', 'Antigravity.exe');
+    addCandidate('antigravity', programFiles, 'Antigravity', 'Antigravity.exe');
+    addCandidate('vscode', localAppData, 'Programs', 'Microsoft VS Code', 'Code.exe');
+    addCandidate('cursor', localAppData, 'Programs', 'Cursor', 'Cursor.exe');
+    addCandidate('windsurf', localAppData, 'Programs', 'Windsurf', 'Windsurf.exe');
+    for (const candidate of directCandidates) {
+      add(candidate.id, candidate.path, 'folder');
+    }
+  } catch {
+    // kandidat langsung gagal; lanjutkan scanner lainnya
+  }
+
   // 2. Folder umum (termasuk lokasi non-standard Google/Antigravity)
   try {
     const roots: Array<{ dir: string; depth: number }> = [];
