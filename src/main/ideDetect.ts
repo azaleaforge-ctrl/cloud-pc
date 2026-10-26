@@ -214,10 +214,10 @@ async function scanStartMenuIdeShortcuts(timeoutMs = 3500): Promise<Array<{ labe
     '    } catch { }',
     '  }',
     '}',
-  ].join('\\n');
+  ].join('\n');
   const output = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], timeoutMs);
-  return output.split(/\\r?\\n/).map((line) => {
-    const tab = line.indexOf('\\t');
+  return output.split(/\r?\n/).map((line) => {
+    const tab = line.indexOf('\t');
     return tab < 0 ? null : { label: line.slice(0, tab).trim(), target: line.slice(tab + 1).trim() };
   }).filter((entry): entry is { label: string; target: string } => !!entry?.label && !!entry.target);
 }
