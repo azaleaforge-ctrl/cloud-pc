@@ -91,6 +91,17 @@ export interface AppState {
   discovered: DiscoveredRoom[];
   /** File-project real-time (host scan + perubahan sinkron) */
   projectFiles: ProjectFile[];
+  /** Status update aplikasi real-time */
+  update: UpdateState;
+}
+
+export type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'latest' | 'error';
+
+export interface UpdateState {
+  status: UpdateStatus;
+  version: string | null;
+  progress: number | null;
+  error: string | null;
 }
 
 export interface CreateRoomInput {
@@ -152,6 +163,7 @@ export interface RkApi {
   startServer(): Promise<ActionResult>;
   stopServer(): Promise<ActionResult>;
   checkForUpdates(): Promise<ActionResult>;
+  installUpdate(): Promise<ActionResult>;
   fetchReleaseNotes(): Promise<FetchReleasesResult>;
   listProjectFiles(): Promise<ProjectFile[]>;
   onState(cb: (state: AppState) => void): () => void;

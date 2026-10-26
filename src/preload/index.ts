@@ -29,6 +29,7 @@ const api: RkApi = {
   startServer: () => ipcRenderer.invoke('rk:start-server'),
   stopServer: () => ipcRenderer.invoke('rk:stop-server'),
   checkForUpdates: () => ipcRenderer.invoke('rk:check-for-updates'),
+  installUpdate: () => ipcRenderer.invoke('rk:install-update'),
   fetchReleaseNotes: () => ipcRenderer.invoke('rk:fetch-release-notes'),
   listProjectFiles: (): Promise<ProjectFile[]> => ipcRenderer.invoke('rk:list-project-files'),
   onState: (cb: (state: AppState) => void) => {

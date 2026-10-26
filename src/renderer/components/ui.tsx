@@ -146,6 +146,32 @@ export function FooterBar({
         <b>v{window.rk.version}</b>
         {onVersionClick && <span className="version-hint">▼</span>}
       </span>
+      {state.update && (
+        <span className="footer-item update-item">
+          {state.update.status === 'checking' ? (
+            <span className="update-status checking">Memeriksa...</span>
+          ) : state.update.status === 'downloading' ? (
+            <span className="update-status downloading">{Math.round(state.update.progress ?? 0)}%</span>
+          ) : state.update.status === 'downloaded' ? (
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs update-install"
+              onClick={() => window.rk.installUpdate()}
+              title="Pasang pembaruan dan restart"
+            >
+              Pasang Sekarang
+            </button>
+          ) : state.update.status === 'available' ? (
+            <span className="update-status available">Siap dipasang</span>
+          ) : state.update.status === 'latest' ? (
+            <span className="update-status latest">Terbaru</span>
+          ) : state.update.status === 'error' ? (
+            <span className="update-status error" title={state.update.error ?? ''}>
+              Gagal
+            </span>
+          ) : null}
+        </span>
+      )}
       <span className="footer-item">
         <IconWifi size={compact ? 12 : 13} />
         IP LAN <b>{state.lanAddress ?? 'tidak terdeteksi'}</b>
@@ -237,9 +263,22 @@ export function VersionModal({
       >
         <div className="modal-header">
           <h3>Riwayat Versi & Perubahan</h3>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
-            Tutup
-          </button>
+          <div>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={async () => {
+                const res = await window.rk.checkForUpdates().catch(() => null);
+                console.log('update check', res);
+              }}
+              title="Periksa pembaruan aplikasi"
+            >
+              Cek Pembaruan
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
+              Tutup
+            </button>
+          </div>
         </div>
         {loading && <div className="modal-loading">Memuat riwayat versi…</div>}
         {error && <div className="modal-error">{error}</div>}

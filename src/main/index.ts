@@ -14,6 +14,7 @@ import type {
   NotifyPayload,
   ProjectFile,
   ServerState,
+  UpdateState,
 } from '../shared/types';
 import { APP_VERSION } from '../shared/types';
 import { StateStore } from './store';
@@ -25,26 +26,40 @@ import { joinAsMember, type MemberRoom } from './memberRoom';
 import { startDevServer, type DevServerHandle } from './devServer';
 import { scanFiles } from './fsScan';
 
-autoUpdater.autoDownload = true;
+let updateState: UpdateState = { status: 'idle', version: null, progress: null, error: null };
+
+function emitUpdateState(state: UpdateState): void {
+  updateState = state;
+  store.patch({ update: state });
+}
+
+autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = true;
 
 autoUpdater.on('checking-for-update', () => {
   notify({ kind: 'info', message: 'Memeriksa pembaruan...' });
+  emitUpdateState({ status: 'checking', version: null, progress: null, error: null });
 });
-autoUpdater.on('update-available', (info) => {
-  notify({ kind: 'info', message: `Pembaruan tersedia: v${info.version}` });
+autoUpdater.on('update-available', () => {
+  notify({ kind: 'info', message: 'Pembaruan tersedia. Unduh otomatis...' });
+  emitUpdateState({ status: 'available', version: null, progress: 0, error: null });
+  void autoUpdater.downloadUpdate().catch(() => undefined);
 });
 autoUpdater.on('update-not-available', () => {
   notify({ kind: 'info', message: 'Sudah versi terbaru.' });
+  emitUpdateState({ status: 'latest', version: null, progress: null, error: null });
 });
-autoUpdater.on('error', (err) => {
+autoUpdater.on('error', (err: Error) => {
   notify({ kind: 'error', message: `Gagal cek pembaruan: ${err.message}` });
+  emitUpdateState({ status: 'error', version: null, progress: null, error: err.message });
 });
 autoUpdater.on('download-progress', (progress) => {
   notify({ kind: 'info', message: `Mengunduh pembaruan: ${Math.round(progress.percent)}%` });
+  emitUpdateState({ status: 'downloading', version: null, progress: progress.percent, error: null });
 });
-autoUpdater.on('update-downloaded', (info) => {
-  notify({ kind: 'info', message: `Pembaruan v${info.version} siap. Akan terpasang saat aplikasi ditutup.` });
+autoUpdater.on('update-downloaded', () => {
+  notify({ kind: 'info', message: 'Pembaruan siap. Klik "Pasang Sekarang" untuk memperbarui.' });
+  emitUpdateState({ status: 'downloaded', version: null, progress: 100, error: null });
 });
 
 function checkForUpdates(): void {
@@ -100,6 +115,7 @@ const initialState: AppState = {
   sync: { status: 'off', files: 0, lastSync: null },
   discovered: [],
   projectFiles: [],
+  update: { status: 'idle', version: null, progress: null, error: null },
 };
 
 const store = new StateStore(initialState);
@@ -153,6 +169,7 @@ function resetRoomState(): void {
     server: { status: 'idle', url: null, port: null, logs: [] },
     sync: { status: 'off', files: 0, lastSync: null },
     projectFiles: [],
+    update: { status: 'idle', version: null, progress: null, error: null },
   });
   framework = null;
 }
@@ -384,11 +401,26 @@ function registerIpc(): void {
       return { ok: true, error: 'Auto-update tidak berjalan di mode development.' };
     }
     try {
-      const result = await autoUpdater.checkForUpdates();
-      if (result && result.updateInfo) {
+      await autoUpdater.checkForUpdates();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  });
+  ipcMain.handle('rk:install-update', async () => {
+    try {
+      if (updateState.status === 'downloaded') {
+        setImmediate(() => autoUpdater.quitAndInstall());
         return { ok: true };
       }
-      return { ok: true, error: 'Sudah versi terbaru.' };
+      if (updateState.status === 'available' || updateState.status === 'downloading') {
+        await autoUpdater.downloadUpdate();
+        return { ok: true };
+      }
+      if (updateState.status === 'latest' || updateState.status === 'idle') {
+        return { ok: false, error: 'Tidak ada pembaruan untuk dipasang.' };
+      }
+      return { ok: false, error: 'Status pembaruan tidak dikenali.' };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
     }

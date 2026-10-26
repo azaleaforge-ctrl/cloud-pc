@@ -22,6 +22,19 @@ interface ShellProps {
 export function Shell({ state, logs, onError, onClearLogs, onRoomLeft }: ShellProps) {
   const [tab, setTab] = useState<TabId>('room');
   const [showVersion, setShowVersion] = useState(false);
+  const [checkingUpdate, setChecking] = useState(false);
+
+  const handleCheckUpdate = async () => {
+    if (!showVersion) setShowVersion(true);
+    setChecking(true);
+    try {
+      await window.rk.checkForUpdates();
+    } catch {
+      // error handled via state.update
+    } finally {
+      setChecking(false);
+    }
+  };
   const holding = state.queue.holder === state.selfId;
   const webAvailable = state.server.status === 'running' && !!state.server.url;
 
