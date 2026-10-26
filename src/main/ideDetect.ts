@@ -265,6 +265,18 @@ export async function detectIdes(): Promise<IdeInfo[]> {
     byPath.set(key, { id: def.id, name: def.name, exe: resolved, installed: true, downloadUrl: def.downloadUrl, source });
   };
 
+  const addCustomShortcut = (label: string, exe: string): void => {
+    const resolved = uniqueFile(exe);
+    if (!resolved) return;
+    const key = resolved.toLowerCase();
+    if (byPath.has(key)) return;
+    const base = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || basename(exe).toLowerCase().replace(/\\.exe$/i, '');
+    const id = 'custom-' + base;
+    if (byId.has(id)) return;
+    byId.add(id);
+    byPath.set(key, { id, name: label, exe: resolved, installed: true, downloadUrl: null, source: 'shortcut' });
+  };
+
   // 1. Registry (HKCU, HKLM, HKLM WOW6432Node)
   try {
     const keys = [
@@ -326,7 +338,11 @@ export async function detectIdes(): Promise<IdeInfo[]> {
         item.pattern.test(target) ||
         item.exes.some((exe) => exe.toLowerCase() === basename(target).toLowerCase()),
       );
-      if (!def) continue;
+      if (!def) {
+        const looksLikeIde = /(\\bide\\b|editor|\\bcode\\b|studio|jetbrains|eclipse|netbeans|sublime|\\bzed\\b|cursor|antigravity|windsurf|trae|pycharm|webstorm|intellij|clion|rider|qt creator|geany|rstudio)/i.test(shortcut.label);
+        if (looksLikeIde && /\\.exe$/i.test(target)) addCustomShortcut(shortcut.label, target);
+        continue;
+      }
       let resolved = def.exes.some((exe) => exe.toLowerCase() === basename(target).toLowerCase())
         ? uniqueFile(target)
         : null;
@@ -337,7 +353,7 @@ export async function detectIdes(): Promise<IdeInfo[]> {
         const parent = dirname(dirname(target));
         if (existsSync(parent)) resolved = await findExeIn(parent, def.exes, 4);
       }
-      if (resolved) add(def.id, resolved, 'path');
+      if (resolved) add(def.id, resolved, 'shortcut');
     }
   } catch {
     // shortcut resolver is best-effort; continue with folder and PATH scans.
