@@ -25,6 +25,8 @@ import { createHostRoom, type HostRoom } from './hostRoom';
 import { joinAsMember, type MemberRoom } from './memberRoom';
 import { startDevServer, type DevServerHandle } from './devServer';
 import { scanFiles } from './fsScan';
+import { openEmbeddedIde, closeEmbeddedIde, resizeEmbeddedIde } from './nativeHost';
+import { startActivityMonitor } from './activityMonitor';
 
 let updateState: UpdateState = { status: 'idle', version: null, progress: null, error: null };
 
@@ -116,6 +118,9 @@ const initialState: AppState = {
   discovered: [],
   projectFiles: [],
   update: { status: 'idle', version: null, progress: null, error: null },
+  queueNotice: null,
+  ideMode: false,
+  activeIdeId: null,
 };
 
 const store = new StateStore(initialState);
@@ -125,6 +130,7 @@ let hostRoom: HostRoom | null = null;
 let memberRoom: MemberRoom | null = null;
 let devServer: DevServerHandle | null = null;
 let framework: FrameworkInfo | null = null;
+let stopActivityMonitor: (() => void) | null = null;
 
 function send(channel: string, payload: unknown): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -170,11 +176,18 @@ function resetRoomState(): void {
     sync: { status: 'off', files: 0, lastSync: null },
     projectFiles: [],
     update: { status: 'idle', version: null, progress: null, error: null },
+    queueNotice: null,
+    ideMode: false,
+    activeIdeId: null,
   });
   framework = null;
 }
 
 async function shutdownRoom(): Promise<void> {
+  stopActivityMonitor?.();
+  stopActivityMonitor = null;
+  await closeEmbeddedIde().catch(() => undefined);
+  store.patch({ ideMode: false, activeIdeId: null, queueNotice: null });
   if (devServer) {
     await devServer.stop().catch(() => undefined);
     devServer = null;
@@ -219,6 +232,7 @@ async function handleCreateRoom(input: CreateRoomInput): Promise<ActionResult> {
       notify,
     });
     hostRoom = room;
+    stopActivityMonitor = startActivityMonitor(folder, (source) => room.reportActivity(settings.selfId, source));
     startAdvertise({ code: room.code, name: roomName, port: room.port });
     store.patch({
       role: 'host',
@@ -274,6 +288,7 @@ async function handleJoinRoom(input: JoinRoomInput): Promise<ActionResult> {
       notify,
     });
     memberRoom = member;
+    stopActivityMonitor = startActivityMonitor(localDir, (source) => { member.reportActivity(source); });
     store.patch({
       role: 'member',
       code,
@@ -385,7 +400,31 @@ function registerIpc(): void {
     const ide = state.ides.find((item) => item.id === ideId);
     if (!ide) return { ok: false, error: 'IDE tidak ditemukan, coba rescan.' };
     if (!state.projectPath) return { ok: false, error: 'Belum ada folder project.' };
-    return openInIde(ide, state.projectPath);
+    const result = await openEmbeddedIde(ide, state.projectPath, win!);
+    if (result.ok) store.patch({ ideMode: true, activeIdeId: ide.id });
+    return result;
+  });
+  ipcMain.handle('rk:close-ide', async () => {
+    await closeEmbeddedIde();
+    store.patch({ ideMode: false, activeIdeId: null });
+    return { ok: true };
+  });
+  ipcMain.handle('rk:approve-queue', (_e, requesterId: string) => {
+    const state = store.get();
+    if (hostRoom) return hostRoom.approveQueue(requesterId);
+    if (memberRoom) return memberRoom.approveQueue(requesterId);
+    return { ok: false, error: 'Sesi ruangan tidak aktif.' };
+  });
+  ipcMain.handle('rk:defer-queue', (_e, requesterId: string) => {
+    const state = store.get();
+    if (hostRoom) return hostRoom.deferQueue(requesterId);
+    if (memberRoom) return memberRoom.deferQueue(requesterId);
+    return { ok: false, error: 'Sesi ruangan tidak aktif.' };
+  });
+  ipcMain.handle('rk:report-activity', (_e, source?: string) => {
+    const value = source || 'ui';
+    if (hostRoom) hostRoom.reportActivity(settings.selfId, value);
+    if (memberRoom) memberRoom.reportActivity(value);
   });
   ipcMain.handle('rk:rescan-framework', () => {
     const state = store.get();
@@ -489,6 +528,9 @@ async function createWindow(): Promise<void> {
     },
   });
   win.once('ready-to-show', () => win?.show());
+  win.on('resize', () => {
+    void resizeEmbeddedIde(win!);
+  });
   win.on('close', (e) => {
     // Klik X / Alt+F4: sembunyikan ke tray, jangan keluar.
     e.preventDefault();
