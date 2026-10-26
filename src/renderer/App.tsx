@@ -101,8 +101,6 @@ function UpdateNotice({ state }: { state: AppState }) {
   const speed = update.bytesPerSecond ?? 0;
   const remainingBytes = Math.max(0, total - transferred);
   const eta = speed > 0 && total > 0 ? formatEta(remainingBytes / speed) : '';
-  const busy = update.status === 'checking' || update.status === 'available' || update.status === 'downloading';
-
   const retry = async () => {
     setActionPending(true);
     try { await window.rk.checkForUpdates(); }
