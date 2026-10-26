@@ -1,23 +1,23 @@
-# Ruang Kerja VFIX 0.3.3
+# Ruang Kerja VFIX 0.3.4
 
-## Perbaikan pengalaman auto-update
-- Mengganti notifikasi unduhan berulang dengan satu panel update persisten yang tidak bisa di-dismiss selama proses berjalan.
-- Panel menampilkan progress bar, persentase, byte terunduh/total, kecepatan unduh aktual, dan perkiraan sisa waktu bila tersedia.
-- Indikator di footer menggunakan data progress dan kecepatan yang sama dengan panel update.
-- Event progress dipublikasikan maksimal sekitar 4 kali per detik agar tidak membebani renderer dan tidak menghasilkan tumpukan toast.
-- Status update tidak direset ketika pengguna keluar dari ruangan.
+## IDE terintegrasi dan deteksi IDE
+- Locator jendela IDE tidak lagi mengandalkan PID launcher saja. Ruang Kerja juga mencari jendela native berdasarkan identitas executable dan judul proyek, karena IDE berbasis Electron sering meneruskan folder ke proses yang sudah berjalan.
+- IDE berbasis VS Code yang kompatibel diminta membuka jendela proyek baru sebelum native embedding.
+- Deteksi IDE menambahkan jalur instalasi Antigravity yang lebih luas dan pemindaian shortcut Start Menu untuk lokasi instalasi khusus.
+- Jika Windows menolak native embedding, aplikasi menampilkan alasan yang lebih spesifik daripada timeout generik.
 
-## Perbaikan stabilitas downloader
-- Check update diserialisasi agar pemeriksaan startup, menu, dan tombol manual tidak saling menumpuk.
-- Tombol pasang tidak memulai download kedua ketika auto-download sedang berjalan.
-- NSIS differential download tetap diaktifkan; metadata blockmap dari release sebelumnya digunakan untuk membantu mengunduh bagian yang berubah apabila nama dan versi artefak kompatibel.
-- Workflow release memvalidasi kecocokan nama installer dan blockmap sebelum mengunggah release.
+## Server Laravel dan preview website
+- Readiness check menggunakan HTTP GET valid, bukan koneksi TCP yang langsung diputus. Ini menghindari pesan Laravel `Invalid request` yang sebelumnya ditimbulkan oleh probe port.
+- Server harus memberi respons HTTP sebelum status Berjalan ditampilkan.
+- Preview website menampilkan pesan kegagalan load di dalam Ruang Kerja, serta opsi muat ulang atau buka di browser untuk membantu diagnosis.
+- LAN proxy tetap digunakan ketika server localhost-only tidak dapat diakses langsung lewat IP LAN.
 
-## Riwayat versi otomatis
-- Setelah tiga perpindahan versi berhasil dijalankan, Detail Version menyembunyikan tiga entri rilis tertua dari daftar lokal.
-- Riwayat di GitHub dan file pengguna tidak dihapus; yang dibersihkan hanya entri yang ditampilkan di aplikasi.
-- Versi terakhir yang berhasil dijalankan dan hitungan pembersihan disimpan di settings lokal.
+## Tampilan workspace dan Detail Version
+- Jendela aplikasi otomatis dimaksimalkan ketika mulai dibuka.
+- Detail Version dibatasi menjadi 3 rilis terbaru: versi terkini dan dua versi sebelumnya.
 
-## Catatan
-- Peningkatan kecepatan melalui differential download bergantung pada ketersediaan blockmap versi sebelumnya. Migrasi dari versi sangat lama yang memakai nama artefak berbeda masih dapat memerlukan unduhan installer penuh satu kali.
-- Kecepatan jaringan aktual tetap bergantung pada rute/CDN GitHub; panel sekarang memperlihatkan kecepatan riil agar bottleneck bisa dibedakan dari masalah UI.
+## Download alternatif
+- Workflow release mendukung mirror Cloudflare R2 opsional jika secrets repository dikonfigurasi.
+- Saat mirror tersedia, metadata updater akan mengarahkan installer ke URL publik mirror sementara release tetap disimpan di GitHub.
+- Tanpa konfigurasi R2, alur release tetap memakai GitHub seperti biasa.
+- Lihat `DOWNLOAD_MIRROR.md` untuk cara mengaktifkan mirror. Kecepatan aktual tetap perlu diuji dari jaringan pengguna.
