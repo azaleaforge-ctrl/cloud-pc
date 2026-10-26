@@ -1,32 +1,26 @@
-# VFIX 0.3.1 - Ruang Kerja
+# Ruang Kerja VFIX 0.3.2
+
+## Perbaikan auto-update (utama)
+- Menetapkan nama installer Windows secara eksplisit menjadi `Ruang-Kerja-Setup-0.3.2.exe`, konsisten dengan URL yang dipakai metadata `latest.yml`.
+- Menyamakan nama file installer dan blockmap agar GitHub Release tidak menerbitkan nama yang berbeda dari metadata updater.
+- Workflow Release memvalidasi bahwa file yang disebut `latest.yml` benar-benar ada di folder hasil build. Proses release akan gagal lebih awal jika nama tidak cocok, alih-alih menerbitkan update yang berakhir 404.
+- Versi aplikasi dan lockfile dinaikkan ke 0.3.2 karena release 0.3.1 sudah dipublikasikan dengan metadata nama file yang tidak cocok.
 
 ## IDE di dalam Ruang Kerja
-- IDE yang dipilih dapat ditanam ke jendela Ruang Kerja pada Windows.
-- Tampilan berubah menjadi mode IDE penuh dengan bar kontrol minimal di kiri atas.
-- Tombol kembali mengembalikan pengguna ke workspace tanpa membuka jendela IDE terpisah.
-- Integrasi berlaku untuk IDE desktop Windows yang berhasil dideteksi Ruang Kerja.
+- IDE desktop Windows yang terdeteksi dapat dibuka dalam mode jendela Ruang Kerja dengan toolbar untuk kembali ke workspace.
+- Integrasi native window embedding bersifat Windows-specific dan perlu diuji terhadap tiap IDE.
 
 ## Sistem antrean berbasis aktivitas
-- Status kerja tidak lagi hanya bergantung pada perubahan file.
-- Aktivitas IDE, terminal, UI Ruang Kerja, dan proses AI coding agent ikut memperpanjang lease kerja.
-- Idle otomatis setelah 2 menit tanpa aktivitas yang terdeteksi.
-- Permintaan giliran ditampilkan sebagai bar persisten yang tidak menghalangi pekerjaan.
-- Saat pemegang giliran selesai, muncul keputusan Approve / Masih bekerja dengan batas 15 detik.
-- Persetujuan otomatis dilakukan setelah 15 detik.
-- Penolakan menunda peminta selama 2 menit.
-- Jika pemegang giliran kembali aktif, permintaan kembali menjadi bar dan ditanyakan lagi setelah periode tunggu 1 menit.
+- Aktivitas IDE embedded, terminal, UI Ruang Kerja, dan proses AI coding agent dipakai sebagai sinyal aktivitas.
+- Lease kerja idle setelah 2 menit tanpa aktivitas terdeteksi.
+- Permintaan giliran ditampilkan sebagai bar persisten.
+- Saat pemegang giliran menyelesaikan pekerjaan, prompt Approve / Masih bekerja memiliki countdown 15 detik; jika tidak dijawab, persetujuan otomatis.
+- Penundaan menempatkan peminta kembali ke antrean setelah 2 menit; jika pemegang giliran kembali aktif, prompt ditahan dan ditanyakan lagi setelah 1 menit.
 
-## Server development dan preview website
-- Laravel dijalankan dengan host 0.0.0.0 agar preview LAN dapat diakses anggota lain.
-- Django juga listen pada semua interface.
-- Environment host publik diperkuat untuk server development umum.
-- Status server dan URL preview tetap disebarkan melalui host ke anggota ruangan.
+## Server development dan preview
+- Laravel dan Django diarahkan untuk menerima koneksi LAN.
+- Server localhost-only mendapat fallback proxy LAN.
+- Framework JavaScript umum meneruskan opsi host/port LAN bila didukung CLI.
 
 ## Deteksi IDE
-- Scanner mencoba lokasi instalasi langsung sebelum pencarian folder umum.
-- Lokasi Antigravity yang umum ditangani secara eksplisit.
-- Jalur instalasi non-standard tidak lagi hanya bergantung pada registry Windows.
-
-## Pembaruan aplikasi
-- Versi aplikasi dinaikkan ke 0.3.1 agar dapat menjadi update setelah 0.3.0 yang sudah terbit.
-- Detail versi ditampilkan sebagai daftar perubahan fitur, bukan link repository.
+- Menambahkan pencarian langsung pada beberapa lokasi instalasi Windows yang umum, termasuk Antigravity.
