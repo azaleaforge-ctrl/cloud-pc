@@ -270,7 +270,7 @@ export async function detectIdes(): Promise<IdeInfo[]> {
     if (!resolved) return;
     const key = resolved.toLowerCase();
     if (byPath.has(key)) return;
-    const base = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || basename(exe).toLowerCase().replace(/\\.exe$/i, '');
+    const base = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || basename(exe).toLowerCase().replace(/\.exe$/i, '');
     const id = 'custom-' + base;
     if (byId.has(id)) return;
     byId.add(id);
@@ -339,8 +339,8 @@ export async function detectIdes(): Promise<IdeInfo[]> {
         item.exes.some((exe) => exe.toLowerCase() === basename(target).toLowerCase()),
       );
       if (!def) {
-        const looksLikeIde = /(\\bide\\b|editor|\\bcode\\b|studio|jetbrains|eclipse|netbeans|sublime|\\bzed\\b|cursor|antigravity|windsurf|trae|pycharm|webstorm|intellij|clion|rider|qt creator|geany|rstudio)/i.test(shortcut.label);
-        if (looksLikeIde && /\\.exe$/i.test(target)) addCustomShortcut(shortcut.label, target);
+        const looksLikeIde = /(\bide\b|editor|\bcode\b|studio|jetbrains|eclipse|netbeans|sublime|\bzed\b|cursor|antigravity|windsurf|trae|pycharm|webstorm|intellij|clion|rider|qt creator|geany|rstudio)/i.test(shortcut.label);
+        if (looksLikeIde && /\.exe$/i.test(target)) addCustomShortcut(shortcut.label, target);
         continue;
       }
       let resolved = def.exes.some((exe) => exe.toLowerCase() === basename(target).toLowerCase())
