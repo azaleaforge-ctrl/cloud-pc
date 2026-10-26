@@ -25,10 +25,15 @@ import { findRoom, getLanIp, startAdvertise, stopAdvertise } from './discovery';
 import { createHostRoom, type HostRoom } from './hostRoom';
 import { joinAsMember, type MemberRoom } from './memberRoom';
 import { startDevServer, type DevServerHandle } from './devServer';
-import { scanFiles } from './fsScan';
+import { scanFiles, scanProjectEntries } from './fsScan';
 import { openEmbeddedIde, closeEmbeddedIde, resizeEmbeddedIde } from './nativeHost';
 import { startActivityMonitor } from './activityMonitor';
 
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  // Do not let a second launch initialize room sockets, tray icons, or background services.
+  app.exit(0);
+} else {
 let updateState: UpdateState = { status: 'idle', version: null, progress: null, error: null, transferred: 0, total: 0, bytesPerSecond: 0 };
 let updateCheckPromise: Promise<void> | null = null;
 let lastProgressEmitAt = 0;
@@ -219,6 +224,15 @@ const initialState: AppState = {
 const store = new StateStore(initialState);
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
+app.on('second-instance', () => {
+  if (!win || win.isDestroyed()) {
+    void createWindow();
+    return;
+  }
+  if (win.isMinimized()) win.restore();
+  if (!win.isVisible()) win.show();
+  win.focus();
+});
 let hostRoom: HostRoom | null = null;
 let memberRoom: MemberRoom | null = null;
 let devServer: DevServerHandle | null = null;
@@ -718,12 +732,14 @@ function registerIpc(): void {
     const state = store.get();
     if (!state.projectPath) return [];
     try {
-      const files = await scanFiles(state.projectPath);
-      return files.map((f) => ({
-        path: f.path,
-        size: f.size,
-        mtime: f.mtime,
-        modified: new Date(f.mtime * 1000).toISOString(),
+      const entries = await scanProjectEntries(state.projectPath);
+      return entries.map((entry) => ({
+        path: entry.path,
+        size: entry.size,
+        mtime: entry.mtime,
+        // fsScan stores epoch milliseconds. Do not multiply by 1000.
+        modified: new Date(entry.mtime).toISOString(),
+        isDirectory: entry.isDirectory,
       }));
     } catch {
       return [];
@@ -833,3 +849,4 @@ app.on('before-quit', () => {
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) void createWindow();
 });
+}
