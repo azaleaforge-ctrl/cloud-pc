@@ -6,3 +6,8 @@ release/
 Thumbs.db
 runs.json
 jobs.json
+jobs2.json
+releases.json
+rl.tar
+rl.tar.gz
+logs.tar.gz
