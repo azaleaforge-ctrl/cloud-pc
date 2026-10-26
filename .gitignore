@@ -4,3 +4,7 @@ release/
 *.log
 .DS_Store
 Thumbs.db
+node_modules/
+*.json
+!package.json
+!package-lock.json
