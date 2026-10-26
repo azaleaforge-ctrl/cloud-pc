@@ -211,6 +211,8 @@ export interface RkApi {
   installUpdate(): Promise<ActionResult>;
   fetchReleaseNotes(): Promise<FetchReleasesResult>;
   listProjectFiles(): Promise<ProjectFile[]>;
+  /** Fires after watched project paths change on disk or through collaboration sync. */
+  onProjectFilesChanged(cb: () => void): () => void;
   onState(cb: (state: AppState) => void): () => void;
   onNotify(cb: (payload: NotifyPayload) => void): () => void;
   onServerLog(cb: (payload: ServerLogLine) => void): () => void;
