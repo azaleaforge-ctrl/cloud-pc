@@ -92,7 +92,7 @@ export function RoomTab({
             <div className="info-row">
               <dt>Folder project</dt>
               <dd className="mono" title={state.projectPath ?? undefined}>
-                {state.projectPath ?? '—'}
+                {state.projectPath ?? '-'}
               </dd>
             </div>
             <div className="info-row">

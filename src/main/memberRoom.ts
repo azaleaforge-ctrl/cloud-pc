@@ -298,7 +298,7 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
         emitQueue();
         if (previousHolder !== holder) {
           if (holder === selfId) {
-            opts.notify({ kind: 'turn', message: 'Giliranmu sekarang — silakan mulai bekerja' });
+            opts.notify({ kind: 'turn', message: 'Giliranmu sekarang - silakan mulai bekerja' });
           } else if (previousHolder === selfId) {
             opts.notify({ kind: 'info', message: 'Giliranmu selesai' });
           }

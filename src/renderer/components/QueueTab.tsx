@@ -69,7 +69,7 @@ export function QueueTab({
         <div>
           <div className="turn-hero-title">
             {holding
-              ? 'Giliranmu — sedang bekerja'
+              ? 'Giliranmu - sedang bekerja'
               : holder
                 ? `${holder.name} sedang bekerja`
                 : 'Tidak ada yang memegang giliran'}
@@ -81,7 +81,7 @@ export function QueueTab({
                 ? myPos >= 0
                   ? `Kamu antre di posisi ${myPos + 1}. Tunggu giliranmu dipanggil.`
                   : 'Ambil giliran untuk mulai bekerja atau masuk antrean.'
-                : 'Ruang kerja bebas — ambil giliran untuk mulai bekerja.'}
+                : 'Ruang kerja bebas - ambil giliran untuk mulai bekerja.'}
           </div>
         </div>
         <div className="turn-hero-action">
@@ -137,7 +137,7 @@ export function QueueTab({
         <IconInfo size={17} />
         <span>
           <b>Aturan main:</b> hanya satu orang yang boleh bekerja pada satu waktu supaya perubahan
-          berkas tidak bentrok. Ambil giliran saat ruang kerja bebas, dan lepas begitu selesai —
+          berkas tidak bentrok. Ambil giliran saat ruang kerja bebas, dan lepas begitu selesai -
           orang berikutnya langsung dilanjutkan.
         </span>
       </div>

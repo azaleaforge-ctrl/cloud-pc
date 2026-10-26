@@ -156,7 +156,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   };
 
   const announceHolder = (memberId: string): void => {
-    notifyMember(memberId, 'turn', 'Giliranmu sekarang — silakan mulai bekerja');
+    notifyMember(memberId, 'turn', 'Giliranmu sekarang - silakan mulai bekerja');
   };
 
   const applyHolderChange = (): void => {

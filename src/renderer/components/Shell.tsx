@@ -24,7 +24,7 @@ export function Shell({ state, logs, onError, onClearLogs, onRoomLeft }: ShellPr
   const holding = state.queue.holder === state.selfId;
   const webAvailable = state.server.status === 'running' && !!state.server.url;
 
-  // Tab Website hilang saat server berhenti — kembali ke Server.
+  // Tab Website hilang saat server berhenti - kembali ke Server.
   useEffect(() => {
     if (tab === 'web' && !webAvailable) setTab('server');
   }, [tab, webAvailable]);

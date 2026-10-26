@@ -256,7 +256,7 @@ export function ServerTab({
           </div>
           <div className="log-foot">
             <span>{logs.length} baris</span>
-            <span>{autoScroll ? 'Gulir otomatis aktif' : 'Gulir otomatis pause — naikkan ke bawah untuk lanjut'}</span>
+            <span>{autoScroll ? 'Gulir otomatis aktif' : 'Gulir otomatis pause - naikkan ke bawah untuk lanjut'}</span>
           </div>
         </section>
       </div>

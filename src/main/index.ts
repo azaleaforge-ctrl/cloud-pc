@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import type {
   ActionResult,
@@ -101,6 +101,7 @@ const initialState: AppState = {
 
 const store = new StateStore(initialState);
 let win: BrowserWindow | null = null;
+let tray: Tray | null = null;
 let hostRoom: HostRoom | null = null;
 let memberRoom: MemberRoom | null = null;
 let devServer: DevServerHandle | null = null;
@@ -437,11 +438,53 @@ async function createWindow(): Promise<void> {
     },
   });
   win.once('ready-to-show', () => win?.show());
+  win.on('close', (e) => {
+    // Klik X / Alt+F4: sembunyikan ke tray, jangan keluar.
+    e.preventDefault();
+    win?.hide();
+  });
+  win.on('focus', () => {
+    win?.setOpacity(1);
+  });
   win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: 'deny' };
   });
   await win.loadFile(join(__dirname, '../renderer/index.html'));
+
+  // Tray: klik kiri ganti visible, klik kanan menu.
+  tray = new Tray(join(__dirname, '../renderer/icon.png'));
+  tray.setToolTip('Ruang Kerja');
+  tray.on('click', () => {
+    if (win && win.isVisible()) {
+      win.hide();
+    } else {
+      win?.show();
+      win?.focus();
+    }
+  });
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: 'Buka',
+        click: () => {
+          win?.show();
+          win?.focus();
+        },
+      },
+      {
+        label: 'Cek Pembaruan',
+        click: () => checkForUpdates(),
+      },
+      { type: 'separator' },
+      {
+        label: 'Keluar',
+        click: () => {
+          void shutdownRoom().finally(() => app.quit());
+        },
+      },
+    ]),
+  );
 }
 
 app.whenReady().then(async () => {
@@ -453,11 +496,18 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  void shutdownRoom().finally(() => app.quit());
+  // Di Windows, jendela hanya disembunyikan ke tray (bukan keluar).
+  if (process.platform !== 'win32') {
+    void shutdownRoom().finally(() => app.quit());
+  }
 });
 
 app.on('before-quit', () => {
   stopAdvertise();
+  if (tray) {
+    tray.destroy();
+    tray = null;
+  }
 });
 
 app.on('activate', () => {

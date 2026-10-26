@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import type { AppState } from '../../shared/types';
 import { IconEnter, IconPlus, IconWifi, LogoMark, Spinner } from './icons';
-import { Field, FolderPicker, FooterBar } from './ui';
+import { Field, FolderPicker, FooterBar, VersionModal } from './ui';
 
 interface LandingProps {
   state: AppState;
@@ -71,7 +71,7 @@ function CreateCard({
           <h2 className="mode-title" id="create-title">
             Buat Ruangan
           </h2>
-          <p className="mode-sub">Jadi host — bagikan folder project dari laptopmu.</p>
+          <p className="mode-sub">Jadi host - bagikan folder project dari laptopmu.</p>
         </div>
       </div>
       <form className="mode-form" onSubmit={submit} noValidate>
@@ -159,7 +159,7 @@ function JoinCard({
           <h2 className="mode-title" id="join-title">
             Gabung Ruangan
           </h2>
-          <p className="mode-sub">Jadi anggota — minta kode dari host.</p>
+          <p className="mode-sub">Jadi anggota - minta kode dari host.</p>
         </div>
       </div>
       <form className="mode-form" onSubmit={submit} noValidate>
@@ -206,6 +206,7 @@ function JoinCard({
 }
 
 export function Landing({ state, onError }: LandingProps) {
+  const [showVersion, setShowVersion] = useState(false);
   return (
     <div className="landing">
       <header className="app-header">
@@ -236,8 +237,9 @@ export function Landing({ state, onError }: LandingProps) {
       </main>
 
       <footer className="app-footer">
-        <FooterBar state={state} />
+        <FooterBar state={state} onVersionClick={() => setShowVersion(true)} />
       </footer>
+      <VersionModal open={showVersion} onClose={() => setShowVersion(false)} />
     </div>
   );
 }
