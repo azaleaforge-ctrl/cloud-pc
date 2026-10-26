@@ -264,7 +264,7 @@ function resetRoomState(): void {
     server: { status: 'idle', url: null, port: null, logs: [] },
     sync: { status: 'off', files: 0, lastSync: null },
     projectFiles: [],
-    update: { status: 'idle', version: null, progress: null, error: null },
+    // Update state is global and must continue while the user leaves/changes a room.
     queueNotice: null,
     ideMode: false,
     activeIdeId: null,
