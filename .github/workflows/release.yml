@@ -35,11 +35,36 @@ jobs:
       - name: Build
         run: npm run build && npx electron-builder --win nsis --publish never
 
-      - name: Show release artifacts
+      - name: Validate release artifacts
+        shell: pwsh
         run: |
           Get-ChildItem release/ -File
-          Write-Host "---"
+          Write-Host "--- latest.yml ---"
           Get-Content release/latest.yml
+
+          $metadata = Get-Content release/latest.yml -Raw
+          $match = [regex]::Match($metadata, '(?m)^\s*-\s*url:\s*(.+?)\s*
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: false
+          body_path: RELEASE_NOTES.md
+          files: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
+)
+          if (-not $match.Success) {
+            throw "latest.yml tidak memiliki entri URL installer."
+          }
+
+          $assetName = $match.Groups[1].Value.Trim()
+          $assetPath = Join-Path (Resolve-Path release) $assetName
+          if (-not (Test-Path -LiteralPath $assetPath -PathType Leaf)) {
+            throw "latest.yml menunjuk ke '$assetName', tetapi file itu tidak ditemukan di folder release."
+          }
+
+          Write-Host "Validated updater URL target: $assetName"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
