@@ -134,6 +134,17 @@ export function Modal({
   );
 }
 
+function formatUpdateBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+  return (value / Math.pow(1024, index)).toFixed(index >= 2 ? 1 : 0) + ' ' + units[index];
+}
+
+function formatUpdateSpeed(value: number): string {
+  return value > 0 ? formatUpdateBytes(value) + '/s' : '…';
+}
+
 /** Baris status bawah app: versi, IP LAN, jumlah IDE. */
 export function FooterBar({
   state,
@@ -151,7 +162,16 @@ export function FooterBar({
           {state.update.status === 'checking' ? (
             <span className="update-status checking">Memeriksa...</span>
           ) : state.update.status === 'downloading' ? (
-            <span className="update-status downloading">{Math.round(state.update.progress ?? 0)}%</span>
+            <span className={'update-inline' + (compact ? ' compact' : '')} title={
+              'Download ' + Math.round(state.update.progress ?? 0) + '% — ' +
+              formatUpdateBytes(state.update.transferred ?? 0) + ' / ' +
+              formatUpdateBytes(state.update.total ?? 0) + ' — ' +
+              formatUpdateSpeed(state.update.bytesPerSecond ?? 0)
+            }>
+              <b className="update-inline-percent">{Math.round(state.update.progress ?? 0)}%</b>
+              <span className="update-inline-track"><span style={{ width: Math.min(100, Math.max(0, state.update.progress ?? 0)) + '%' }} /></span>
+              <span className="update-inline-speed">{formatUpdateSpeed(state.update.bytesPerSecond ?? 0)}</span>
+            </span>
           ) : state.update.status === 'downloaded' ? (
             <button
               type="button"
@@ -162,7 +182,7 @@ export function FooterBar({
               Pasang Sekarang
             </button>
           ) : state.update.status === 'available' ? (
-            <span className="update-status available">Siap dipasang</span>
+            <span className="update-status available">Menyiapkan…</span>
           ) : state.update.status === 'latest' ? (
             <span className="update-status latest">Terbaru</span>
           ) : state.update.status === 'error' ? (
