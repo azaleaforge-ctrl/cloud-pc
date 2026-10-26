@@ -200,29 +200,31 @@ export async function openEmbeddedIde(ide: IdeInfo, folder: string, win: Browser
   return { ok: true };
 }
 
-let resizeInFlight = false;
+let resizeInFlight: Promise<void> | null = null;
 let resizePendingWin: BrowserWindow | null = null;
 
-export async function resizeEmbeddedIde(win: BrowserWindow): Promise<void> {
-  if (!session || win.isDestroyed()) return;
+export function resizeEmbeddedIde(win: BrowserWindow): Promise<void> {
+  if (!session || win.isDestroyed()) return Promise.resolve();
   if (resizeInFlight) {
     resizePendingWin = win;
-    return;
+    return resizeInFlight;
   }
-  resizeInFlight = true;
-  let current: BrowserWindow | null = win;
-  try {
-    while (current && !current.isDestroyed() && session) {
+  resizeInFlight = (async () => {
+    let current: BrowserWindow | null = win;
+    try {
+      while (current && !current.isDestroyed() && session) {
+        resizePendingWin = null;
+        const parentHwnd = current.getNativeWindowHandle().readBigUInt64LE(0);
+        const bounds = current.getContentBounds();
+        await resizeNativeIdeWindow(session.hwnd, parentHwnd, bounds.width, bounds.height);
+        current = resizePendingWin;
+      }
+    } finally {
+      resizeInFlight = null;
       resizePendingWin = null;
-      const parentHwnd = current.getNativeWindowHandle().readBigUInt64LE(0);
-      const bounds = current.getContentBounds();
-      await resizeNativeIdeWindow(session.hwnd, parentHwnd, bounds.width, bounds.height);
-      current = resizePendingWin;
     }
-  } finally {
-    resizeInFlight = false;
-    resizePendingWin = null;
-  }
+  })();
+  return resizeInFlight;
 }
 
 export async function focusEmbeddedIde(win: BrowserWindow): Promise<void> {
