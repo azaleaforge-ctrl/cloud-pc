@@ -32,6 +32,9 @@ export interface HostRoom {
   readonly port: number;
   takeTurn(): ActionResult;
   releaseTurn(): ActionResult;
+  approveQueue(requesterId: string): ActionResult;
+  deferQueue(requesterId: string): ActionResult;
+  reportActivity(memberId: string, source: string): void;
   setServerState(state: ServerState): void;
   close(): Promise<void>;
 }
@@ -71,8 +74,31 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   let closed = false;
   let oversizeWarned = false;
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let promptTimer: ReturnType<typeof setTimeout> | null = null;
+  let repromptTimer: ReturnType<typeof setTimeout> | null = null;
+  let holderLastActivity: number | null = holder ? Date.now() : null;
+  let holderActivitySource: string | null = holder ? 'room-start' : null;
+  let pendingPrompt: { requesterId: string; requesterName: string; expiresAt: number } | null = null;
+  const snoozedUntil = new Map<string, number>();
 
-  const resetIdleTimer = (): void => {
+  const clearPrompt = (): void => {
+    if (promptTimer) clearTimeout(promptTimer);
+    if (repromptTimer) clearTimeout(repromptTimer);
+    promptTimer = null;
+    repromptTimer = null;
+    pendingPrompt = null;
+  };
+
+  const updateStatuses = (): void => {
+    for (const [id, member] of members) {
+      member.status = id === holder ? 'working' : queue.includes(id) ? 'queued' : 'idle';
+    }
+  };
+
+  const resetIdleTimer = (source = 'file'): void => {
+    if (!holder) return;
+    holderLastActivity = Date.now();
+    holderActivitySource = source;
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
       idleTimer = null;
@@ -92,7 +118,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   const port = (wsServer.address() as AddressInfo).port;
 
   const listMembers = (): Member[] => [...members.values()];
-  const queueState = () => ({ holder, queue: [...queue] });
+  const queueState = () => ({ holder, queue: [...queue], holderLastActivity, holderActivitySource });
 
   const broadcast = (msg: WireMessage, exceptId?: string): void => {
     for (const client of clients.values()) {
@@ -115,7 +141,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   };
 
   const sendState = (): void => {
-    broadcast({ t: 'state', members: listMembers(), holder, queue: [...queue], server: serverState });
+    broadcast({ t: 'state', members: listMembers(), holder, queue: [...queue], holderLastActivity, holderActivitySource, server: serverState });
   };
 
   const scheduleSyncEmit = (): void => {
@@ -200,7 +226,8 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
 
     if (holder === null) {
       holder = byId;
-      resetIdleTimer();
+      updateStatuses();
+      resetIdleTimer('turn');
       broadcast({ t: 'turn-taken', holder: byId, name: member.name });
       broadcast({ t: 'notify', kind: 'info', message: `${member.name} mulai bekerja` });
       if (byId !== opts.hostId) opts.notify({ kind: 'info', message: `${member.name} mulai bekerja` });
@@ -211,6 +238,13 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
 
     if (queue.includes(byId)) return { ok: false, error: 'Kamu sudah ada di antrian.' };
     queue.push(byId);
+    updateStatuses();
+    if (holder === opts.hostId) {
+      opts.emit({ queueNotice: { mode: 'bar', requesterId: byId, requesterName: member.name, holderName: members.get(holder)?.name ?? 'Anggota', expiresAt: null, deferredUntil: null } });
+    } else {
+      const holderClient = holder ? clients.get(holder) : null;
+      if (holderClient) sendWire(holderClient.ws, { t: 'queue-prompt', requesterId: byId, requesterName: member.name, holderName: members.get(holder)?.name ?? 'Anggota', expiresAt: null, mode: 'bar' });
+    }
     broadcast({ t: 'notify', kind: 'info', message: `${member.name} masuk antrian (posisi ${queue.length})` });
     if (byId !== opts.hostId) opts.notify({ kind: 'info', message: `${member.name} masuk antrian` });
     applyHolderChange();
@@ -249,25 +283,149 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     const member = members.get(byId);
     const name = member?.name ?? 'Anggota';
 
-    holder = queue.shift() ?? null;
-    broadcast({ t: 'turn-released', holder, name });
-    broadcast({ t: 'notify', kind: 'info', message: idle ? `${name} idle - otomatis melepas giliran` : `${name} selesai bekerja` });
-    if (byId !== opts.hostId) opts.notify({ kind: idle ? 'warn' : 'info', message: idle ? `${name} idle - giliran dilepas otomatis` : `${name} selesai bekerja` });
-
-    if (holder) {
-      const nextName = members.get(holder)?.name ?? 'Anggota';
-      announceHolder(holder);
-      if (holder !== opts.hostId) {
-        opts.notify({ kind: 'info', message: `${nextName} sekarang memegang giliran` });
+    if (idle) {
+      clearPrompt();
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = null;
+      holder = queue.shift() ?? null;
+      holderLastActivity = holder ? Date.now() : null;
+      holderActivitySource = holder ? 'idle-auto' : null;
+      updateStatuses();
+      broadcast({ t: 'turn-released', holder, name });
+      broadcast({ t: 'notify', kind: 'warn', message: name + ' idle selama 2 menit - giliran dilepas otomatis.' });
+      if (byId !== opts.hostId) opts.notify({ kind: 'warn', message: name + ' idle - giliran dilepas otomatis.' });
+      if (holder) {
+        const nextName = members.get(holder)?.name ?? 'Anggota';
+        announceHolder(holder);
+        if (holder !== opts.hostId) opts.notify({ kind: 'turn', message: nextName + ' sekarang mendapat giliran.' });
+        resetIdleTimer('queue-auto');
       }
-      resetIdleTimer();
+      applyHolderChange();
+      return { ok: true };
     }
-    idleTimer && clearTimeout(idleTimer);
+
+    if (queue.length > 0) {
+      const requesterId = queue[0];
+      const requester = members.get(requesterId);
+      if (requester) {
+        pendingPrompt = { requesterId, requesterName: requester.name, expiresAt: Date.now() + 15_000 };
+        if (byId === opts.hostId) {
+          opts.emit({ queueNotice: { mode: 'decision', requesterId, requesterName: requester.name, holderName: name, expiresAt: pendingPrompt.expiresAt, deferredUntil: null } });
+        } else {
+          const client = clients.get(byId);
+          if (client) sendWire(client.ws, { t: 'queue-prompt', requesterId, requesterName: requester.name, holderName: name, expiresAt: pendingPrompt.expiresAt, mode: 'decision' });
+        }
+        promptTimer = setTimeout(() => {
+          promptTimer = null;
+          if (pendingPrompt?.requesterId === requesterId) approveQueue(requesterId);
+        }, 15_000);
+        promptTimer.unref?.();
+        return { ok: true };
+      }
+    }
+
+    clearPrompt();
+    if (idleTimer) clearTimeout(idleTimer);
     idleTimer = null;
+    holder = null;
+    holderLastActivity = null;
+    holderActivitySource = null;
+    updateStatuses();
+    broadcast({ t: 'turn-released', holder: null, name });
+    broadcast({ t: 'notify', kind: 'info', message: name + ' selesai bekerja.' });
+    if (byId !== opts.hostId) opts.notify({ kind: 'info', message: 'Kamu selesai bekerja.' });
+    applyHolderChange();
+    return { ok: true };
+  };
+  const approveQueue = (requesterId: string): ActionResult => {
+    if (!holder || !pendingPrompt || pendingPrompt.requesterId !== requesterId) return { ok: false, error: 'Permintaan giliran sudah tidak aktif.' };
+    const idx = queue.indexOf(requesterId);
+    if (idx < 0) return { ok: false, error: 'Anggota tidak lagi berada di antrian.' };
+    const requester = members.get(requesterId);
+    const previousHolder = holder;
+    const previousName = members.get(previousHolder)?.name ?? 'Anggota';
+    queue.splice(idx, 1);
+    clearPrompt();
+    holder = requesterId;
+    holderLastActivity = Date.now();
+    holderActivitySource = 'approved';
+    updateStatuses();
+    if (previousHolder === opts.hostId) opts.emit({ queueNotice: null });
+    broadcast({ t: 'turn-released', holder, name: previousName });
+    if (requester) announceHolder(requesterId);
+    resetIdleTimer('approved');
     applyHolderChange();
     return { ok: true };
   };
 
+  const deferQueue = (requesterId: string): ActionResult => {
+    if (!holder || !pendingPrompt || pendingPrompt.requesterId !== requesterId) return { ok: false, error: 'Permintaan giliran sudah tidak aktif.' };
+    const requester = members.get(requesterId);
+    if (!requester) return { ok: false, error: 'Anggota tidak dikenal.' };
+    const holderName = members.get(holder)?.name ?? 'Anggota';
+    const idx = queue.indexOf(requesterId);
+    if (idx < 0) return { ok: false, error: 'Anggota tidak lagi berada di antrian.' };
+    queue.splice(idx, 1);
+    const until = Date.now() + 120_000;
+    snoozedUntil.set(requesterId, until);
+    clearPrompt();
+    updateStatuses();
+    if (holder === opts.hostId) opts.emit({ queueNotice: null });
+    if (requesterId === opts.hostId) {
+      opts.emit({ queueNotice: { mode: 'deferred', requesterId, requesterName: requester.name, holderName, expiresAt: null, deferredUntil: until } });
+    } else {
+      const requesterClient = clients.get(requesterId);
+      if (requesterClient) sendWire(requesterClient.ws, { t: 'queue-deferred', requesterId, requesterName: requester.name, holderName, until });
+    }
+    const repush = setTimeout(() => {
+      snoozedUntil.delete(requesterId);
+      if (!members.has(requesterId) || queue.includes(requesterId) || holder === requesterId) return;
+      queue.push(requesterId);
+      updateStatuses();
+      applyHolderChange();
+      const requesterClient = clients.get(requesterId);
+      if (requesterClient) sendWire(requesterClient.ws, { t: 'queue-prompt', requesterId, requesterName: requester.name, holderName, expiresAt: null, mode: 'bar' });
+    }, 120_000);
+    repush.unref?.();
+    applyHolderChange();
+    return { ok: true };
+  };
+
+  const reportActivity = (memberId: string, source: string): void => {
+    if (memberId !== holder) return;
+    resetIdleTimer(source);
+    if (pendingPrompt) {
+      const requesterId = pendingPrompt.requesterId;
+      const requester = members.get(requesterId);
+      clearPrompt();
+      if (requester) {
+        if (memberId === opts.hostId) {
+          opts.emit({ queueNotice: { mode: 'bar', requesterId, requesterName: requester.name, holderName: members.get(memberId)?.name ?? 'Anggota', expiresAt: null, deferredUntil: null } });
+        } else {
+          const client = clients.get(memberId);
+          if (client) sendWire(client.ws, { t: 'queue-prompt', requesterId, requesterName: requester.name, holderName: members.get(memberId)?.name ?? 'Anggota', expiresAt: null, mode: 'bar' });
+        }
+        repromptTimer = setTimeout(() => {
+          repromptTimer = null;
+          if (!holder || !queue.includes(requesterId) || pendingPrompt) return;
+          pendingPrompt = { requesterId, requesterName: requester.name, expiresAt: Date.now() + 15_000 };
+          if (holder === opts.hostId) {
+            opts.emit({ queueNotice: { mode: 'decision', requesterId, requesterName: requester.name, holderName: members.get(holder)?.name ?? 'Anggota', expiresAt: pendingPrompt.expiresAt, deferredUntil: null } });
+          } else {
+            const client = clients.get(holder);
+            if (client) sendWire(client.ws, { t: 'queue-prompt', requesterId, requesterName: requester.name, holderName: members.get(holder)?.name ?? 'Anggota', expiresAt: pendingPrompt.expiresAt, mode: 'decision' });
+          }
+          promptTimer = setTimeout(() => {
+            promptTimer = null;
+            if (pendingPrompt?.requesterId === requesterId) approveQueue(requesterId);
+          }, 15_000);
+          promptTimer.unref?.();
+        }, 60_000);
+        repromptTimer.unref?.();
+      }
+    }
+    sendState();
+  };
   const publishLocalChange = async (event: 'add' | 'change' | 'unlink', relPath: string): Promise<void> => {
     if (closed) return;
     if (consumeSuppressed(relPath)) return;
@@ -379,8 +537,13 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     const message = `${client.name} terputus, giliran dilepas`;
     broadcast({ t: 'notify', kind: 'info', message });
     opts.notify({ kind: 'warn', message });
-    if (wasHolder) broadcast({ t: 'turn-released', holder, name: client.name });
-    if (holder) announceHolder(holder);
+    if (wasHolder) {
+      clearPrompt();
+      if (holder) {
+        announceHolder(holder);
+        resetIdleTimer('disconnect');
+      }
+    }
     applyHolderChange();
   };
 
@@ -428,7 +591,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
         }
         client = { id, name, ws, lastSeen: Date.now() };
         clients.set(id, client);
-        members.set(id, { id, name, isHost: false });
+        members.set(id, { id, name, isHost: false, status: queue.includes(id) ? 'queued' : 'idle' });
 
         sendWire(ws, {
           t: 'welcome',
@@ -439,6 +602,8 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
           members: listMembers(),
           holder,
           queue: [...queue],
+          holderLastActivity,
+          holderActivitySource,
           hostIp: getLanIp() ?? '127.0.0.1',
           server: serverState,
         });
@@ -465,6 +630,19 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
         case 'release': {
           const result = internalReleaseTurn(client.id);
           if (!result.ok) sendWire(ws, { t: 'error', message: result.error ?? 'Gagal melepas giliran.' });
+          break;
+        }
+        case 'activity':
+          reportActivity(client.id, typeof msg.source === 'string' ? msg.source : 'ui');
+          break;
+        case 'queue-approve': {
+          const result = approveQueue(msg.requesterId);
+          if (!result.ok) sendWire(ws, { t: 'error', message: result.error ?? 'Gagal menyetujui antrian.' });
+          break;
+        }
+        case 'queue-defer': {
+          const result = deferQueue(msg.requesterId);
+          if (!result.ok) sendWire(ws, { t: 'error', message: result.error ?? 'Gagal menunda antrian.' });
           break;
         }
         case 'fs': {
@@ -587,6 +765,9 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     port,
     takeTurn: () => internalTakeTurn(opts.hostId),
     releaseTurn: () => internalReleaseTurn(opts.hostId),
+    approveQueue: (requesterId: string) => approveQueue(requesterId),
+    deferQueue: (requesterId: string) => deferQueue(requesterId),
+    reportActivity: (memberId: string, source: string) => reportActivity(memberId, source),
     setServerState: (state: ServerState) => {
       serverState = { ...state, logs: [] };
       sendState();
@@ -603,6 +784,8 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
         clearTimeout(idleTimer);
         idleTimer = null;
       }
+      clearPrompt();
+      snoozedUntil.clear();
       for (const timer of pending.values()) clearTimeout(timer);
       pending.clear();
       if (watcher) {

@@ -27,6 +27,9 @@ export interface MemberRoomOptions {
 export interface MemberRoom {
   takeTurn(): ActionResult;
   releaseTurn(): ActionResult;
+  approveQueue(requesterId: string): ActionResult;
+  deferQueue(requesterId: string): ActionResult;
+  reportActivity(source: string): ActionResult;
   close(): Promise<void>;
 }
 
@@ -51,6 +54,8 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
   let holder: string | null = null;
   let queue: string[] = [];
   let server: ServerState = { status: 'idle', url: null, port: null, logs: [] };
+  let holderLastActivity: number | null = null;
+  let holderActivitySource: string | null = null;
 
   let closed = false;
   let welcomed = false;
@@ -65,7 +70,7 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
   const pending = new Map<string, ReturnType<typeof setTimeout>>();
 
   const emitQueue = (): void => {
-    opts.emit({ members, queue: { holder, queue: [...queue] }, server });
+    opts.emit({ members, queue: { holder, queue: [...queue], holderLastActivity, holderActivitySource }, server });
   };
 
   const scheduleSyncEmit = (): void => {
@@ -294,6 +299,8 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
         members = msg.members ?? [];
         holder = msg.holder ?? null;
         queue = msg.queue ?? [];
+        holderLastActivity = msg.holderLastActivity ?? null;
+        holderActivitySource = msg.holderActivitySource ?? null;
         server = msg.server ?? server;
         emitQueue();
         break;
@@ -303,6 +310,8 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
         members = msg.members ?? [];
         holder = msg.holder ?? null;
         queue = msg.queue ?? [];
+        holderLastActivity = msg.holderLastActivity ?? null;
+        holderActivitySource = msg.holderActivitySource ?? null;
         server = msg.server ?? server;
         emitQueue();
         if (previousHolder !== holder) {
@@ -329,6 +338,45 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
         break;
       case 'notify':
         opts.notify({ kind: msg.kind, message: msg.message });
+        break;
+      case 'queue-prompt':
+        if (msg.mode === 'bar') {
+          opts.emit({
+            queueNotice: {
+              mode: 'bar',
+              requesterId: msg.requesterId,
+              requesterName: msg.requesterName,
+              holderName: msg.holderName,
+              expiresAt: null,
+              deferredUntil: null,
+            },
+          });
+        } else {
+          opts.emit({
+            queueNotice: {
+              mode: 'decision',
+              requesterId: msg.requesterId,
+              requesterName: msg.requesterName,
+              holderName: msg.holderName,
+              expiresAt: msg.expiresAt,
+              deferredUntil: null,
+            },
+          });
+        }
+        break;
+      case 'queue-deferred':
+        if (msg.requesterId === selfId) {
+          opts.emit({
+            queueNotice: {
+              mode: 'deferred',
+              requesterId: msg.requesterId,
+              requesterName: msg.requesterName,
+              holderName: msg.holderName,
+              expiresAt: null,
+              deferredUntil: msg.until,
+            },
+          });
+        }
         break;
       case 'error':
         opts.notify({ kind: 'error', message: msg.message });
@@ -418,6 +466,21 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
     releaseTurn: (): ActionResult => {
       if (closed || !isOpen(socket)) return { ok: false, error: LOST_MESSAGE };
       sendWire(socket, { t: 'release' });
+      return { ok: true };
+    },
+    approveQueue: (requesterId: string): ActionResult => {
+      if (closed || !isOpen(socket)) return { ok: false, error: LOST_MESSAGE };
+      sendWire(socket, { t: 'queue-approve', requesterId });
+      return { ok: true };
+    },
+    deferQueue: (requesterId: string): ActionResult => {
+      if (closed || !isOpen(socket)) return { ok: false, error: LOST_MESSAGE };
+      sendWire(socket, { t: 'queue-defer', requesterId });
+      return { ok: true };
+    },
+    reportActivity: (source: string): ActionResult => {
+      if (closed || !isOpen(socket)) return { ok: false, error: LOST_MESSAGE };
+      sendWire(socket, { t: 'activity', source });
       return { ok: true };
     },
     close: async (): Promise<void> => {

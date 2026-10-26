@@ -1,5 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import http from 'node:http';
 import net from 'node:net';
+import { getLanIp } from './discovery';
 import type { FrameworkInfo, ServerState, ServerStatus } from '../shared/types';
 
 export interface DevServerHandle {
@@ -40,9 +42,9 @@ function urlFromLine(line: string): number | null {
   return null;
 }
 
-function checkPortOpen(port: number, timeoutMs = 800): Promise<boolean> {
+function checkPortOpen(port: number, host = '127.0.0.1', timeoutMs = 800): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
-    const socket = net.connect({ host: '127.0.0.1', port });
+    const socket = net.connect({ host, port });
     let settled = false;
     const done = (ok: boolean): void => {
       if (settled) return;
@@ -58,6 +60,58 @@ function checkPortOpen(port: number, timeoutMs = 800): Promise<boolean> {
   });
 }
 
+async function startLanProxy(targetPort: number): Promise<{ server: http.Server; port: number }> {
+  const server = http.createServer((req, res) => {
+    const request = http.request({
+      hostname: '127.0.0.1',
+      port: targetPort,
+      method: req.method,
+      path: req.url,
+      headers: { ...req.headers, host: '127.0.0.1:' + targetPort },
+    }, (upstream) => {
+      res.writeHead(upstream.statusCode ?? 502, upstream.headers);
+      upstream.pipe(res);
+    });
+    request.on('error', (err) => {
+      if (!res.headersSent) res.writeHead(502);
+      res.end('Dev server proxy error: ' + err.message);
+    });
+    req.pipe(request);
+  });
+
+  server.on('upgrade', (req, socket, head) => {
+    const upstream = net.connect(targetPort, '127.0.0.1', () => {
+      const headers = [];
+      headers.push(req.method + ' ' + (req.url ?? '/') + ' HTTP/' + req.httpVersion);
+      for (let i = 0; i < req.rawHeaders.length; i += 2) {
+        headers.push(req.rawHeaders[i] + ': ' + req.rawHeaders[i + 1]);
+      }
+      upstream.write(headers.join('\r\n') + '\r\n\r\n');
+      if (head.length) upstream.write(head);
+      socket.pipe(upstream);
+      upstream.pipe(socket);
+    });
+    const close = () => {
+      socket.destroy();
+      upstream.destroy();
+    };
+    socket.once('error', close);
+    upstream.once('error', close);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once('listening', () => resolve());
+    server.once('error', reject);
+    server.listen(0, '0.0.0.0');
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    throw new Error('Gagal mendapatkan port LAN proxy.');
+  }
+  return { server, port: address.port };
+}
+
 export async function startDevServer(opts: DevServerOptions): Promise<DevServerHandle> {
   const { framework, cwd, onLog, onState } = opts;
   let status: ServerStatus = 'starting';
@@ -66,6 +120,8 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
   let exited = false;
   let probeTimer: ReturnType<typeof setTimeout> | null = null;
   let buffer = '';
+  let proxyServer: http.Server | null = null;
+  let exposing = false;
 
   const urlFor = (port: number): string => `http://localhost:${port}`;
 
@@ -88,9 +144,25 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
   };
 
   const markRunning = (port: number): void => {
-    if (status === 'running' || stopped) return;
+    if (status === 'running' || stopped || exposing) return;
+    exposing = true;
     clearProbe();
-    emit('running', port);
+    void (async () => {
+      try {
+        const lanIp = getLanIp();
+        const directLan = lanIp ? await checkPortOpen(port, lanIp, 900) : false;
+        const publicPort = directLan
+          ? port
+          : (proxyServer = (await startLanProxy(port)).server, proxyServer.address() && typeof proxyServer.address() !== 'string'
+              ? proxyServer.address()!.port
+              : port);
+        emit('running', publicPort);
+      } catch (err) {
+        emit('error', null, 'Server hidup tetapi tidak dapat diekspos ke LAN: ' + (err as Error).message);
+      } finally {
+        exposing = false;
+      }
+    })();
   };
 
   const handleLine = (rawLine: string): void => {
@@ -119,7 +191,16 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
   emit('starting', null);
 
   try {
-    const env = { ...process.env, FORCE_COLOR: '0', BROWSER: 'none', CI: '1' };
+    const env = {
+      ...process.env,
+      FORCE_COLOR: '0',
+      BROWSER: 'none',
+      CI: '1',
+      HOST: '0.0.0.0',
+      HOSTNAME: '0.0.0.0',
+      N_HOST: '0.0.0.0',
+      NEXT_TELEMETRY_DISABLED: '1',
+    };
     const args = framework.args ?? [];
     child = args.length
       ? spawn(framework.command, args, { cwd, shell: true, env, windowsHide: true })
@@ -191,6 +272,10 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
     if (stopped) return;
     stopped = true;
     clearProbe();
+    if (proxyServer) {
+      await new Promise<void>((resolve) => proxyServer?.close(() => resolve()));
+      proxyServer = null;
+    }
     const pid = child?.pid;
     if (pid && process.platform === 'win32') {
       await new Promise<void>((resolve) => {

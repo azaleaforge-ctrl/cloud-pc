@@ -19,7 +19,26 @@ interface ShellProps {
   onRoomLeft: () => void;
 }
 
+function EmbeddedIdeBar({ state }: { state: AppState }) {
+  const ide = state.ides.find((item) => item.id === state.activeIdeId);
+  return (
+    <div className="embedded-ide-bar">
+      <button type="button" className="embedded-ide-menu" onClick={() => window.rk.closeIde()} aria-label="Kembali ke Ruang Kerja" title="Kembali ke Ruang Kerja">
+        <span className="hamburger"><i /><i /><i /></span>
+      </button>
+      <div className="embedded-ide-title">
+        <span>{ide?.name ?? 'IDE'}</span>
+        <small>{state.roomName ?? 'Ruang Kerja'}</small>
+      </div>
+      <button type="button" className="embedded-ide-back" onClick={() => window.rk.closeIde()}>Kembali ke Ruang Kerja</button>
+    </div>
+  );
+}
+
 export function Shell({ state, logs, onError, onClearLogs, onRoomLeft }: ShellProps) {
+  if (state.ideMode) {
+    return <div className="ide-mode-shell"><EmbeddedIdeBar state={state} /></div>;
+  }
   const [tab, setTab] = useState<TabId>('room');
   const [showVersion, setShowVersion] = useState(false);
   const [checkingUpdate, setChecking] = useState(false);

@@ -19,12 +19,14 @@ import type {
 import { APP_VERSION } from '../shared/types';
 import { StateStore } from './store';
 import { detectFramework } from './frameworkDetect';
-import { detectIdes, openInIde } from './ideDetect';
+import { detectIdes } from './ideDetect';
 import { findRoom, getLanIp, startAdvertise, stopAdvertise } from './discovery';
 import { createHostRoom, type HostRoom } from './hostRoom';
 import { joinAsMember, type MemberRoom } from './memberRoom';
 import { startDevServer, type DevServerHandle } from './devServer';
 import { scanFiles } from './fsScan';
+import { openEmbeddedIde, closeEmbeddedIde, resizeEmbeddedIde } from './nativeHost';
+import { startActivityMonitor } from './activityMonitor';
 
 let updateState: UpdateState = { status: 'idle', version: null, progress: null, error: null };
 
@@ -33,17 +35,16 @@ function emitUpdateState(state: UpdateState): void {
   store.patch({ update: state });
 }
 
-autoUpdater.autoDownload = false;
+autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
 
 autoUpdater.on('checking-for-update', () => {
   notify({ kind: 'info', message: 'Memeriksa pembaruan...' });
   emitUpdateState({ status: 'checking', version: null, progress: null, error: null });
 });
-autoUpdater.on('update-available', () => {
-  notify({ kind: 'info', message: 'Pembaruan tersedia. Unduh otomatis...' });
-  emitUpdateState({ status: 'available', version: null, progress: 0, error: null });
-  void autoUpdater.downloadUpdate().catch(() => undefined);
+autoUpdater.on('update-available', (info) => {
+  notify({ kind: 'info', message: 'Pembaruan ' + info.version + ' tersedia. Mengunduh otomatis...' });
+  emitUpdateState({ status: 'available', version: info.version, progress: 0, error: null });
 });
 autoUpdater.on('update-not-available', () => {
   notify({ kind: 'info', message: 'Sudah versi terbaru.' });
@@ -57,14 +58,17 @@ autoUpdater.on('download-progress', (progress) => {
   notify({ kind: 'info', message: `Mengunduh pembaruan: ${Math.round(progress.percent)}%` });
   emitUpdateState({ status: 'downloading', version: null, progress: progress.percent, error: null });
 });
-autoUpdater.on('update-downloaded', () => {
-  notify({ kind: 'info', message: 'Pembaruan siap. Klik "Pasang Sekarang" untuk memperbarui.' });
-  emitUpdateState({ status: 'downloaded', version: null, progress: 100, error: null });
+autoUpdater.on('update-downloaded', (info) => {
+  notify({ kind: 'info', message: 'Pembaruan ' + info.version + ' sudah diunduh.' });
+  emitUpdateState({ status: 'downloaded', version: info.version, progress: 100, error: null });
+  if (store.get().role === 'none') {
+    setTimeout(() => autoUpdater.quitAndInstall(), 2500).unref?.();
+  }
 });
 
 function checkForUpdates(): void {
   if (process.env.NODE_ENV === 'development') return;
-  autoUpdater.checkForUpdatesAndNotify().catch(() => undefined);
+  autoUpdater.checkForUpdates().catch(() => undefined);
 }
 
 interface Settings {
@@ -107,7 +111,7 @@ const initialState: AppState = {
   hostAddress: null,
   projectPath: null,
   members: [],
-  queue: { holder: null, queue: [] },
+  queue: { holder: null, queue: [], holderLastActivity: null, holderActivitySource: null },
   framework: null,
   server: { status: 'idle', url: null, port: null, logs: [] },
   ides: [],
@@ -116,6 +120,9 @@ const initialState: AppState = {
   discovered: [],
   projectFiles: [],
   update: { status: 'idle', version: null, progress: null, error: null },
+  queueNotice: null,
+  ideMode: false,
+  activeIdeId: null,
 };
 
 const store = new StateStore(initialState);
@@ -125,6 +132,7 @@ let hostRoom: HostRoom | null = null;
 let memberRoom: MemberRoom | null = null;
 let devServer: DevServerHandle | null = null;
 let framework: FrameworkInfo | null = null;
+let stopActivityMonitor: (() => void) | null = null;
 
 function send(channel: string, payload: unknown): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -170,11 +178,18 @@ function resetRoomState(): void {
     sync: { status: 'off', files: 0, lastSync: null },
     projectFiles: [],
     update: { status: 'idle', version: null, progress: null, error: null },
+    queueNotice: null,
+    ideMode: false,
+    activeIdeId: null,
   });
   framework = null;
 }
 
 async function shutdownRoom(): Promise<void> {
+  stopActivityMonitor?.();
+  stopActivityMonitor = null;
+  await closeEmbeddedIde().catch(() => undefined);
+  store.patch({ ideMode: false, activeIdeId: null, queueNotice: null });
   if (devServer) {
     await devServer.stop().catch(() => undefined);
     devServer = null;
@@ -219,6 +234,7 @@ async function handleCreateRoom(input: CreateRoomInput): Promise<ActionResult> {
       notify,
     });
     hostRoom = room;
+    stopActivityMonitor = startActivityMonitor(folder, (source) => room.reportActivity(settings.selfId, source));
     startAdvertise({ code: room.code, name: roomName, port: room.port });
     store.patch({
       role: 'host',
@@ -227,7 +243,7 @@ async function handleCreateRoom(input: CreateRoomInput): Promise<ActionResult> {
       projectPath: folder,
       framework,
       members: [{ id: settings.selfId, name: memberName, isHost: true }],
-      queue: { holder: settings.selfId, queue: [] },
+      queue: { holder: settings.selfId, queue: [], holderLastActivity: Date.now(), holderActivitySource: 'room-start' },
       lanAddress: getLanIp(),
     });
     notify({ kind: 'info', message: `Ruangan aktif. Kode: ${room.code}` });
@@ -274,6 +290,7 @@ async function handleJoinRoom(input: JoinRoomInput): Promise<ActionResult> {
       notify,
     });
     memberRoom = member;
+    stopActivityMonitor = startActivityMonitor(localDir, (source) => { member.reportActivity(source); });
     store.patch({
       role: 'member',
       code,
@@ -385,7 +402,31 @@ function registerIpc(): void {
     const ide = state.ides.find((item) => item.id === ideId);
     if (!ide) return { ok: false, error: 'IDE tidak ditemukan, coba rescan.' };
     if (!state.projectPath) return { ok: false, error: 'Belum ada folder project.' };
-    return openInIde(ide, state.projectPath);
+    const result = await openEmbeddedIde(ide, state.projectPath, win!);
+    if (result.ok) store.patch({ ideMode: true, activeIdeId: ide.id });
+    return result;
+  });
+  ipcMain.handle('rk:close-ide', async () => {
+    await closeEmbeddedIde();
+    store.patch({ ideMode: false, activeIdeId: null });
+    return { ok: true };
+  });
+  ipcMain.handle('rk:approve-queue', (_e, requesterId: string) => {
+    const state = store.get();
+    if (hostRoom) return hostRoom.approveQueue(requesterId);
+    if (memberRoom) return memberRoom.approveQueue(requesterId);
+    return { ok: false, error: 'Sesi ruangan tidak aktif.' };
+  });
+  ipcMain.handle('rk:defer-queue', (_e, requesterId: string) => {
+    const state = store.get();
+    if (hostRoom) return hostRoom.deferQueue(requesterId);
+    if (memberRoom) return memberRoom.deferQueue(requesterId);
+    return { ok: false, error: 'Sesi ruangan tidak aktif.' };
+  });
+  ipcMain.handle('rk:report-activity', (_e, source?: string) => {
+    const value = source || 'ui';
+    if (hostRoom) hostRoom.reportActivity(settings.selfId, value);
+    if (memberRoom) memberRoom.reportActivity(value);
   });
   ipcMain.handle('rk:rescan-framework', () => {
     const state = store.get();
@@ -489,6 +530,9 @@ async function createWindow(): Promise<void> {
     },
   });
   win.once('ready-to-show', () => win?.show());
+  win.on('resize', () => {
+    void resizeEmbeddedIde(win!);
+  });
   win.on('close', (e) => {
     // Klik X / Alt+F4: sembunyikan ke tray, jangan keluar.
     e.preventDefault();
@@ -544,6 +588,7 @@ app.whenReady().then(async () => {
   await createWindow();
   void scanIdesAndUpdate();
   checkForUpdates();
+  setInterval(() => checkForUpdates(), 30 * 60 * 1000).unref?.();
 });
 
 app.on('window-all-closed', () => {

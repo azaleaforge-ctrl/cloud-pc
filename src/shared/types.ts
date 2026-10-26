@@ -3,15 +3,31 @@
 
 export type Role = 'none' | 'host' | 'member';
 
+export type MemberStatus = 'working' | 'queued' | 'idle' | 'offline';
+
 export interface Member {
   id: string;
   name: string;
   isHost: boolean;
+  status?: MemberStatus;
 }
 
 export interface QueueState {
   holder: string | null;
   queue: string[];
+  holderLastActivity: number | null;
+  holderActivitySource: string | null;
+}
+
+export type QueueNoticeMode = 'bar' | 'decision' | 'deferred';
+
+export interface QueueNotice {
+  mode: QueueNoticeMode;
+  requesterId: string;
+  requesterName: string;
+  holderName: string;
+  expiresAt: number | null;
+  deferredUntil: number | null;
 }
 
 export interface FrameworkInfo {
@@ -93,6 +109,11 @@ export interface AppState {
   projectFiles: ProjectFile[];
   /** Status update aplikasi real-time */
   update: UpdateState;
+  /** Notifikasi antrean persisten: muncul di sisi holder/requester. */
+  queueNotice: QueueNotice | null;
+  /** IDE sedang ditanam ke jendela Ruang Kerja (Windows). */
+  ideMode: boolean;
+  activeIdeId: string | null;
 }
 
 export type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'latest' | 'error';
@@ -159,6 +180,10 @@ export interface RkApi {
   releaseTurn(): Promise<ActionResult>;
   scanIdes(): Promise<IdeInfo[]>;
   openIde(ideId: string): Promise<ActionResult>;
+  closeIde(): Promise<ActionResult>;
+  approveQueue(requesterId: string): Promise<ActionResult>;
+  deferQueue(requesterId: string): Promise<ActionResult>;
+  reportActivity(source?: string): Promise<void>;
   rescanFramework(): Promise<FrameworkInfo | null>;
   startServer(): Promise<ActionResult>;
   stopServer(): Promise<ActionResult>;
@@ -174,8 +199,8 @@ export interface RkApi {
 /** Payload mentah protokol WebSocket host <-> member. */
 export type WireMessage =
   | { t: 'hello'; name: string; clientId: string }
-  | { t: 'welcome'; selfId: string; code: string; roomName: string; hostName: string; members: Member[]; holder: string | null; queue: string[]; hostIp: string; server: ServerState }
-  | { t: 'state'; members: Member[]; holder: string | null; queue: string[]; server: ServerState }
+  | { t: 'welcome'; selfId: string; code: string; roomName: string; hostName: string; members: Member[]; holder: string | null; queue: string[]; holderLastActivity: number | null; holderActivitySource: string | null; hostIp: string; server: ServerState }
+  | { t: 'state'; members: Member[]; holder: string | null; queue: string[]; holderLastActivity: number | null; holderActivitySource: string | null; server: ServerState }
   | { t: 'tree-begin'; total: number }
   | { t: 'file'; path: string; b64: string; mtime: number }
   | { t: 'tree-end' }
@@ -184,6 +209,11 @@ export type WireMessage =
   | { t: 'notify'; kind: NotifyPayload['kind']; message: string }
   | { t: 'turn-taken'; holder: string; name: string }
   | { t: 'turn-released'; holder: string | null; name?: string }
+  | { t: 'queue-prompt'; requesterId: string; requesterName: string; holderName: string; expiresAt: number | null; mode: 'bar' | 'decision' }
+  | { t: 'queue-deferred'; requesterId: string; requesterName: string; holderName: string; until: number }
+  | { t: 'queue-approve'; requesterId: string }
+  | { t: 'queue-defer'; requesterId: string }
+  | { t: 'activity'; source: string }
   | { t: 'ping' }
   | { t: 'pong' };
 
@@ -206,4 +236,4 @@ export const IGNORED_DIRS = [
   '.DS_Store',
 ];
 
-export const APP_VERSION = '0.3.0';
+export const APP_VERSION = '0.3.1';
