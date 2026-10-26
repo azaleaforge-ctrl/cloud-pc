@@ -18,42 +18,55 @@ function ps(script: string, timeoutMs = 8_000): Promise<string> {
 
 const WIN32_TYPE = "Add-Type @'\nusing System;\nusing System.Text;\nusing System.Runtime.InteropServices;\npublic static class RuangKerjaWin32 {\n  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);\n  [DllImport(\"user32.dll\")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);\n  [DllImport(\"user32.dll\")] public static extern bool IsWindowVisible(IntPtr hWnd);\n  [DllImport(\"user32.dll\")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);\n  [DllImport(\"user32.dll\")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);\n  [DllImport(\"user32.dll\")] public static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);\n  [DllImport(\"user32.dll\", SetLastError=true)] public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);\n  [DllImport(\"user32.dll\", SetLastError=true)] public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr value);\n  [DllImport(\"user32.dll\", SetLastError=true)] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint flags);\n  [DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);\n  [DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow();\n}\n'@\n";
 
-function findWindowForPid(pid: number): Promise<bigint | null> {
+function psQuote(value: string): string {
+  return "'" + value.replace(/'/g, "''") + "'";
+}
+
+function findWindowForIde(ide: IdeInfo, folder: string): Promise<{ hwnd: bigint; pid: number } | null> {
   if (process.platform !== 'win32') return Promise.resolve(null);
+  const exePath = psQuote(ide.exe.toLowerCase());
+  const exeName = psQuote(ide.exe.split(/[\\/]/).pop() ?? '');
+  const folderName = psQuote(folder.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '');
   const script = WIN32_TYPE + [
-    '$root = ' + pid,
-    '$p = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Select-Object ProcessId,ParentProcessId',
+    '$exePath = ' + exePath,
+    '$exeName = ' + exeName,
+    '$folderName = ' + folderName,
+    '$processes = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Select-Object ProcessId,Name,ExecutablePath,CommandLine',
     '$ids = New-Object System.Collections.Generic.HashSet[int]',
-    '[void]$ids.Add($root)',
-    '$changed = $true',
-    'while ($changed) {',
-    '  $changed = $false',
-    '  foreach ($row in $p) {',
-    '    $child = [int]$row.ProcessId; $parent = [int]$row.ParentProcessId',
-    '    if ($ids.Contains($parent) -and -not $ids.Contains($child)) { [void]$ids.Add($child); $changed = $true }',
-    '  }',
+    'foreach ($proc in $processes) {',
+    '  $path = ([string]$proc.ExecutablePath).ToLowerInvariant()',
+    '  if ($proc.Name -ieq $exeName -or ($path -and $path -eq $exePath)) { [void]$ids.Add([int]$proc.ProcessId) }',
     '}',
-    '$found = 0',
+    '$found = New-Object System.Collections.ArrayList',
     '[void][RuangKerjaWin32]::EnumWindows({ param($h,$l)',
     '  if (-not [RuangKerjaWin32]::IsWindowVisible($h)) { return $true }',
     '  $windowPid = 0',
     '  [void][RuangKerjaWin32]::GetWindowThreadProcessId($h, [ref]$windowPid)',
     '  if (-not $ids.Contains([int]$windowPid)) { return $true }',
-    '  $sb = New-Object System.Text.StringBuilder 512',
+    '  $sb = New-Object System.Text.StringBuilder 1024',
     '  [void][RuangKerjaWin32]::GetWindowText($h, $sb, $sb.Capacity)',
     '  if ($sb.Length -eq 0) { return $true }',
-    '  $script:found = $h.ToInt64(); return $false',
+    '  $title = $sb.ToString()',
+    '  if ($folderName -and $title.IndexOf($folderName, [StringComparison]::OrdinalIgnoreCase) -lt 0) { return $true }',
+    '  $score = 100',
+    '  [void]$found.Add([pscustomobject]@{ Handle=$h.ToInt64(); Pid=[int]$windowPid; Title=$title; Score=$score })',
+    '  return $true',
     '}, [IntPtr]::Zero)',
-    'Write-Output $found',
+    '$best = $found | Sort-Object Score -Descending | Select-Object -First 1',
+    'if ($best) { Write-Output ($best.Handle.ToString() + "|" + $best.Pid.ToString()) }',
   ].join('\n');
-  return ps(script, 5_000).then((out) => {
-    if (!out) return null;
-    const n = BigInt(out.split(/\r?\n/).pop() || '0');
-    return n > 0n ? n : null;
+  return ps(script, 5000).then((out) => {
+    const pair = out.split(/\r?\n/).pop()?.trim().split('|') ?? [];
+    if (pair.length !== 2) return null;
+    try {
+      const hwnd = BigInt(pair[0]);
+      const pid = Number(pair[1]);
+      return hwnd > 0n && Number.isFinite(pid) ? { hwnd, pid } : null;
+    } catch { return null; }
   });
 }
 
-function mutateWindow(mode: 'embed' | 'unembed', hwnd: bigint, parent: bigint, width = 0, height = 0): Promise<void> {
+function mutateWindow(mode: 'embed' | 'unembed', hwnd: bigint, parent: bigint, width = 0, height = 0): Promise<boolean> {
   const child = hwnd.toString();
   const owner = parent.toString();
   const script = WIN32_TYPE + [
@@ -76,6 +89,7 @@ function mutateWindow(mode: 'embed' | 'unembed', hwnd: bigint, parent: bigint, w
     '  [void][RuangKerjaWin32]::SetWindowLongPtr($h, $GWL_EXSTYLE, [IntPtr]::new($ex))',
     '  [void][RuangKerjaWin32]::SetWindowPos($h, [IntPtr]::Zero, 0, ' + TOOLBAR_HEIGHT + ', ' + width + ', ' + Math.max(100, height - TOOLBAR_HEIGHT) + ', $SWP_NOZORDER -bor $SWP_NOACTIVATE -bor $SWP_SHOWWINDOW)',
     '  [void][RuangKerjaWin32]::ShowWindow($h, $SW_RESTORE)',
+    '  Write-Output "RK_WINDOW_OK"',
     '  exit 0',
     '}',
     '[void][RuangKerjaWin32]::SetParent($h, [IntPtr]::Zero)',
@@ -85,30 +99,42 @@ function mutateWindow(mode: 'embed' | 'unembed', hwnd: bigint, parent: bigint, w
     '$ex = $ex -bor $WS_EX_APPWINDOW',
     '[void][RuangKerjaWin32]::SetWindowLongPtr($h, $GWL_EXSTYLE, [IntPtr]::new($ex))',
     '[void][RuangKerjaWin32]::ShowWindow($h, $SW_MINIMIZE)',
+    'Write-Output "RK_WINDOW_OK"',
     'exit 0',
   ].join('\n');
-  return ps(script, 6_000).then(() => undefined);
+  return ps(script, 6_000).then((out) => out.split(/\r?\n/).some((line) => line.trim() === 'RK_WINDOW_OK'));
 }
 
 export async function openEmbeddedIde(ide: IdeInfo, folder: string, win: BrowserWindow): Promise<{ ok: true } | { ok: false; error: string }> {
   if (process.platform !== 'win32') return { ok: false, error: 'IDE terintegrasi saat ini hanya didukung di Windows.' };
   await closeEmbeddedIde();
   if (!ide.exe) return { ok: false, error: 'Lokasi IDE tidak diketahui.' };
-  const child = spawn(ide.exe, [folder], { windowsHide: false, detached: false, stdio: 'ignore' });
-  if (!child.pid) return { ok: false, error: 'Gagal menjalankan IDE.' };
+  const extension = ide.exe.split('.').pop()?.toLowerCase() ?? '';
+  const supportsNewWindowFlag = ['vscode', 'cursor', 'antigravity', 'windsurf', 'trae'].includes(ide.id);
+  const args = supportsNewWindowFlag ? ['--new-window', folder] : [folder];
+  const child = extension === 'cmd' || extension === 'bat'
+    ? spawn('cmd.exe', ['/d', '/s', '/c', '"' + ide.exe + '" ' + args.map((arg) => '"' + arg.replace(/"/g, '\\"') + '"').join(' ')], { windowsHide: true, detached: false, stdio: 'ignore' })
+    : spawn(ide.exe, args, { windowsHide: false, detached: false, stdio: 'ignore' });
+  let launchError: string | null = null;
+  child.once('error', (err) => { launchError = err.message; });
+  // VS Code forks may forward the folder to an existing main process and exit.
+  // Match actual top-level windows by executable identity and project title instead of launcher's PID tree.
   const startedAt = Date.now();
-  let hwnd: bigint | null = null;
+  let match: { hwnd: bigint; pid: number } | null = null;
   while (Date.now() - startedAt < LAUNCH_TIMEOUT_MS) {
-    hwnd = await findWindowForPid(child.pid);
-    if (hwnd) break;
+    match = await findWindowForIde(ide, folder);
+    if (match) break;
+    if (launchError) return { ok: false, error: `Gagal menjalankan ${ide.name}: ${launchError}` };
     await new Promise((r) => setTimeout(r, POLL_MS));
   }
-  if (!hwnd) { try { child.kill(); } catch {} return { ok: false, error: 'Jendela IDE tidak ditemukan dalam batas waktu.' }; }
+  if (!match) return { ok: false, error: `Tidak dapat menemukan jendela ${ide.name} untuk proyek ini. Periksa apakah IDE mendukung pembukaan folder sebagai jendela baru, lalu coba lagi.` };
   const parentHwnd = win.getNativeWindowHandle().readBigUInt64LE(0);
   const bounds = win.getContentBounds();
-  await mutateWindow('embed', hwnd, parentHwnd, bounds.width, bounds.height);
-  session = { ide, process: child, pid: child.pid, hwnd };
-  child.once('exit', () => { if (session?.pid === child.pid) session = null; });
+  const embedded = await mutateWindow('embed', match.hwnd, parentHwnd, bounds.width, bounds.height);
+  if (!embedded) return { ok: false, error: `Windows menolak menanamkan jendela ${ide.name} ke Ruang Kerja. IDE ini mungkin tidak kompatibel dengan native embedding.` };
+  session = { ide, process: child, pid: match.pid, hwnd: match.hwnd };
+  // Do not clear the embedded session when an IDE launcher exits after handing
+  // the folder to a long-lived IDE process. The selected window belongs to match.pid.
   return { ok: true };
 }
 
@@ -123,7 +149,7 @@ export async function closeEmbeddedIde(): Promise<void> {
   if (!session) return;
   const current = session;
   session = null;
-  await mutateWindow('unembed', current.hwnd, 0n).catch(() => undefined);
+  await mutateWindow('unembed', current.hwnd, 0n).catch(() => false);
 }
 
 export function getEmbeddedIdePids(): number[] { return session ? [session.pid] : []; }

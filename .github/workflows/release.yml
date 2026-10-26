@@ -65,6 +65,68 @@ jobs:
           Write-Host "Validated updater URL target: $assetName"
           Write-Host "Validated blockmap: $blockMapPath"
 
+      - name: Publish optional Cloudflare R2 download mirror
+        shell: pwsh
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.CLOUDFLARE_R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          R2_PUBLIC_BASE_URL: ${{ secrets.CLOUDFLARE_R2_PUBLIC_BASE_URL }}
+        run: |
+          $required = @($env:R2_ACCOUNT_ID, $env:R2_BUCKET, $env:R2_ACCESS_KEY_ID, $env:R2_SECRET_ACCESS_KEY, $env:R2_PUBLIC_BASE_URL)
+          $missing = @($required | Where-Object { [string]::IsNullOrWhiteSpace($_) })
+          if ($missing.Count -gt 0) {
+            Write-Host 'Cloudflare R2 mirror is not configured. Keeping GitHub Release as the download origin.'
+            exit 0
+          }
+
+          if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
+            throw 'AWS CLI is not installed on the runner; cannot publish the configured Cloudflare R2 mirror.'
+          }
+
+          $tag = $env:GITHUB_REF_NAME
+          $version = $tag.TrimStart('v')
+          $prefix = "v$version"
+          $baseUrl = $env:R2_PUBLIC_BASE_URL.TrimEnd('/')
+          $metadataPath = Join-Path (Resolve-Path release) 'latest.yml'
+          $metadata = Get-Content -LiteralPath $metadataPath -Raw
+          $match = [regex]::Match($metadata, '(?m)^\s*-\s*url:\s*(.+?)\s*$')
+          if (-not $match.Success) { throw 'Cannot find installer URL in latest.yml.' }
+          $assetName = $match.Groups[1].Value.Trim()
+          if ($assetName -match '^https?://') { $assetName = [IO.Path]::GetFileName(([Uri]$assetName).AbsolutePath) }
+          $installer = Join-Path (Resolve-Path release) $assetName
+          $blockmapName = "$assetName.blockmap"
+          $blockmap = Join-Path (Resolve-Path release) $blockmapName
+          if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) { throw "Missing mirror installer: $installer" }
+          if (-not (Test-Path -LiteralPath $blockmap -PathType Leaf)) { throw "Missing mirror blockmap: $blockmap" }
+
+          $endpoint = "https://$($env:R2_ACCOUNT_ID).r2.cloudflarestorage.com"
+          $env:AWS_ACCESS_KEY_ID = $env:R2_ACCESS_KEY_ID
+          $env:AWS_SECRET_ACCESS_KEY = $env:R2_SECRET_ACCESS_KEY
+          $env:AWS_DEFAULT_REGION = 'auto'
+          aws s3 cp $installer "s3://$($env:R2_BUCKET)/$prefix/$assetName" --endpoint-url $endpoint --region auto --content-type 'application/octet-stream' --cache-control 'public, max-age=31536000'
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to upload installer to Cloudflare R2.' }
+          aws s3 cp $blockmap "s3://$($env:R2_BUCKET)/$prefix/$blockmapName" --endpoint-url $endpoint --region auto --content-type 'application/octet-stream' --cache-control 'public, max-age=31536000'
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to upload blockmap to Cloudflare R2.' }
+
+          $lines = $metadata -split '\r?\n'
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^([\s]*-[\s]*url:[\s]*)(.+?)\s*$') {
+              $prefixText = $Matches[1]
+              $currentUrl = $Matches[2].Trim()
+              if ($currentUrl -notmatch '^https?://') {
+                $lines[$i] = $prefixText + "$baseUrl/$prefix/$currentUrl"
+              }
+            }
+          }
+          $metadata = ($lines -join "`n").TrimEnd() + "`n"
+          Set-Content -LiteralPath $metadataPath -Value $metadata -NoNewline -Encoding utf8
+          aws s3 cp $metadataPath "s3://$($env:R2_BUCKET)/$prefix/latest.yml" --endpoint-url $endpoint --region auto --content-type 'text/yaml; charset=utf-8' --cache-control 'no-cache'
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to upload latest.yml to Cloudflare R2.' }
+          Add-Content -LiteralPath RELEASE_NOTES.md -Value "`n## Link download alternatif`nInstaller: $baseUrl/$prefix/$assetName"
+          Write-Host "Cloudflare R2 mirror published: $baseUrl/$prefix/$assetName"
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:

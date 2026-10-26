@@ -1476,6 +1476,34 @@ button {
   text-align: center;
 }
 
+.web-loading-status {
+  color: var(--text-3);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.web-load-error {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: var(--r-m);
+  background: rgba(127, 29, 29, 0.16);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.web-load-error strong {
+  color: var(--red);
+  font-size: 13px;
+}
+.web-load-error span {
+  overflow-wrap: anywhere;
+}
+.web-load-error .btn {
+  align-self: flex-start;
+}
 .web-frame {
   flex: 1;
   min-height: 0;

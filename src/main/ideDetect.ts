@@ -54,7 +54,7 @@ for (const def of CATALOG) {
   for (const exe of def.exes) EXE_TO_DEF.set(exe.toLowerCase(), def);
 }
 
-const DETECT_BUDGET_MS = 8000;
+const DETECT_BUDGET_MS = 18_000;
 
 interface RegEntry {
   name?: string;
@@ -195,6 +195,32 @@ function uniqueFile(path: string): string | null {
   }
 }
 
+async function scanStartMenuIdeShortcuts(timeoutMs = 3500): Promise<Array<{ label: string; target: string }>> {
+  if (process.platform !== 'win32') return [];
+  const script = [
+    "$ErrorActionPreference = 'SilentlyContinue'",
+    "$shell = New-Object -ComObject WScript.Shell",
+    "$roots = @(",
+    "  (Join-Path $env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs')",
+    "  (Join-Path $env:ProgramData 'Microsoft\\Windows\\Start Menu\\Programs')",
+    ')',
+    'foreach ($root in $roots) {',
+    '  if (-not (Test-Path -LiteralPath $root)) { continue }',
+    '  Get-ChildItem -LiteralPath $root -Filter *.lnk -File -Recurse -ErrorAction SilentlyContinue | ForEach-Object {',
+    '    try {',
+    '      $shortcut = $shell.CreateShortcut($_.FullName)',
+    '      $target = [string]$shortcut.TargetPath',
+    '      if ($target) { [Console]::WriteLine($_.BaseName + "`t" + $target) }',
+    '    } catch { }',
+    '  }',
+    '}',
+  ].join('\n');
+  const output = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], timeoutMs);
+  return output.split(/\r?\n/).map((line) => {
+    const tab = line.indexOf('\t');
+    return tab < 0 ? null : { label: line.slice(0, tab).trim(), target: line.slice(tab + 1).trim() };
+  }).filter((entry): entry is { label: string; target: string } => !!entry?.label && !!entry.target);
+}
 export async function detectIdes(): Promise<IdeInfo[]> {
   if (process.platform !== 'win32') return [];
   const deadline = Date.now() + DETECT_BUDGET_MS;
@@ -244,11 +270,16 @@ export async function detectIdes(): Promise<IdeInfo[]> {
     const addCandidate = (id: string, base: string, ...parts: string[]) => {
       if (base) directCandidates.push({ id, path: join(base, ...parts) });
     };
+    addCandidate('antigravity', localAppData, 'Antigravity.exe');
     addCandidate('antigravity', localAppData, 'Antigravity', 'Antigravity.exe');
     addCandidate('antigravity', localAppData, 'Programs', 'Antigravity', 'Antigravity.exe');
+    addCandidate('antigravity', localAppData, 'Programs', 'Antigravity', 'app', 'Antigravity.exe');
+    addCandidate('antigravity', localAppData, 'Programs', 'Google Antigravity', 'Antigravity.exe');
     addCandidate('antigravity', localAppData, 'Google', 'Antigravity', 'Antigravity.exe');
+    addCandidate('antigravity', localAppData, 'Google', 'Antigravity', 'app', 'Antigravity.exe');
     addCandidate('antigravity', localAppData, 'Programs', 'Google', 'Antigravity', 'Antigravity.exe');
     addCandidate('antigravity', programFiles, 'Antigravity', 'Antigravity.exe');
+    addCandidate('antigravity', programFiles, 'Google', 'Antigravity', 'Antigravity.exe');
     addCandidate('vscode', localAppData, 'Programs', 'Microsoft VS Code', 'Code.exe');
     addCandidate('cursor', localAppData, 'Programs', 'Cursor', 'Cursor.exe');
     addCandidate('windsurf', localAppData, 'Programs', 'Windsurf', 'Windsurf.exe');
@@ -259,7 +290,34 @@ export async function detectIdes(): Promise<IdeInfo[]> {
     // kandidat langsung gagal; lanjutkan scanner lainnya
   }
 
-  // 2. Folder umum (termasuk lokasi non-standard Google/Antigravity)
+  // 3. Start Menu shortcuts are often the most reliable source for custom install locations.
+  try {
+    const shortcuts = await scanStartMenuIdeShortcuts(Math.max(1000, deadline - Date.now()));
+    for (const shortcut of shortcuts) {
+      const target = shortcut.target.replace(/^"|"$/g, '');
+      const def = CATALOG.find((item) =>
+        item.pattern.test(shortcut.label) ||
+        item.pattern.test(target) ||
+        item.exes.some((exe) => exe.toLowerCase() === basename(target).toLowerCase()),
+      );
+      if (!def) continue;
+      let resolved = def.exes.some((exe) => exe.toLowerCase() === basename(target).toLowerCase())
+        ? uniqueFile(target)
+        : null;
+      if (!resolved && existsSync(dirname(target))) {
+        resolved = await findExeIn(dirname(target), def.exes, 4);
+      }
+      if (!resolved) {
+        const parent = dirname(dirname(target));
+        if (existsSync(parent)) resolved = await findExeIn(parent, def.exes, 4);
+      }
+      if (resolved) add(def.id, resolved, 'path');
+    }
+  } catch {
+    // shortcut resolver is best-effort; continue with folder and PATH scans.
+  }
+
+  // 4. Folder umum (termasuk lokasi non-standard Google/Antigravity)
   try {
     const roots: Array<{ dir: string; depth: number }> = [];
     const localAppData = process.env.LOCALAPPDATA;

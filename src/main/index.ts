@@ -569,10 +569,9 @@ function registerIpc(): void {
       const published = releases
         .filter((r: any) => !r.draft && !!r.published_at)
         .sort((a: any, b: any) => Date.parse(b.published_at) - Date.parse(a.published_at));
-      const hiddenOldestCount = Math.max(0, settings.hiddenReleaseHistoryCount ?? 0);
-      const visible = hiddenOldestCount > 0
-        ? published.slice(0, Math.max(0, published.length - hiddenOldestCount))
-        : published;
+      // Detail Version deliberately shows only the newest release and two prior versions.
+      // Older GitHub releases remain available from the browser, but never crowd this panel.
+      const visible = published.slice(0, 3);
       return {
         ok: true,
         releases: visible.map((r: any) => ({
@@ -622,7 +621,12 @@ async function createWindow(): Promise<void> {
       webviewTag: true,
     },
   });
-  win.once('ready-to-show', () => win?.show());
+  win.once('ready-to-show', () => {
+    if (!win || win.isDestroyed()) return;
+    // The workspace is designed as a full desktop workspace, not a half-sized utility window.
+    if (!win.isMaximized()) win.maximize();
+    win.show();
+  });
   win.on('resize', () => {
     void resizeEmbeddedIde(win!);
   });
