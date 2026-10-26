@@ -11,3 +11,8 @@ releases.json
 rl.tar
 rl.tar.gz
 logs.tar.gz
+latest_check.json
+rel.json
+runs2.json
+setup-*.exe
+*.exe
