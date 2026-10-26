@@ -1,0 +1,105 @@
+{
+  "total_count": 1,
+  "jobs": [
+    {
+      "id": 121514457937,
+      "run_id": 40305796190,
+      "workflow_name": "Release",
+      "head_branch": "v0.2.0",
+      "run_url": "https://api.github.com/repos/azaleaforge-ctrl/cloud-pc/actions/runs/40305796190",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOVXujIs8AAAAcStN7UQ",
+      "head_sha": "9b4ef0b403a15ffc72204c2906cfa2a9d841ce26",
+      "url": "https://api.github.com/repos/azaleaforge-ctrl/cloud-pc/actions/jobs/121514457937",
+      "html_url": "https://github.com/azaleaforge-ctrl/cloud-pc/actions/runs/40305796190/job/121514457937",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-26T10:14:08Z",
+      "started_at": "2026-10-26T10:14:09Z",
+      "completed_at": "2026-10-26T10:16:05Z",
+      "name": "build",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-26T10:14:10Z",
+          "completed_at": "2026-10-26T10:14:11Z"
+        },
+        {
+          "name": "Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-26T10:14:11Z",
+          "completed_at": "2026-10-26T10:14:16Z"
+        },
+        {
+          "name": "Setup Node",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-26T10:14:16Z",
+          "completed_at": "2026-10-26T10:14:24Z"
+        },
+        {
+          "name": "Install dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-26T10:14:24Z",
+          "completed_at": "2026-10-26T10:14:37Z"
+        },
+        {
+          "name": "Set version from tag",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-26T10:14:37Z",
+          "completed_at": "2026-10-26T10:14:38Z"
+        },
+        {
+          "name": "Build & Publish to GitHub Releases",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-26T10:14:38Z",
+          "completed_at": "2026-10-26T10:15:58Z"
+        },
+        {
+          "name": "Post Setup Node",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-10-26T10:15:58Z",
+          "completed_at": "2026-10-26T10:16:01Z"
+        },
+        {
+          "name": "Post Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-26T10:16:01Z",
+          "completed_at": "2026-10-26T10:16:04Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-10-26T10:16:04Z",
+          "completed_at": "2026-10-26T10:16:04Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/azaleaforge-ctrl/cloud-pc/check-runs/121514457937",
+      "labels": [
+        "windows-latest"
+      ],
+      "runner_id": 1000000001,
+      "runner_name": "GitHub Actions 1000000001",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    }
+  ]
+}
