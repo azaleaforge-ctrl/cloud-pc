@@ -26,7 +26,7 @@ function queryProcessActivity(projectPath: string): Promise<{ agent: boolean; te
     '  if ([int]$p.ProcessId -eq [int]$fgPid -and $name -match "(?i)^(cmd|powershell|pwsh|wt|windowsterminal|conhost)(\.exe)?$") { $terminal = $true }',
     '}',
     '[pscustomobject]@{agent=$agent;terminal=$terminal} | ConvertTo-Json -Compress'
-  ].join('\\n');
+  ].join('\n');
   return new Promise((resolve) => {
     execFile(POWERSHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], {
       windowsHide: true, timeout: 3_000, maxBuffer: 512 * 1024,
