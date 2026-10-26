@@ -665,7 +665,8 @@ function registerIpc(): void {
   ipcMain.handle('rk:open-ide', async (_e, ideId: string) => {
     const state = store.get();
     const ide = state.ides.find((item) => item.id === ideId);
-    if (!ide) return { ok: false, error: 'IDE tidak ditemukan, coba rescan.' };
+    if (!ide) return { ok: false, error: 'IDE tidak ditemukan. Coba pindai ulang.' };
+    if (!ide.installed || !ide.exe) return { ok: false, error: ide.name + ' belum terpasang. Unduh dari tautan resmi pada katalog IDE terlebih dahulu.' };
     if (!state.projectPath) return { ok: false, error: 'Belum ada folder project.' };
     const result = await openEmbeddedIde(ide, state.projectPath, win!);
     if (result.ok) store.patch({ ideMode: true, activeIdeId: ide.id });
