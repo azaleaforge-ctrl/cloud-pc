@@ -52,7 +52,7 @@ const NON_JS_FRAMEWORKS: NonJsFramework[] = [
       const reqs = { ...asRecord(composer.require), ...asRecord(composer['require-dev']) };
       return Object.keys(reqs).some((key) => key.toLowerCase() === 'laravel/framework');
     },
-    command: 'php artisan serve',
+    command: 'php artisan serve --host=0.0.0.0 --port=8000',
     packageManager: 'composer',
   },
   {
@@ -60,7 +60,7 @@ const NON_JS_FRAMEWORKS: NonJsFramework[] = [
     name: 'Django',
     port: 8000,
     check: (dir) => existsSync(join(dir, 'manage.py')),
-    command: 'python manage.py runserver',
+    command: 'python manage.py runserver 0.0.0.0:8000',
     packageManager: 'python',
   },
   {
