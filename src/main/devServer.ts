@@ -42,22 +42,36 @@ function urlFromLine(line: string): number | null {
   return null;
 }
 
-function checkPortOpen(port: number, host = '127.0.0.1', timeoutMs = 800): Promise<boolean> {
+function checkHttpResponse(port: number, host = '127.0.0.1', timeoutMs = 1_500): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
-    const socket = net.connect({ host, port });
     let settled = false;
-    const done = (ok: boolean): void => {
+    const finish = (result: boolean): void => {
       if (settled) return;
       settled = true;
-      socket.removeAllListeners();
-      socket.destroy();
-      resolve(ok);
+      resolve(result);
     };
-    socket.setTimeout(timeoutMs);
-    socket.once('connect', () => done(true));
-    socket.once('timeout', () => done(false));
-    socket.once('error', () => done(false));
+    const request = http.get({
+      hostname: host,
+      port,
+      path: '/',
+      timeout: timeoutMs,
+      headers: { 'User-Agent': 'Ruang-Kerja-HealthCheck', Connection: 'close' },
+    }, (response) => {
+      // A real HTTP response (including 404/500 from the app) proves the server is reachable.
+      response.resume();
+      finish(typeof response.statusCode === 'number');
+    });
+    request.once('timeout', () => request.destroy(new Error('HTTP readiness probe timed out')));
+    request.once('error', () => finish(false));
   });
+}
+
+async function waitForHttp(port: number, host = '127.0.0.1', attempts = 8): Promise<boolean> {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (await checkHttpResponse(port, host, 1_500)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return false;
 }
 
 async function startLanProxy(targetPort: number): Promise<{ server: http.Server; port: number }> {
@@ -149,8 +163,15 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
     clearProbe();
     void (async () => {
       try {
+        // Never probe a TCP socket and close it without HTTP bytes: PHP's built-in
+        // server logs that as "Invalid request". Use a valid GET / readiness probe.
+        const ready = await waitForHttp(port, '127.0.0.1', 8);
+        if (!ready) {
+          emit('error', null, 'Server mencetak alamat, tetapi belum memberi respons HTTP. Periksa dependensi dan log framework.');
+          return;
+        }
         const lanIp = getLanIp();
-        const directLan = lanIp ? await checkPortOpen(port, lanIp, 900) : false;
+        const directLan = lanIp ? await checkHttpResponse(port, lanIp, 1200) : false;
         let publicPort = port;
         if (!directLan) {
           const proxy = await startLanProxy(port);
@@ -235,7 +256,7 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
       probeTimer = setTimeout(() => {
         probeTimer = null;
         if (stopped || exited || status !== 'starting') return;
-        void checkPortOpen(port).then((open) => {
+        void checkHttpResponse(port).then((open) => {
           if (open && !stopped && !exited) markRunning(port);
         });
       }, PROBE_AFTER_MS);
