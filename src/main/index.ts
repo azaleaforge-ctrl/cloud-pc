@@ -139,7 +139,9 @@ function loadSettings(): Settings {
       selfId: parsed.selfId ?? randomUUID(),
       selfName: parsed.selfName ?? 'Saya',
       lastFolder: parsed.lastFolder,
-      lastLaunchedVersion: parsed.lastLaunchedVersion,
+      // Prior releases did not persist this marker; use the last published baseline
+      // so the first upgrade after this feature is counted for version-history cleanup.
+      lastLaunchedVersion: parsed.lastLaunchedVersion ?? '0.3.2',
       successfulUpdatesSinceHistoryCleanup: parsed.successfulUpdatesSinceHistoryCleanup ?? 0,
       hiddenReleaseHistoryCount: parsed.hiddenReleaseHistoryCount ?? 0,
     };
@@ -147,6 +149,7 @@ function loadSettings(): Settings {
     return {
       selfId: randomUUID(),
       selfName: 'Saya',
+      lastLaunchedVersion: APP_VERSION,
       successfulUpdatesSinceHistoryCleanup: 0,
       hiddenReleaseHistoryCount: 0,
     };
