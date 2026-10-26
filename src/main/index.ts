@@ -502,7 +502,7 @@ function decodeXmlEntities(value: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;|&apos;/g, "'")
-    .replace(/&#(\\d+);/g, (_match, code: string) => String.fromCodePoint(Number(code)))
+    .replace(/&#(\d+);/g, (_match, code: string) => String.fromCodePoint(Number(code)))
     .replace(/&#x([0-9a-f]+);/gi, (_match, code: string) => String.fromCodePoint(parseInt(code, 16)))
     .replace(/&amp;/g, '&')
     .replace(/&nbsp;/g, ' ');
@@ -510,26 +510,26 @@ function decodeXmlEntities(value: string): string {
 
 function atomHtmlToMarkdown(value: string): string {
   return decodeXmlEntities(value)
-    .replace(/<h([1-6])\\b[^>]*>([\\s\\S]*?)<\\/h\\1>/gi, (_m, level: string, body: string) => '\\n\\n' + '#'.repeat(Number(level)) + ' ' + body + '\\n\\n')
-    .replace(/<br\\s*\\/?\\s*>/gi, '\\n')
-    .replace(/<li\\b[^>]*>/gi, '\\n- ')
-    .replace(/<\\/li>/gi, '')
-    .replace(/<a\\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>([\\s\\S]*?)<\\/a>/gi, '[$2]($1)')
-    .replace(/<strong\\b[^>]*>([\\s\\S]*?)<\\/strong>/gi, '**$1**')
-    .replace(/<b\\b[^>]*>([\\s\\S]*?)<\\/b>/gi, '**$1**')
-    .replace(/<em\\b[^>]*>([\\s\\S]*?)<\\/em>/gi, '*$1*')
-    .replace(/<i\\b[^>]*>([\\s\\S]*?)<\\/i>/gi, '*$1*')
-    .replace(/<p\\b[^>]*>/gi, '')
-    .replace(/<\\/p>/gi, '\\n\\n')
+    .replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, (_m, level: string, body: string) => '\n\n' + '#'.repeat(Number(level)) + ' ' + body + '\n\n')
+    .replace(/<br\s*\/?\s*>/gi, '\n')
+    .replace(/<li\b[^>]*>/gi, '\n- ')
+    .replace(/<\/li>/gi, '')
+    .replace(/<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>([\s\S]*?)<\/a>/gi, '[$2]($1)')
+    .replace(/<strong\b[^>]*>([\s\S]*?)<\/strong>/gi, '**$1**')
+    .replace(/<b\b[^>]*>([\s\S]*?)<\/b>/gi, '**$1**')
+    .replace(/<em\b[^>]*>([\s\S]*?)<\/em>/gi, '*$1*')
+    .replace(/<i\b[^>]*>([\s\S]*?)<\/i>/gi, '*$1*')
+    .replace(/<p\b[^>]*>/gi, '')
+    .replace(/<\/p>/gi, '\n\n')
     .replace(/<[^>]+>/g, '')
-    .replace(/[\\t ]+\\n/g, '\\n')
-    .replace(/\\n{3,}/g, '\\n\\n')
+    .replace(/[\t ]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
 function atomText(entry: string, tag: string): string | null {
-  const match = entry.match(new RegExp('<' + tag + '\\\\b[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));
-  return match ? decodeXmlEntities(match[1].replace(/<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>/g, '$1')).trim() : null;
+  const match = entry.match(new RegExp('<' + tag + '\\b[^>]*>([\\s\\S]*?)</' + tag + '>', 'i'));
+  return match ? decodeXmlEntities(match[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')).trim() : null;
 }
 
 async function fetchReleaseHistoryFromAtom(): Promise<ReleaseInfo[]> {
@@ -539,19 +539,19 @@ async function fetchReleaseHistoryFromAtom(): Promise<ReleaseInfo[]> {
   });
   if (!response.ok) throw new Error('GitHub release feed HTTP ' + response.status);
   const xml = await response.text();
-  const entries = [...xml.matchAll(/<entry\\b[^>]*>([\\s\\S]*?)<\\/entry>/gi)].map((match) => match[1]);
+  const entries = [...xml.matchAll(/<entry\b[^>]*>([\s\S]*?)<\/entry>/gi)].map((match) => match[1]);
   const releases: ReleaseInfo[] = [];
   for (const entry of entries) {
-    const linkTags = [...entry.matchAll(/<link\\b[^>]*\\/?\\s*>/gi)].map((match) => match[0]);
+    const linkTags = [...entry.matchAll(/<link\b[^>]*\/?\s*>/gi)].map((match) => match[0]);
     const linkTag = linkTags.find((tag) => /rel=[\"']alternate[\"']/i.test(tag)) ?? linkTags[0] ?? '';
     const href = linkTag.match(/href=[\"']([^\"']+)[\"']/i)?.[1];
-    const tag = href?.match(/\\/releases\\/tag\\/([^/?#]+)/i)?.[1];
+    const tag = href?.match(/\/releases\/tag\/([^/?#]+)/i)?.[1];
     if (!tag) continue;
     const decodedTag = decodeURIComponent(tag);
     const title = atomText(entry, 'title') ?? decodedTag;
     const updated = atomText(entry, 'published') ?? atomText(entry, 'updated');
     if (!updated || !Number.isFinite(Date.parse(updated))) continue;
-    const content = entry.match(/<(?:content|summary)\\b[^>]*>([\\s\\S]*?)<\\/(?:content|summary)>/i)?.[1] ?? '';
+    const content = entry.match(/<(?:content|summary)\b[^>]*>([\s\S]*?)<\/(?:content|summary)>/i)?.[1] ?? '';
     const body = content ? atomHtmlToMarkdown(content) : null;
     const isPrerelease = /(?:alpha|beta|rc|pre[- ]?release|nightly)/i.test(decodedTag + ' ' + title);
     releases.push({
