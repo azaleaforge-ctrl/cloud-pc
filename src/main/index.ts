@@ -526,32 +526,28 @@ function registerIpc(): void {
   ipcMain.handle('rk:stop-server', () => handleStopServer());
   ipcMain.handle('rk:check-for-updates', async () => {
     if (process.env.NODE_ENV === 'development') {
-      return { ok: true, error: 'Auto-update tidak berjalan di mode development.' };
+      return { ok: false, error: 'Auto-update tidak berjalan di mode development.' };
     }
-    try {
-      await autoUpdater.checkForUpdates();
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: (err as Error).message };
-    }
+    await checkForUpdates();
+    return updateState.status === 'error'
+      ? { ok: false, error: updateState.error ?? 'Gagal memeriksa pembaruan.' }
+      : { ok: true };
   });
   ipcMain.handle('rk:install-update', async () => {
-    try {
-      if (updateState.status === 'downloaded') {
+    if (updateState.status === 'downloaded') {
+      if (!updateInstallRequested) {
+        updateInstallRequested = true;
         setImmediate(() => autoUpdater.quitAndInstall());
-        return { ok: true };
       }
-      if (updateState.status === 'available' || updateState.status === 'downloading') {
-        await autoUpdater.downloadUpdate();
-        return { ok: true };
-      }
-      if (updateState.status === 'latest' || updateState.status === 'idle') {
-        return { ok: false, error: 'Tidak ada pembaruan untuk dipasang.' };
-      }
-      return { ok: false, error: 'Status pembaruan tidak dikenali.' };
-    } catch (err) {
-      return { ok: false, error: (err as Error).message };
+      return { ok: true };
     }
+    if (updateState.status === 'available' || updateState.status === 'downloading') {
+      // autoDownload is enabled. Do not call downloadUpdate() a second time from UI;
+      // this avoids duplicate download requests and keeps one authoritative progress stream.
+      return { ok: true };
+    }
+    if (updateState.status === 'error') return { ok: false, error: updateState.error ?? 'Download pembaruan gagal.' };
+    return { ok: false, error: 'Tidak ada pembaruan yang siap dipasang.' };
   });
   ipcMain.handle('rk:fetch-release-notes', async () => {
     try {
