@@ -25,7 +25,7 @@ import { findRoom, getLanIp, startAdvertise, stopAdvertise } from './discovery';
 import { createHostRoom, type HostRoom } from './hostRoom';
 import { joinAsMember, type MemberRoom } from './memberRoom';
 import { startDevServer, type DevServerHandle } from './devServer';
-import { scanFiles, scanProjectEntries } from './fsScan';
+import { scanProjectEntries } from './fsScan';
 import { openEmbeddedIde, closeEmbeddedIde, resizeEmbeddedIde } from './nativeHost';
 import { startActivityMonitor } from './activityMonitor';
 
