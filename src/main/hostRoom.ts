@@ -531,8 +531,13 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     const message = `${client.name} terputus, giliran dilepas`;
     broadcast({ t: 'notify', kind: 'info', message });
     opts.notify({ kind: 'warn', message });
-    if (wasHolder) broadcast({ t: 'turn-released', holder, name: client.name });
-    if (holder) announceHolder(holder);
+    if (wasHolder) {
+      clearPrompt();
+      if (holder) {
+        announceHolder(holder);
+        resetIdleTimer('disconnect');
+      }
+    }
     applyHolderChange();
   };
 
@@ -619,6 +624,19 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
         case 'release': {
           const result = internalReleaseTurn(client.id);
           if (!result.ok) sendWire(ws, { t: 'error', message: result.error ?? 'Gagal melepas giliran.' });
+          break;
+        }
+        case 'activity':
+          reportActivity(client.id, typeof msg.source === 'string' ? msg.source : 'ui');
+          break;
+        case 'queue-approve': {
+          const result = approveQueue(msg.requesterId);
+          if (!result.ok) sendWire(ws, { t: 'error', message: result.error ?? 'Gagal menyetujui antrian.' });
+          break;
+        }
+        case 'queue-defer': {
+          const result = deferQueue(msg.requesterId);
+          if (!result.ok) sendWire(ws, { t: 'error', message: result.error ?? 'Gagal menunda antrian.' });
           break;
         }
         case 'fs': {
@@ -741,6 +759,9 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     port,
     takeTurn: () => internalTakeTurn(opts.hostId),
     releaseTurn: () => internalReleaseTurn(opts.hostId),
+    approveQueue: (requesterId: string) => approveQueue(requesterId),
+    deferQueue: (requesterId: string) => deferQueue(requesterId),
+    reportActivity: (memberId: string, source: string) => reportActivity(memberId, source),
     setServerState: (state: ServerState) => {
       serverState = { ...state, logs: [] };
       sendState();
@@ -757,6 +778,8 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
         clearTimeout(idleTimer);
         idleTimer = null;
       }
+      clearPrompt();
+      snoozedUntil.clear();
       for (const timer of pending.values()) clearTimeout(timer);
       pending.clear();
       if (watcher) {
