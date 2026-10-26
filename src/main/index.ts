@@ -19,7 +19,7 @@ import type {
 import { APP_VERSION } from '../shared/types';
 import { StateStore } from './store';
 import { detectFramework } from './frameworkDetect';
-import { detectIdes, openInIde } from './ideDetect';
+import { detectIdes } from './ideDetect';
 import { findRoom, getLanIp, startAdvertise, stopAdvertise } from './discovery';
 import { createHostRoom, type HostRoom } from './hostRoom';
 import { joinAsMember, type MemberRoom } from './memberRoom';
@@ -35,17 +35,16 @@ function emitUpdateState(state: UpdateState): void {
   store.patch({ update: state });
 }
 
-autoUpdater.autoDownload = false;
+autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
 
 autoUpdater.on('checking-for-update', () => {
   notify({ kind: 'info', message: 'Memeriksa pembaruan...' });
   emitUpdateState({ status: 'checking', version: null, progress: null, error: null });
 });
-autoUpdater.on('update-available', () => {
-  notify({ kind: 'info', message: 'Pembaruan tersedia. Unduh otomatis...' });
-  emitUpdateState({ status: 'available', version: null, progress: 0, error: null });
-  void autoUpdater.downloadUpdate().catch(() => undefined);
+autoUpdater.on('update-available', (info) => {
+  notify({ kind: 'info', message: 'Pembaruan ' + info.version + ' tersedia. Mengunduh otomatis...' });
+  emitUpdateState({ status: 'available', version: info.version, progress: 0, error: null });
 });
 autoUpdater.on('update-not-available', () => {
   notify({ kind: 'info', message: 'Sudah versi terbaru.' });
@@ -59,14 +58,17 @@ autoUpdater.on('download-progress', (progress) => {
   notify({ kind: 'info', message: `Mengunduh pembaruan: ${Math.round(progress.percent)}%` });
   emitUpdateState({ status: 'downloading', version: null, progress: progress.percent, error: null });
 });
-autoUpdater.on('update-downloaded', () => {
-  notify({ kind: 'info', message: 'Pembaruan siap. Klik "Pasang Sekarang" untuk memperbarui.' });
-  emitUpdateState({ status: 'downloaded', version: null, progress: 100, error: null });
+autoUpdater.on('update-downloaded', (info) => {
+  notify({ kind: 'info', message: 'Pembaruan ' + info.version + ' sudah diunduh.' });
+  emitUpdateState({ status: 'downloaded', version: info.version, progress: 100, error: null });
+  if (store.get().role === 'none') {
+    setTimeout(() => autoUpdater.quitAndInstall(), 2500).unref?.();
+  }
 });
 
 function checkForUpdates(): void {
   if (process.env.NODE_ENV === 'development') return;
-  autoUpdater.checkForUpdatesAndNotify().catch(() => undefined);
+  autoUpdater.checkForUpdates().catch(() => undefined);
 }
 
 interface Settings {
@@ -586,6 +588,7 @@ app.whenReady().then(async () => {
   await createWindow();
   void scanIdesAndUpdate();
   checkForUpdates();
+  setInterval(() => checkForUpdates(), 30 * 60 * 1000).unref?.();
 });
 
 app.on('window-all-closed', () => {
