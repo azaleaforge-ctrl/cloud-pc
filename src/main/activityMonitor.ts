@@ -4,9 +4,11 @@ import { isEmbeddedIdeForeground } from './nativeHost';
 const POWERSHELL = 'powershell.exe';
 const TICK_MS = 4_000;
 
-function queryProcessActivity(): Promise<{ agent: boolean; terminal: boolean }> {
+function queryProcessActivity(projectPath: string): Promise<{ agent: boolean; terminal: boolean }> {
   if (process.platform !== 'win32') return Promise.resolve({ agent: false, terminal: false });
+  const safeProject = projectPath.replace(/'/g, "''").toLowerCase();
   const script = [
+    "$project = '" + safeProject + "'",
     'Add-Type @''',
     'using System;',
     'using System.Runtime.InteropServices;',
@@ -49,7 +51,7 @@ export function startActivityMonitor(projectPath: string, onActivity: (source: A
     if (await isEmbeddedIdeForeground()) {
       onActivity('ide');
     } else {
-      const info = await queryProcessActivity();
+      const info = await queryProcessActivity(projectPath);
       if (info.agent) onActivity('agent');
       else if (info.terminal) onActivity('terminal');
     }
