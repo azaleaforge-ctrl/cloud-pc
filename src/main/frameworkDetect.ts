@@ -112,17 +112,27 @@ function detectPackageManager(dir: string): PackageManager {
   return 'npm';
 }
 
-function buildCommand(pm: PackageManager, script: string): string {
+function buildCommand(pm: PackageManager, script: string, forwardedArgs: string[] = []): string {
+  const suffix = forwardedArgs.length ? ` ${forwardedArgs.join(' ')}` : '';
   switch (pm) {
     case 'pnpm':
-      return `pnpm ${script}`;
+      return `pnpm ${script}${suffix}`;
     case 'yarn':
-      return `yarn ${script}`;
+      return `yarn ${script}${suffix}`;
     case 'bun':
-      return `bun run ${script}`;
+      return `bun run ${script}${suffix}`;
     default:
-      return script === 'start' ? 'npm start' : `npm run ${script}`;
+      return script === 'start'
+        ? `npm start${suffix ? ` --${suffix}` : ''}`
+        : `npm run ${script}${suffix ? ` --${suffix}` : ''}`;
   }
+}
+
+function lanArgsFor(id: string, port: number): string[] {
+  if (id === 'next') return ['--hostname', '0.0.0.0', '--port', String(port)];
+  if (id === 'expo') return ['--host', 'lan', '--port', String(port)];
+  // Keep common JavaScript dev servers reachable from the LAN; the host also has a proxy fallback.
+  return ['--host', '0.0.0.0', '--port', String(port)];
 }
 
 function pickScript(scripts: Record<string, unknown>): string {
@@ -162,7 +172,7 @@ export function detectFramework(dir: string): FrameworkInfo | null {
         return {
           id: fw.id,
           name: fw.name,
-          command: buildCommand(pm, script),
+          command: buildCommand(pm, script, lanArgsFor(fw.id, fw.port)),
           args: [],
           cwd: dir,
           packageManager: pm,
