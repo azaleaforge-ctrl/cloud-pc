@@ -256,4 +256,4 @@ export const IGNORED_DIRS = [
   '.DS_Store',
 ];
 
-export const APP_VERSION = '0.3.5';
+export const APP_VERSION = '0.3.6';
