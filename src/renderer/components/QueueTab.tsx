@@ -33,7 +33,7 @@ export function QueueTab({
       <div className="tab-heading">
         <div>
           <h2>Antrian Giliran</h2>
-          <p>Giliran dikerjakan otomatis — mulailah mengedit berkas untuk dapat giliran.</p>
+          <p>Giliran dikerjakan otomatis. Mulailah mengedit berkas untuk dapat giliran.</p>
         </div>
       </div>
 
