@@ -277,25 +277,149 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     const member = members.get(byId);
     const name = member?.name ?? 'Anggota';
 
-    holder = queue.shift() ?? null;
-    broadcast({ t: 'turn-released', holder, name });
-    broadcast({ t: 'notify', kind: 'info', message: idle ? `${name} idle - otomatis melepas giliran` : `${name} selesai bekerja` });
-    if (byId !== opts.hostId) opts.notify({ kind: idle ? 'warn' : 'info', message: idle ? `${name} idle - giliran dilepas otomatis` : `${name} selesai bekerja` });
-
-    if (holder) {
-      const nextName = members.get(holder)?.name ?? 'Anggota';
-      announceHolder(holder);
-      if (holder !== opts.hostId) {
-        opts.notify({ kind: 'info', message: `${nextName} sekarang memegang giliran` });
+    if (idle) {
+      clearPrompt();
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = null;
+      holder = queue.shift() ?? null;
+      holderLastActivity = holder ? Date.now() : null;
+      holderActivitySource = holder ? 'idle-auto' : null;
+      updateStatuses();
+      broadcast({ t: 'turn-released', holder, name });
+      broadcast({ t: 'notify', kind: 'warn', message: name + ' idle selama 2 menit - giliran dilepas otomatis.' });
+      if (byId !== opts.hostId) opts.notify({ kind: 'warn', message: name + ' idle - giliran dilepas otomatis.' });
+      if (holder) {
+        const nextName = members.get(holder)?.name ?? 'Anggota';
+        announceHolder(holder);
+        if (holder !== opts.hostId) opts.notify({ kind: 'turn', message: nextName + ' sekarang mendapat giliran.' });
+        resetIdleTimer('queue-auto');
       }
-      resetIdleTimer();
+      applyHolderChange();
+      return { ok: true };
     }
-    idleTimer && clearTimeout(idleTimer);
+
+    if (queue.length > 0) {
+      const requesterId = queue[0];
+      const requester = members.get(requesterId);
+      if (requester) {
+        pendingPrompt = { requesterId, requesterName: requester.name, expiresAt: Date.now() + 15_000 };
+        if (byId === opts.hostId) {
+          opts.emit({ queueNotice: { mode: 'decision', requesterId, requesterName: requester.name, holderName: name, expiresAt: pendingPrompt.expiresAt, deferredUntil: null } });
+        } else {
+          const client = clients.get(byId);
+          if (client) sendWire(client.ws, { t: 'queue-prompt', requesterId, requesterName: requester.name, holderName: name, expiresAt: pendingPrompt.expiresAt, mode: 'decision' });
+        }
+        promptTimer = setTimeout(() => {
+          promptTimer = null;
+          if (pendingPrompt?.requesterId === requesterId) approveQueue(requesterId);
+        }, 15_000);
+        promptTimer.unref?.();
+        return { ok: true };
+      }
+    }
+
+    clearPrompt();
+    if (idleTimer) clearTimeout(idleTimer);
     idleTimer = null;
+    holder = null;
+    holderLastActivity = null;
+    holderActivitySource = null;
+    updateStatuses();
+    broadcast({ t: 'turn-released', holder: null, name });
+    broadcast({ t: 'notify', kind: 'info', message: name + ' selesai bekerja.' });
+    if (byId !== opts.hostId) opts.notify({ kind: 'info', message: 'Kamu selesai bekerja.' });
+    applyHolderChange();
+    return { ok: true };
+  };
+  const approveQueue = (requesterId: string): ActionResult => {
+    if (!holder || !pendingPrompt || pendingPrompt.requesterId !== requesterId) return { ok: false, error: 'Permintaan giliran sudah tidak aktif.' };
+    const idx = queue.indexOf(requesterId);
+    if (idx < 0) return { ok: false, error: 'Anggota tidak lagi berada di antrian.' };
+    const requester = members.get(requesterId);
+    const previousHolder = holder;
+    const previousName = members.get(previousHolder)?.name ?? 'Anggota';
+    queue.splice(idx, 1);
+    clearPrompt();
+    holder = requesterId;
+    holderLastActivity = Date.now();
+    holderActivitySource = 'approved';
+    updateStatuses();
+    if (previousHolder === opts.hostId) opts.emit({ queueNotice: null });
+    broadcast({ t: 'turn-released', holder, name: previousName });
+    if (requester) announceHolder(requesterId);
+    resetIdleTimer('approved');
     applyHolderChange();
     return { ok: true };
   };
 
+  const deferQueue = (requesterId: string): ActionResult => {
+    if (!holder || !pendingPrompt || pendingPrompt.requesterId !== requesterId) return { ok: false, error: 'Permintaan giliran sudah tidak aktif.' };
+    const requester = members.get(requesterId);
+    if (!requester) return { ok: false, error: 'Anggota tidak dikenal.' };
+    const holderName = members.get(holder)?.name ?? 'Anggota';
+    const idx = queue.indexOf(requesterId);
+    if (idx < 0) return { ok: false, error: 'Anggota tidak lagi berada di antrian.' };
+    queue.splice(idx, 1);
+    const until = Date.now() + 120_000;
+    snoozedUntil.set(requesterId, until);
+    clearPrompt();
+    updateStatuses();
+    if (holder === opts.hostId) opts.emit({ queueNotice: null });
+    if (requesterId === opts.hostId) {
+      opts.emit({ queueNotice: { mode: 'deferred', requesterId, requesterName: requester.name, holderName, expiresAt: null, deferredUntil: until } });
+    } else {
+      const requesterClient = clients.get(requesterId);
+      if (requesterClient) sendWire(requesterClient.ws, { t: 'queue-deferred', requesterId, requesterName: requester.name, holderName, until });
+    }
+    const repush = setTimeout(() => {
+      snoozedUntil.delete(requesterId);
+      if (!members.has(requesterId) || queue.includes(requesterId) || holder === requesterId) return;
+      queue.push(requesterId);
+      updateStatuses();
+      applyHolderChange();
+      const requesterClient = clients.get(requesterId);
+      if (requesterClient) sendWire(requesterClient.ws, { t: 'queue-prompt', requesterId, requesterName: requester.name, holderName, expiresAt: null, mode: 'bar' });
+    }, 120_000);
+    repush.unref?.();
+    applyHolderChange();
+    return { ok: true };
+  };
+
+  const reportActivity = (memberId: string, source: string): void => {
+    if (memberId !== holder) return;
+    resetIdleTimer(source);
+    if (pendingPrompt) {
+      const requesterId = pendingPrompt.requesterId;
+      const requester = members.get(requesterId);
+      clearPrompt();
+      if (requester) {
+        if (memberId === opts.hostId) {
+          opts.emit({ queueNotice: { mode: 'bar', requesterId, requesterName: requester.name, holderName: members.get(memberId)?.name ?? 'Anggota', expiresAt: null, deferredUntil: null } });
+        } else {
+          const client = clients.get(memberId);
+          if (client) sendWire(client.ws, { t: 'queue-prompt', requesterId, requesterName: requester.name, holderName: members.get(memberId)?.name ?? 'Anggota', expiresAt: null, mode: 'bar' });
+        }
+        repromptTimer = setTimeout(() => {
+          repromptTimer = null;
+          if (!holder || !queue.includes(requesterId) || pendingPrompt) return;
+          pendingPrompt = { requesterId, requesterName: requester.name, expiresAt: Date.now() + 15_000 };
+          if (holder === opts.hostId) {
+            opts.emit({ queueNotice: { mode: 'decision', requesterId, requesterName: requester.name, holderName: members.get(holder)?.name ?? 'Anggota', expiresAt: pendingPrompt.expiresAt, deferredUntil: null } });
+          } else {
+            const client = clients.get(holder);
+            if (client) sendWire(client.ws, { t: 'queue-prompt', requesterId, requesterName: requester.name, holderName: members.get(holder)?.name ?? 'Anggota', expiresAt: pendingPrompt.expiresAt, mode: 'decision' });
+          }
+          promptTimer = setTimeout(() => {
+            promptTimer = null;
+            if (pendingPrompt?.requesterId === requesterId) approveQueue(requesterId);
+          }, 15_000);
+          promptTimer.unref?.();
+        }, 60_000);
+        repromptTimer.unref?.();
+      }
+    }
+    sendState();
+  };
   const publishLocalChange = async (event: 'add' | 'change' | 'unlink', relPath: string): Promise<void> => {
     if (closed) return;
     if (consumeSuppressed(relPath)) return;
