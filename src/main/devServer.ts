@@ -254,6 +254,9 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
       HOST: '0.0.0.0',
       HOSTNAME: '0.0.0.0',
       N_HOST: '0.0.0.0',
+      PORT: String(framework.detectedPort ?? 3000),
+      FLASK_RUN_HOST: '0.0.0.0',
+      FLASK_RUN_PORT: String(framework.detectedPort ?? 5000),
       NEXT_TELEMETRY_DISABLED: '1',
     };
     const args = framework.args ?? [];
