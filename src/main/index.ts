@@ -26,7 +26,7 @@ import { createHostRoom, type HostRoom } from './hostRoom';
 import { joinAsMember, type MemberRoom } from './memberRoom';
 import { startDevServer, type DevServerHandle } from './devServer';
 import { scanProjectEntries } from './fsScan';
-import { openEmbeddedIde, closeEmbeddedIde, resizeEmbeddedIde } from './nativeHost';
+import { openEmbeddedIde, closeEmbeddedIde, resizeEmbeddedIde, focusEmbeddedIde } from './nativeHost';
 import { startActivityMonitor } from './activityMonitor';
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -771,9 +771,31 @@ async function createWindow(): Promise<void> {
     if (!win.isMaximized()) win.maximize();
     win.show();
   });
-  win.on('resize', () => {
-    void resizeEmbeddedIde(win!);
-  });
+  let ideLayoutTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleIdeLayout = (): void => {
+    if (ideLayoutTimer) clearTimeout(ideLayoutTimer);
+    ideLayoutTimer = setTimeout(() => {
+      ideLayoutTimer = null;
+      if (win && !win.isDestroyed() && store.get().ideMode) {
+        void resizeEmbeddedIde(win);
+      }
+    }, 90);
+    ideLayoutTimer.unref?.();
+  };
+  const restoreIdeFocus = (): void => {
+    const current = win;
+    if (!current || current.isDestroyed() || !store.get().ideMode) return;
+    void resizeEmbeddedIde(current).finally(() => {
+      if (win === current && !current.isDestroyed() && store.get().ideMode) {
+        void focusEmbeddedIde(current);
+      }
+    });
+  };
+
+  win.on('resize', scheduleIdeLayout);
+  win.on('maximize', scheduleIdeLayout);
+  win.on('unmaximize', scheduleIdeLayout);
+  win.on('restore', scheduleIdeLayout);
   win.on('close', (e) => {
     // Klik X / Alt+F4: sembunyikan ke tray, jangan keluar.
     e.preventDefault();
@@ -781,6 +803,10 @@ async function createWindow(): Promise<void> {
   });
   win.on('focus', () => {
     win?.setOpacity(1);
+    if (store.get().ideMode) {
+      const focusTimer = setTimeout(restoreIdeFocus, 120);
+      focusTimer.unref?.();
+    }
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
