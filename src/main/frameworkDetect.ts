@@ -305,9 +305,12 @@ export function detectFramework(dir: string): FrameworkInfo | null {
     // Static site fallback (tidak peduli package.json)
     if (existsSync(join(dir, 'index.html'))) {
       const pm = pkg ? detectPackageManager(dir) : 'system' as PackageManager | 'system';
-      const script = pkg ? pickScript(asRecord(pkg.scripts)) : 'dev';
-      const command =
-        pm === 'system' ? 'npx serve -l 5173 .' : buildCommand(pm, script);
+      const script = pkg ? pickScript(asRecord(pkg.scripts)) : null;
+      const command = pm === 'system'
+        ? 'npx --yes serve -l 0.0.0.0:5173 .'
+        : script
+          ? buildCommand(pm, script)
+          : 'npx --no-install vite --host 0.0.0.0 --port 5173';
       return {
         id: 'static',
         name: 'Situs Statis',
