@@ -10,27 +10,28 @@ interface JsFramework {
   port: number;
   deps: string[];
   requires?: string[];
+  hostArgs?: boolean;
 }
 
 /** Urutan penting: framework paling spesifik lebih dulu. */
 const JS_FRAMEWORKS: JsFramework[] = [
-  { id: 'next', name: 'Next.js', port: 3000, deps: ['next'] },
-  { id: 'nuxt', name: 'Nuxt', port: 3000, deps: ['nuxt'] },
-  { id: 'astro', name: 'Astro', port: 4321, deps: ['astro'] },
-  { id: 'remix', name: 'Remix', port: 5173, deps: ['@remix-run/dev'] },
-  { id: 'sveltekit', name: 'SvelteKit', port: 5173, deps: ['@sveltejs/kit'] },
-  { id: 'angular', name: 'Angular', port: 4200, deps: ['@angular/cli'] },
-  { id: 'gatsby', name: 'Gatsby', port: 8000, deps: ['gatsby'] },
-  { id: 'cra', name: 'Create React App', port: 3000, deps: ['react-scripts'] },
-  { id: 'vite', name: 'Vite', port: 5173, deps: ['vite'] },
-  { id: 'vue-cli', name: 'Vue CLI', port: 8080, deps: ['@vue/cli-service'], requires: ['vue'] },
-  { id: 'parcel', name: 'Parcel', port: 1234, deps: ['parcel', 'parcel-bundler'] },
-  { id: 'expo', name: 'Expo', port: 8081, deps: ['expo'] },
-  { id: 'docusaurus', name: 'Docusaurus', port: 3000, deps: ['@docusaurus/core'] },
-  { id: 'eleventy', name: 'Eleventy', port: 8080, deps: ['@11ty/eleventy', 'eleventy'] },
+  { id: 'next', name: 'Next.js', port: 3000, deps: ['next'], hostArgs: true },
+  { id: 'nuxt', name: 'Nuxt', port: 3000, deps: ['nuxt'], hostArgs: true },
+  { id: 'astro', name: 'Astro', port: 4321, deps: ['astro'], hostArgs: true },
+  { id: 'remix', name: 'Remix', port: 5173, deps: ['@remix-run/dev'], hostArgs: true },
+  { id: 'sveltekit', name: 'SvelteKit', port: 5173, deps: ['@sveltejs/kit'], hostArgs: true },
+  { id: 'angular', name: 'Angular', port: 4200, deps: ['@angular/cli'], hostArgs: true },
+  { id: 'gatsby', name: 'Gatsby', port: 8000, deps: ['gatsby'], hostArgs: true },
+  { id: 'cra', name: 'Create React App', port: 3000, deps: ['react-scripts'], hostArgs: false },
+  { id: 'vite', name: 'Vite', port: 5173, deps: ['vite'], hostArgs: true },
+  { id: 'vue-cli', name: 'Vue CLI', port: 8080, deps: ['@vue/cli-service'], requires: ['vue'], hostArgs: true },
+  { id: 'parcel', name: 'Parcel', port: 1234, deps: ['parcel', 'parcel-bundler'], hostArgs: true },
+  { id: 'expo', name: 'Expo', port: 8081, deps: ['expo'], hostArgs: true },
+  { id: 'docusaurus', name: 'Docusaurus', port: 3000, deps: ['@docusaurus/core'], hostArgs: true },
+  { id: 'eleventy', name: 'Eleventy', port: 8080, deps: ['@11ty/eleventy', 'eleventy'], hostArgs: true },
 ];
 
-const SCRIPT_ORDER = ['dev', 'start', 'serve'] as const;
+const SCRIPT_ORDER = ['dev', 'develop', 'start', 'serve'] as const;
 
 interface NonJsFramework {
   id: string;
@@ -135,11 +136,11 @@ function lanArgsFor(id: string, port: number): string[] {
   return ['--host', '0.0.0.0', '--port', String(port)];
 }
 
-function pickScript(scripts: Record<string, unknown>): string {
+function pickScript(scripts: Record<string, unknown>): string | null {
   for (const name of SCRIPT_ORDER) {
-    if (typeof scripts[name] === 'string') return name;
+    if (typeof scripts[name] === 'string' && scripts[name].trim()) return name;
   }
-  return 'dev';
+  return null;
 }
 
 export function detectFramework(dir: string): FrameworkInfo | null {
@@ -169,14 +170,17 @@ export function detectFramework(dir: string): FrameworkInfo | null {
         if (fw.requires && !fw.requires.every((dep) => dep in deps)) continue;
         const pm = detectPackageManager(dir);
         const script = pickScript(asRecord(pkg.scripts));
+        if (!script) continue;
+        const forwardedArgs = fw.hostArgs === false ? [] : lanArgsFor(fw.id, fw.port);
         return {
           id: fw.id,
           name: fw.name,
-          command: buildCommand(pm, script, lanArgsFor(fw.id, fw.port)),
+          command: buildCommand(pm, script, forwardedArgs),
           args: [],
           cwd: dir,
           packageManager: pm,
           detectedPort: fw.port,
+          notes: 'Perintah dijalankan otomatis dari script package.json; host/port diteruskan jika didukung framework.',
         };
       }
     }
