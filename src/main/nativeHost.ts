@@ -66,7 +66,7 @@ function findWindowForIde(ide: IdeInfo, folder: string): Promise<{ hwnd: bigint;
   });
 }
 
-function mutateWindow(mode: 'embed' | 'unembed', hwnd: bigint, parent: bigint, width = 0, height = 0): Promise<void> {
+function mutateWindow(mode: 'embed' | 'unembed', hwnd: bigint, parent: bigint, width = 0, height = 0): Promise<boolean> {
   const child = hwnd.toString();
   const owner = parent.toString();
   const script = WIN32_TYPE + [
@@ -89,6 +89,7 @@ function mutateWindow(mode: 'embed' | 'unembed', hwnd: bigint, parent: bigint, w
     '  [void][RuangKerjaWin32]::SetWindowLongPtr($h, $GWL_EXSTYLE, [IntPtr]::new($ex))',
     '  [void][RuangKerjaWin32]::SetWindowPos($h, [IntPtr]::Zero, 0, ' + TOOLBAR_HEIGHT + ', ' + width + ', ' + Math.max(100, height - TOOLBAR_HEIGHT) + ', $SWP_NOZORDER -bor $SWP_NOACTIVATE -bor $SWP_SHOWWINDOW)',
     '  [void][RuangKerjaWin32]::ShowWindow($h, $SW_RESTORE)',
+    '  Write-Output "RK_WINDOW_OK"',
     '  exit 0',
     '}',
     '[void][RuangKerjaWin32]::SetParent($h, [IntPtr]::Zero)',
@@ -98,8 +99,8 @@ function mutateWindow(mode: 'embed' | 'unembed', hwnd: bigint, parent: bigint, w
     '$ex = $ex -bor $WS_EX_APPWINDOW',
     '[void][RuangKerjaWin32]::SetWindowLongPtr($h, $GWL_EXSTYLE, [IntPtr]::new($ex))',
     '[void][RuangKerjaWin32]::ShowWindow($h, $SW_MINIMIZE)',
-    'exit 0',
     'Write-Output "RK_WINDOW_OK"',
+    'exit 0',
   ].join('\n');
   return ps(script, 6_000).then((out) => out.split(/\r?\n/).some((line) => line.trim() === 'RK_WINDOW_OK'));
 }
@@ -132,7 +133,8 @@ export async function openEmbeddedIde(ide: IdeInfo, folder: string, win: Browser
   const embedded = await mutateWindow('embed', match.hwnd, parentHwnd, bounds.width, bounds.height);
   if (!embedded) return { ok: false, error: `Windows menolak menanamkan jendela ${ide.name} ke Ruang Kerja. IDE ini mungkin tidak kompatibel dengan native embedding.` };
   session = { ide, process: child, pid: match.pid, hwnd: match.hwnd };
-  child.once('exit', () => { if (session?.pid === match?.pid) session = null; });
+  // Do not clear the embedded session when an IDE launcher exits after handing
+  // the folder to a long-lived IDE process. The selected window belongs to match.pid.
   return { ok: true };
 }
 
