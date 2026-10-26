@@ -119,7 +119,16 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
   emit('starting', null);
 
   try {
-    const env = { ...process.env, FORCE_COLOR: '0', BROWSER: 'none', CI: '1' };
+    const env = {
+      ...process.env,
+      FORCE_COLOR: '0',
+      BROWSER: 'none',
+      CI: '1',
+      HOST: '0.0.0.0',
+      HOSTNAME: '0.0.0.0',
+      N_HOST: '0.0.0.0',
+      NEXT_TELEMETRY_DISABLED: '1',
+    };
     const args = framework.args ?? [];
     child = args.length
       ? spawn(framework.command, args, { cwd, shell: true, env, windowsHide: true })
