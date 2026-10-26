@@ -70,6 +70,15 @@ export function IconFolder(p: IconProps) {
   );
 }
 
+export function IconFile(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M14 2v6h6l-6-6z" />
+      <path d="M4 2h10v6h6v16a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" />
+    </Svg>
+  );
+}
+
 export function IconCopy(p: IconProps) {
   return (
     <Svg {...p}>

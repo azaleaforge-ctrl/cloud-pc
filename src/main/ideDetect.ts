@@ -54,7 +54,7 @@ for (const def of CATALOG) {
   for (const exe of def.exes) EXE_TO_DEF.set(exe.toLowerCase(), def);
 }
 
-const DETECT_BUDGET_MS = 5200;
+const DETECT_BUDGET_MS = 8000;
 
 interface RegEntry {
   name?: string;
@@ -235,15 +235,28 @@ export async function detectIdes(): Promise<IdeInfo[]> {
     // registry tidak terbaca; lanjut ke folder
   }
 
-  // 2. Folder umum
+  // 2. Folder umum (termasuk lokasi non-standard Google/Antigravity)
   try {
     const roots: Array<{ dir: string; depth: number }> = [];
     const localAppData = process.env.LOCALAPPDATA;
     const programFiles = process.env.ProgramFiles ?? process.env.PROGRAMFILES;
     const programFilesX86 = process.env['ProgramFiles(x86)'] ?? process.env['PROGRAMFILES(X86)'];
-    if (localAppData) roots.push({ dir: join(localAppData, 'Programs'), depth: 2 });
+    if (localAppData) {
+      roots.push({ dir: join(localAppData, 'Programs'), depth: 3 });
+      // Lokasi khusus: Google apps, Antigravity, dll
+      roots.push({ dir: join(localAppData, 'Google'), depth: 3 });
+      roots.push({ dir: join(localAppData, 'Antigravity'), depth: 2 });
+      roots.push({ dir: join(localAppData), depth: 2 });
+    }
     if (programFiles) roots.push({ dir: programFiles, depth: 2 });
     if (programFilesX86) roots.push({ dir: programFilesX86, depth: 2 });
+    // Juga cek di AppData\LocalLow dan roaming
+    const localLow = process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, '..', 'LocalLow') : '';
+    if (localLow && existsSync(localLow)) roots.push({ dir: localLow, depth: 3 });
+    const roaming = process.env.APPDATA;
+    if (roaming) {
+      roots.push({ dir: join(roaming, 'Code', 'bin'), depth: 0 });
+    }
     const scans = await Promise.all(
       roots.filter((root) => existsSync(root.dir)).map((root) => scanExeFolder(root.dir, root.depth, deadline)),
     );

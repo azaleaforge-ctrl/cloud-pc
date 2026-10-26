@@ -10,7 +10,7 @@ import type {
   ServerState,
   WireMessage,
 } from '../shared/types';
-import { isIgnoredRelative, MAX_SYNC_BYTES, resolveInside, scanFiles, toRel } from './fsScan';
+import { isIgnoredRelative, MAX_SYNC_BYTES, resolveInside, scanFiles, toRel, type ScannedFile } from './fsScan';
 import { decodeWire, isOpen, sendWire, type OutgoingWire } from './wire';
 
 export interface MemberRoomOptions {
@@ -74,7 +74,7 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
     syncTimer = setTimeout(() => {
       syncTimer = null;
       if (closed) return;
-      opts.emit({ sync: { status: 'ready', files: knownFiles.size, lastSync: Date.now() } });
+      opts.emit({ sync: { status: 'ready', files: knownFiles.size, lastSync: Date.now() }, projectFiles: [] });
     }, SYNC_DEBOUNCE_MS);
     syncTimer.unref?.();
   };
@@ -257,9 +257,10 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
     }
 
     // Hapus file lokal yang tidak ada di snapshot host (kecuali folder IGNORED_DIRS).
+    let localFiles: ScannedFile[] = [];
     try {
-      const local = await scanFiles(opts.localDir);
-      for (const file of local) {
+      localFiles = await scanFiles(opts.localDir);
+      for (const file of localFiles) {
         if (snapshot.has(file.path)) continue;
         try {
           await fsp.unlink(file.abs);
@@ -274,7 +275,15 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
 
     snapshot.clear();
     if (closed) return;
-    opts.emit({ sync: { status: 'ready', files: knownFiles.size, lastSync: Date.now() } });
+    opts.emit({
+      sync: { status: 'ready', files: knownFiles.size, lastSync: Date.now() },
+      projectFiles: localFiles.map((f) => ({
+        path: f.path,
+        size: f.size,
+        mtime: f.mtime,
+        modified: new Date(f.mtime * 1000).toISOString(),
+      })),
+    });
     startWatcher();
   };
 

@@ -1,14 +1,15 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import type { AppState } from '../../shared/types';
-import { IconGlobe, IconHourglass, IconMonitor, IconServer, IconUsers, IconZap, LogoMark } from './icons';
+import { IconGlobe, IconHourglass, IconMonitor, IconServer, IconUsers, IconZap, LogoMark, IconFolder } from './icons';
 import { RoomTab } from './RoomTab';
 import { QueueTab } from './QueueTab';
 import { IdeTab } from './IdeTab';
 import { ServerTab } from './ServerTab';
 import { WebTab } from './WebTab';
+import { FileTab } from './FileTab';
 import { FooterBar, VersionModal } from './ui';
 
-type TabId = 'room' | 'queue' | 'ide' | 'server' | 'web';
+type TabId = 'room' | 'file' | 'queue' | 'ide' | 'server' | 'web';
 
 interface ShellProps {
   state: AppState;
@@ -31,6 +32,7 @@ export function Shell({ state, logs, onError, onClearLogs, onRoomLeft }: ShellPr
 
   const tabs: Array<{ id: TabId; label: string; icon: ReactElement; dot?: 'green' }> = [
     { id: 'room', label: 'Ruangan', icon: <IconUsers size={17} /> },
+    { id: 'file', label: 'File', icon: <IconFolder size={17} /> },
     { id: 'queue', label: 'Antrian', icon: <IconHourglass size={17} /> },
     { id: 'ide', label: 'IDE', icon: <IconMonitor size={17} /> },
     { id: 'server', label: 'Server', icon: <IconServer size={17} /> },
@@ -85,6 +87,8 @@ export function Shell({ state, logs, onError, onClearLogs, onRoomLeft }: ShellPr
         <main className="content">
           {tab === 'room' ? (
             <RoomTab state={state} onError={onError} onLeft={onRoomLeft} />
+          ) : tab === 'file' ? (
+            <FileTab state={state} />
           ) : tab === 'queue' ? (
             <QueueTab state={state} onError={onError} />
           ) : tab === 'ide' ? (

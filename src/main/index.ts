@@ -12,6 +12,7 @@ import type {
   IdeInfo,
   JoinRoomInput,
   NotifyPayload,
+  ProjectFile,
   ServerState,
 } from '../shared/types';
 import { APP_VERSION } from '../shared/types';
@@ -22,6 +23,7 @@ import { findRoom, getLanIp, startAdvertise, stopAdvertise } from './discovery';
 import { createHostRoom, type HostRoom } from './hostRoom';
 import { joinAsMember, type MemberRoom } from './memberRoom';
 import { startDevServer, type DevServerHandle } from './devServer';
+import { scanFiles } from './fsScan';
 
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
@@ -97,6 +99,7 @@ const initialState: AppState = {
   idesScanning: false,
   sync: { status: 'off', files: 0, lastSync: null },
   discovered: [],
+  projectFiles: [],
 };
 
 const store = new StateStore(initialState);
@@ -149,6 +152,7 @@ function resetRoomState(): void {
     framework: null,
     server: { status: 'idle', url: null, port: null, logs: [] },
     sync: { status: 'off', files: 0, lastSync: null },
+    projectFiles: [],
   });
   framework = null;
 }
@@ -416,6 +420,21 @@ function registerIpc(): void {
       };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
+    }
+  });
+  ipcMain.handle('rk:list-project-files', async () => {
+    const state = store.get();
+    if (!state.projectPath) return [];
+    try {
+      const files = await scanFiles(state.projectPath);
+      return files.map((f) => ({
+        path: f.path,
+        size: f.size,
+        mtime: f.mtime,
+        modified: new Date(f.mtime * 1000).toISOString(),
+      }));
+    } catch {
+      return [];
     }
   });
 }

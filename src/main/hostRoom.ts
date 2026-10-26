@@ -52,6 +52,7 @@ const HEARTBEAT_MS = 20_000;
 const CLIENT_TIMEOUT_MS = 60_000;
 const DEBOUNCE_MS = 50;
 const SYNC_DEBOUNCE_MS = 300;
+const IDLE_TIMEOUT_MS = 120_000; // 2 menit idle → auto release
 
 export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   const members = new Map<string, Member>();
@@ -69,6 +70,18 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   let watcher: FSWatcher | null = null;
   let closed = false;
   let oversizeWarned = false;
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const resetIdleTimer = (): void => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      idleTimer = null;
+      if (holder && !closed) {
+        void internalReleaseTurn(holder, true);
+      }
+    }, IDLE_TIMEOUT_MS);
+    idleTimer.unref?.();
+  };
 
   const wsServer = new WebSocketServer({ port: 0, host: '0.0.0.0' });
   await new Promise<void>((resolve, reject) => {
@@ -111,7 +124,23 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     syncTimer = setTimeout(() => {
       syncTimer = null;
       if (closed) return;
-      opts.emit({ sync: { status: 'ready', files: fileIndex.size, lastSync: Date.now() } });
+      (async () => {
+        try {
+          const files = await scanFiles(opts.projectPath);
+          if (closed) return;
+          opts.emit({
+            sync: { status: 'ready', files: fileIndex.size, lastSync: Date.now() },
+            projectFiles: files.map((f) => ({
+              path: f.path,
+              size: f.size,
+              mtime: f.mtime,
+              modified: new Date(f.mtime * 1000).toISOString(),
+            })),
+          });
+        } catch {
+          opts.emit({ sync: { status: 'ready', files: fileIndex.size, lastSync: Date.now() } });
+        }
+      })();
     }, SYNC_DEBOUNCE_MS);
     syncTimer.unref?.();
   };
@@ -171,6 +200,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
 
     if (holder === null) {
       holder = byId;
+      resetIdleTimer();
       broadcast({ t: 'turn-taken', holder: byId, name: member.name });
       broadcast({ t: 'notify', kind: 'info', message: `${member.name} mulai bekerja` });
       if (byId !== opts.hostId) opts.notify({ kind: 'info', message: `${member.name} mulai bekerja` });
@@ -181,21 +211,48 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
 
     if (queue.includes(byId)) return { ok: false, error: 'Kamu sudah ada di antrian.' };
     queue.push(byId);
-    broadcast({ t: 'notify', kind: 'info', message: `${member.name} masuk antrian` });
+    broadcast({ t: 'notify', kind: 'info', message: `${member.name} masuk antrian (posisi ${queue.length})` });
     if (byId !== opts.hostId) opts.notify({ kind: 'info', message: `${member.name} masuk antrian` });
     applyHolderChange();
     return { ok: true };
   };
 
-  const internalReleaseTurn = (byId: string): ActionResult => {
+  const autoAssignFromFs = (byId: string): boolean => {
+    const member = members.get(byId);
+    if (!member) return false;
+    if (holder === byId) {
+      resetIdleTimer();
+      return true;
+    }
+    if (holder === null) {
+      // Auto-assign: tidak ada yang pegang → ini dapat giliran
+      holder = byId;
+      resetIdleTimer();
+      broadcast({ t: 'turn-taken', holder: byId, name: member.name });
+      broadcast({ t: 'notify', kind: 'info', message: `${member.name} mulai bekerja (otomatis)` });
+      if (byId !== opts.hostId) opts.notify({ kind: 'info', message: 'Kamu dapat giliran bekerja' });
+      announceHolder(byId);
+      applyHolderChange();
+      return true;
+    }
+    // Ada yang pegang giliran → masuk antrian
+    if (!queue.includes(byId)) {
+      queue.push(byId);
+      broadcast({ t: 'notify', kind: 'info', message: `${member.name} masuk antrian (posisi ${queue.length})` });
+      applyHolderChange();
+    }
+    return false;
+  };
+
+  const internalReleaseTurn = (byId: string, idle = false): ActionResult => {
     if (holder !== byId) return { ok: false, error: 'Kamu tidak sedang memegang giliran.' };
     const member = members.get(byId);
     const name = member?.name ?? 'Anggota';
 
     holder = queue.shift() ?? null;
     broadcast({ t: 'turn-released', holder, name });
-    broadcast({ t: 'notify', kind: 'info', message: `${name} selesai bekerja` });
-    if (byId !== opts.hostId) opts.notify({ kind: 'info', message: `${name} selesai bekerja` });
+    broadcast({ t: 'notify', kind: 'info', message: idle ? `${name} idle - otomatis melepas giliran` : `${name} selesai bekerja` });
+    if (byId !== opts.hostId) opts.notify({ kind: idle ? 'warn' : 'info', message: idle ? `${name} idle - giliran dilepas otomatis` : `${name} selesai bekerja` });
 
     if (holder) {
       const nextName = members.get(holder)?.name ?? 'Anggota';
@@ -203,7 +260,10 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
       if (holder !== opts.hostId) {
         opts.notify({ kind: 'info', message: `${nextName} sekarang memegang giliran` });
       }
+      resetIdleTimer();
     }
+    idleTimer && clearTimeout(idleTimer);
+    idleTimer = null;
     applyHolderChange();
     return { ok: true };
   };
@@ -212,6 +272,8 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     if (closed) return;
     if (consumeSuppressed(relPath)) return;
     if (holder !== opts.hostId) return;
+
+    resetIdleTimer();
 
     if (event === 'unlink') {
       if (fileIndex.delete(relPath)) scheduleSyncEmit();
@@ -307,7 +369,12 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     members.delete(client.id);
     const queueIndex = queue.indexOf(client.id);
     if (queueIndex >= 0) queue.splice(queueIndex, 1);
-    if (wasHolder) holder = queue.shift() ?? null;
+    if (wasHolder) {
+      idleTimer && clearTimeout(idleTimer);
+      idleTimer = null;
+      holder = queue.shift() ?? null;
+      if (holder) resetIdleTimer();
+    }
 
     const message = `${client.name} terputus, giliran dilepas`;
     broadcast({ t: 'notify', kind: 'info', message });
@@ -402,9 +469,17 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
         }
         case 'fs': {
           if (client.id !== holder) {
-            sendWire(ws, { t: 'error', message: 'Bukan giliranmu. Tunggu sampai giliranmu tiba.' });
+            // Cek auto-assign atau queue
+            if (autoAssignFromFs(client.id)) {
+                void applyMemberFs(client, msg);
+                return;
+            }
+            const pos = queue.indexOf(client.id);
+            const posMsg = pos >= 0 ? ` (posisi antrian: ${pos + 1})` : '';
+            sendWire(ws, { t: 'error', message: `Bukan giliranmu. Tunggu${posMsg} - giliran akan diberikan otomatis saat pemegang idle.` });
             break;
           }
+          resetIdleTimer();
           void applyMemberFs(client, msg);
           break;
         }
@@ -454,6 +529,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     members: listMembers(),
     queue: queueState(),
     sync: { status: 'syncing', files: 0, lastSync: null },
+    projectFiles: [],
   });
 
   void (async () => {
@@ -472,10 +548,20 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
       if (skipped > 0) {
         opts.notify({ kind: 'warn', message: `${skipped} file lebih dari 8 MB dilewati saat sinkronisasi awal.` });
       }
-      opts.emit({ sync: { status: 'ready', files: fileIndex.size, lastSync: Date.now() } });
+      // Emit file list ke UI real-time
+      opts.emit({
+        sync: { status: 'ready', files: fileIndex.size, lastSync: Date.now() },
+        projectFiles: files.map((f) => ({
+          path: f.path,
+          size: f.size,
+          mtime: f.mtime,
+          modified: new Date(f.mtime * 1000).toISOString(),
+        })),
+      });
     } catch {
       opts.emit({
         sync: { status: 'error', files: 0, lastSync: null, message: 'Gagal memindai folder project.' },
+        projectFiles: [],
       });
     }
   })();
@@ -512,6 +598,10 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
       if (syncTimer) {
         clearTimeout(syncTimer);
         syncTimer = null;
+      }
+      if (idleTimer) {
+        clearTimeout(idleTimer);
+        idleTimer = null;
       }
       for (const timer of pending.values()) clearTimeout(timer);
       pending.clear();

@@ -134,6 +134,22 @@ function pickScript(scripts: Record<string, unknown>): string {
 
 export function detectFramework(dir: string): FrameworkInfo | null {
   try {
+    // Cek framework non-JS (composer.json, manage.py, go.mod, Cargo.toml)
+    // DULUAN, karena Laravel/Vue/Vite biasanya punya package.json juga.
+    for (const fw of NON_JS_FRAMEWORKS) {
+      if (fw.check(dir)) {
+        return {
+          id: fw.id,
+          name: fw.name,
+          command: fw.command,
+          args: [],
+          cwd: dir,
+          packageManager: fw.packageManager,
+          detectedPort: fw.port,
+        };
+      }
+    }
+
     const pkg = readJsonObject(join(dir, 'package.json'));
     if (pkg) {
       const deps = { ...asRecord(pkg.dependencies), ...asRecord(pkg.devDependencies) };
@@ -155,30 +171,21 @@ export function detectFramework(dir: string): FrameworkInfo | null {
       }
     }
 
-    for (const fw of NON_JS_FRAMEWORKS) {
-      if (fw.check(dir)) {
-        return {
-          id: fw.id,
-          name: fw.name,
-          command: fw.command,
-          args: [],
-          cwd: dir,
-          packageManager: fw.packageManager,
-          detectedPort: fw.port,
-        };
-      }
-    }
-
-    if (!pkg && existsSync(join(dir, 'index.html'))) {
+    // Static site fallback (tidak peduli package.json)
+    if (existsSync(join(dir, 'index.html'))) {
+      const pm = pkg ? detectPackageManager(dir) : 'system' as PackageManager | 'system';
+      const script = pkg ? pickScript(asRecord(pkg.scripts)) : 'dev';
+      const command =
+        pm === 'system' ? 'npx serve -l 5173 .' : buildCommand(pm, script);
       return {
         id: 'static',
         name: 'Situs Statis',
-        command: 'npx serve -l 5173 .',
+        command,
         args: [],
         cwd: dir,
-        packageManager: 'system',
+        packageManager: pm ?? 'system',
         detectedPort: 5173,
-        notes: 'Tidak ada package.json; disajikan dengan npx serve.',
+        notes: 'Disajikan dengan server statis.',
       };
     }
 

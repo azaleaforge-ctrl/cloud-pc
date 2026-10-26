@@ -1,8 +1,8 @@
 {
   "name": "ruang-kerja",
   "productName": "Ruang Kerja",
-  "version": "0.2.0",
-  "description": "Workspace kolaborasi LAN: folder project bersama, antrian giliran, deteksi IDE, dan kontrol dev server.",
+  "version": "0.2.2",
+  "description": "Workspace kolaborasi LAN: folder project bersama, antrian otomatis, deteksi IDE, kontrol dev server, file browser real-time.",
   "main": "dist/main/index.js",
   "author": "Ruang Kerja",
   "license": "MIT",

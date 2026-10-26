@@ -89,6 +89,8 @@ export interface AppState {
   idesScanning: boolean;
   sync: SyncState;
   discovered: DiscoveredRoom[];
+  /** File-project real-time (host scan + perubahan sinkron) */
+  projectFiles: ProjectFile[];
 }
 
 export interface CreateRoomInput {
@@ -109,6 +111,14 @@ export interface ActionResult {
 
 export interface ServerLogLine {
   line: string;
+}
+
+export interface ProjectFile {
+  path: string;
+  size: number;
+  mtime: number;
+  /** ISO string of last modification */
+  modified: string;
 }
 
 export interface ReleaseInfo {
@@ -143,6 +153,7 @@ export interface RkApi {
   stopServer(): Promise<ActionResult>;
   checkForUpdates(): Promise<ActionResult>;
   fetchReleaseNotes(): Promise<FetchReleasesResult>;
+  listProjectFiles(): Promise<ProjectFile[]>;
   onState(cb: (state: AppState) => void): () => void;
   onNotify(cb: (payload: NotifyPayload) => void): () => void;
   onServerLog(cb: (payload: ServerLogLine) => void): () => void;
@@ -183,4 +194,4 @@ export const IGNORED_DIRS = [
   '.DS_Store',
 ];
 
-export const APP_VERSION = '0.2.0';
+export const APP_VERSION = '0.2.2';

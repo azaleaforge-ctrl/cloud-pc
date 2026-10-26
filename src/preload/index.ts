@@ -7,6 +7,7 @@ import type {
   IdeInfo,
   JoinRoomInput,
   NotifyPayload,
+  ProjectFile,
   RkApi,
   ServerLogLine,
 } from '../shared/types';
@@ -29,6 +30,7 @@ const api: RkApi = {
   stopServer: () => ipcRenderer.invoke('rk:stop-server'),
   checkForUpdates: () => ipcRenderer.invoke('rk:check-for-updates'),
   fetchReleaseNotes: () => ipcRenderer.invoke('rk:fetch-release-notes'),
+  listProjectFiles: (): Promise<ProjectFile[]> => ipcRenderer.invoke('rk:list-project-files'),
   onState: (cb: (state: AppState) => void) => {
     const listener = (_e: unknown, state: AppState) => cb(state);
     ipcRenderer.on('rk:state', listener);
