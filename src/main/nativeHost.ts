@@ -23,7 +23,7 @@ function psQuote(value: string): string {
 }
 
 function findWindowForIde(ide: IdeInfo, folder: string): Promise<{ hwnd: bigint; pid: number } | null> {
-  if (process.platform !== 'win32') return Promise.resolve(null);
+  if (process.platform !== 'win32' || !ide.exe) return Promise.resolve(null);
   const exePath = psQuote(ide.exe.toLowerCase());
   const exeName = psQuote(ide.exe.split(/[\\/]/).pop() ?? '');
   const folderName = psQuote(folder.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '');
@@ -122,7 +122,7 @@ export async function openEmbeddedIde(ide: IdeInfo, folder: string, win: Browser
   await closeEmbeddedIde();
   if (!ide.exe) return { ok: false, error: 'Lokasi IDE tidak diketahui.' };
   const extension = ide.exe.split('.').pop()?.toLowerCase() ?? '';
-  const supportsNewWindowFlag = ['vscode', 'cursor', 'antigravity', 'windsurf', 'trae'].includes(ide.id);
+  const supportsNewWindowFlag = ['vscode', 'vscodium', 'cursor', 'antigravity', 'windsurf', 'trae'].includes(ide.id);
   const args = supportsNewWindowFlag ? ['--new-window', folder] : [folder];
   const child = extension === 'cmd' || extension === 'bat'
     ? spawn('cmd.exe', ['/d', '/s', '/c', '"' + ide.exe + '" ' + args.map((arg) => '"' + arg.replace(/"/g, '\\"') + '"').join(' ')], { windowsHide: true, detached: false, stdio: 'ignore' })
