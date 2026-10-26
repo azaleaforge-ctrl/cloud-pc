@@ -25,10 +25,10 @@ jobs:
         run: npm ci
 
       - name: Set version from tag
-        shell: pwsh
+        shell: bash
         run: |
-          $tag = "${GITHUB_REF#refs/tags/}"
-          $version = $tag -replace '^v', ''
+          tag=${GITHUB_REF#refs/tags/}
+          version=${tag#v}
           echo "Setting version to $version"
           npm pkg set version="$version"
 
