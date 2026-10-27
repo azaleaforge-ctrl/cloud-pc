@@ -248,6 +248,7 @@ let framework: FrameworkInfo | null = null;
 let stopActivityMonitor: (() => void) | null = null;
 let projectFileWatcher: ProjectFileWatch | null = null;
 let watchedProjectPath: string | null = null;
+let isQuitting = false;
 
 // IDE bawaan: service hidup selama aplikasi, tapi hanya melayani saat ada project.
 const editorRoot = (): string | null => (store.get().role === 'none' ? null : store.get().projectPath);
@@ -898,6 +899,8 @@ async function createWindow(): Promise<void> {
   win.on('restore', scheduleIdeLayout);
   win.on('close', (e) => {
     // Klik X / Alt+F4: sembunyikan ke tray, jangan keluar.
+    // Kecuali kalau app benar-benar mau quit (via tray menu "Keluar").
+    if (isQuitting) return;
     e.preventDefault();
     win?.hide();
   });
@@ -942,6 +945,7 @@ async function createWindow(): Promise<void> {
       {
         label: 'Keluar',
         click: () => {
+          isQuitting = true;
           void shutdownRoom().finally(() => app.quit());
         },
       },
@@ -966,6 +970,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  isQuitting = true;
   stopAdvertise();
   editorDebugger.dispose();
   editorTerminals.disposeAll();

@@ -32,6 +32,8 @@ const KILL_TIMEOUT_MS = 2_000;
 const PROXY_CLOSE_TIMEOUT_MS = 1_000;
 const PORT_SCAN_RANGE = 20;
 const START_TIMEOUT_MS = 90_000;
+const PHP_PROBE_ATTEMPTS = 20; // Laravel/PHP butuh lebih lama untuk boot
+const PHP_PROBE_DELAY_MS = 1_000;
 
 /**
  * Log yang menandakan proses dev server gagal total — bukan sekadar warning.
@@ -408,7 +410,10 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
       try {
         // Never probe a TCP socket and close it without HTTP bytes: PHP's built-in
         // server logs that as "Invalid request". Use a valid GET / readiness probe.
-        const ready = await waitForHttp(port, '127.0.0.1', 8);
+        // PHP/Laravel butuh lebih lama untuk boot, gunakan lebih banyak attempts.
+        const isPhp = framework.id === 'laravel' || framework.id === 'symfony' || framework.packageManager === 'composer';
+        const probeAttempts = isPhp ? PHP_PROBE_ATTEMPTS : 8;
+        const ready = await waitForHttp(port, '127.0.0.1', probeAttempts);
         if (!ready) {
           failAndKill('Server mencetak alamat, tetapi belum memberi respons HTTP. Periksa dependensi dan log framework.');
           return;
@@ -549,6 +554,8 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
     watchdogTimer.unref?.();
 
     // Probe port yang sudah dipilih, untuk framework yang tidak mencetak URL.
+    const isPhp = framework.id === 'laravel' || framework.id === 'symfony' || framework.packageManager === 'composer';
+    const probeDelayMs = isPhp ? PHP_PROBE_DELAY_MS : PROBE_RETRY_MS;
     const probingStartedAt = Date.now();
     const probe = async (): Promise<void> => {
       probeTimer = null;
@@ -558,7 +565,7 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
         return;
       }
       if (Date.now() - probingStartedAt < PROBE_MAX_MS && !stopped && !exited && status === 'starting') {
-        probeTimer = setTimeout(() => { void probe(); }, PROBE_RETRY_MS);
+        probeTimer = setTimeout(() => { void probe(); }, probeDelayMs);
         probeTimer.unref?.();
       }
     };

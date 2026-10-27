@@ -55,7 +55,9 @@ const HEARTBEAT_MS = 20_000;
 const CLIENT_TIMEOUT_MS = 60_000;
 const DEBOUNCE_MS = 50;
 const SYNC_DEBOUNCE_MS = 300;
-const IDLE_TIMEOUT_MS = 120_000; // 2 menit idle → auto release
+const IDLE_TIMEOUT_MS = 120_000; // 2 menit idle → auto release (AI agent, IDE)
+const MANUAL_IDLE_TIMEOUT_MS = 60_000; // 1 menit idle → auto release (manual coding)
+const MANUAL_WARN_TIMEOUT_MS = 45_000; // 45 detik → warning notification
 
 export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   const members = new Map<string, Member>();
@@ -74,6 +76,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   let closed = false;
   let oversizeWarned = false;
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let warnTimer: ReturnType<typeof setTimeout> | null = null;
   let promptTimer: ReturnType<typeof setTimeout> | null = null;
   let repromptTimer: ReturnType<typeof setTimeout> | null = null;
   let holderLastActivity: number | null = holder ? Date.now() : null;
@@ -89,6 +92,23 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     pendingPrompt = null;
   };
 
+  const clearWarnTimer = (): void => {
+    if (warnTimer) clearTimeout(warnTimer);
+    warnTimer = null;
+  };
+
+  const isManualSource = (source: string): boolean => {
+    return source === 'file' || source === 'terminal' || source === 'ui';
+  };
+
+  const getIdleTimeout = (source: string): number => {
+    return isManualSource(source) ? MANUAL_IDLE_TIMEOUT_MS : IDLE_TIMEOUT_MS;
+  };
+
+  const getWarnTimeout = (source: string): number => {
+    return isManualSource(source) ? MANUAL_WARN_TIMEOUT_MS : 0;
+  };
+
   const updateStatuses = (): void => {
     for (const [id, member] of members) {
       member.status = id === holder ? 'working' : queue.includes(id) ? 'queued' : 'idle';
@@ -100,12 +120,29 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     holderLastActivity = Date.now();
     holderActivitySource = source;
     if (idleTimer) clearTimeout(idleTimer);
+    clearWarnTimer();
+
+    const idleTimeout = getIdleTimeout(source);
+    const warnTimeout = getWarnTimeout(source);
+
+    if (warnTimeout > 0) {
+      warnTimer = setTimeout(() => {
+        warnTimer = null;
+        if (holder && !closed && holderActivitySource === source) {
+          const holderMember = members.get(holder);
+          const name = holderMember?.name ?? 'Anggota';
+          opts.notify({ kind: 'warn', message: `${name} idle ${Math.round(warnTimeout / 1000)} detik - giliran akan dilepas otomatis dalam ${Math.round((idleTimeout - warnTimeout) / 1000)} detik.` });
+        }
+      }, warnTimeout);
+      warnTimer.unref?.();
+    }
+
     idleTimer = setTimeout(() => {
       idleTimer = null;
       if (holder && !closed) {
         void internalReleaseTurn(holder, true);
       }
-    }, IDLE_TIMEOUT_MS);
+    }, idleTimeout);
     idleTimer.unref?.();
   };
 
@@ -285,19 +322,22 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
 
     if (idle) {
       clearPrompt();
+      clearWarnTimer();
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = null;
+      const wasManual = isManualSource(holderActivitySource ?? '');
+      const idleMinutes = wasManual ? 1 : 2;
       holder = queue.shift() ?? null;
       holderLastActivity = holder ? Date.now() : null;
       holderActivitySource = holder ? 'idle-auto' : null;
       updateStatuses();
       broadcast({ t: 'turn-released', holder, name });
-      broadcast({ t: 'notify', kind: 'warn', message: name + ' idle selama 2 menit - giliran dilepas otomatis.' });
-      if (byId !== opts.hostId) opts.notify({ kind: 'warn', message: name + ' idle - giliran dilepas otomatis.' });
+      broadcast({ t: 'notify', kind: 'warn', message: `${name} idle selama ${idleMinutes} menit - giliran dilepas otomatis.` });
+      if (byId !== opts.hostId) opts.notify({ kind: 'warn', message: `${name} idle - giliran dilepas otomatis.` });
       if (holder) {
         const nextName = members.get(holder)?.name ?? 'Anggota';
         announceHolder(holder);
-        if (holder !== opts.hostId) opts.notify({ kind: 'turn', message: nextName + ' sekarang mendapat giliran.' });
+        if (holder !== opts.hostId) opts.notify({ kind: 'turn', message: `${nextName} sekarang mendapat giliran.` });
         resetIdleTimer('queue-auto');
       }
       applyHolderChange();
@@ -784,6 +824,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
         clearTimeout(idleTimer);
         idleTimer = null;
       }
+      clearWarnTimer();
       clearPrompt();
       snoozedUntil.clear();
       for (const timer of pending.values()) clearTimeout(timer);

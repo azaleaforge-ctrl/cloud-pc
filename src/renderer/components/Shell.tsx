@@ -1,19 +1,18 @@
 import { lazy, Suspense, useEffect, useState, type ReactElement } from 'react';
 import type { AppState } from '../../shared/types';
-import { IconCode, IconGlobe, IconHourglass, IconMonitor, IconServer, IconUsers, IconZap, LogoMark, IconFolder } from './icons';
+import { IconCode, IconGlobe, IconHourglass, IconMonitor, IconServer, IconUsers, IconZap, LogoMark, IconFolder, IconExtension } from './icons';
 import { RoomTab } from './RoomTab';
 import { QueueTab } from './QueueTab';
-import { IdeTab } from './IdeTab';
+import { ExtensionsTab } from './ExtensionsTab';
 import { ServerTab } from './ServerTab';
 import { WebTab } from './WebTab';
 import { FileTab } from './FileTab';
 import { FooterBar, VersionModal } from './ui';
 
-type TabId = 'room' | 'file' | 'queue' | 'ide' | 'editor' | 'server' | 'web';
+type TabId = 'room' | 'file' | 'queue' | 'extensions' | 'editor' | 'server' | 'web';
 
-// Monaco + xterm berat: muat hanya saat tab Editor pertama kali dibuka,
-// lalu biarkan tetap ter-mount agar buffer dan terminal tidak hilang.
-const EditorShell = lazy(() => import('./editor/EditorShell').then((mod) => ({ default: mod.EditorShell })));
+// Editor selalu di-mount (background), tidak di-lazy load agar terminal & state tetap hidup
+import { EditorShell } from './editor/EditorShell';
 
 interface ShellProps {
   state: AppState;
@@ -46,23 +45,7 @@ export function Shell({ state, logs, onError, onClearLogs, onRoomLeft }: ShellPr
   const [tab, setTab] = useState<TabId>('room');
   const [showVersion, setShowVersion] = useState(false);
   const [checkingUpdate, setChecking] = useState(false);
-  const [editorMounted, setEditorMounted] = useState(false);
-
-  useEffect(() => {
-    if (tab === 'editor') setEditorMounted(true);
-  }, [tab]);
-
-  const handleCheckUpdate = async () => {
-    if (!showVersion) setShowVersion(true);
-    setChecking(true);
-    try {
-      await window.rk.checkForUpdates();
-    } catch {
-      // error handled via state.update
-    } finally {
-      setChecking(false);
-    }
-  };
+  const [webUrl, setWebUrl] = useState(state.server.url ?? '');
   const holding = state.queue.holder === state.selfId;
   const webAvailable = state.server.status === 'running' && !!state.server.url;
 
@@ -71,12 +54,23 @@ export function Shell({ state, logs, onError, onClearLogs, onRoomLeft }: ShellPr
     if (tab === 'web' && !webAvailable) setTab('server');
   }, [tab, webAvailable]);
 
+  // Sync webUrl with server.url when it changes (e.g., server starts)
+  useEffect(() => {
+    if (state.server.url && state.server.url !== webUrl) {
+      setWebUrl(state.server.url);
+    }
+  }, [state.server.url]);
+
+  const handleWebUrlChange = (url: string) => {
+    setWebUrl(url);
+  };
+
   const tabs: Array<{ id: TabId; label: string; icon: ReactElement; dot?: 'green' }> = [
     { id: 'room', label: 'Ruangan', icon: <IconUsers size={17} /> },
     { id: 'file', label: 'File', icon: <IconFolder size={17} /> },
     { id: 'editor', label: 'Editor', icon: <IconCode size={17} /> },
     { id: 'queue', label: 'Antrian', icon: <IconHourglass size={17} /> },
-    { id: 'ide', label: 'IDE Eksternal', icon: <IconMonitor size={17} /> },
+    { id: 'extensions', label: 'Ekstensi', icon: <IconExtension size={17} /> },
     { id: 'server', label: 'Server', icon: <IconServer size={17} /> },
   ];
   if (webAvailable) {
@@ -127,14 +121,14 @@ export function Shell({ state, logs, onError, onClearLogs, onRoomLeft }: ShellPr
         </nav>
 
         <main className={'content' + (tab === 'editor' ? ' content-editor' : '')}>
-          {tab === 'editor' ? null : tab === 'room' ? (
+          {tab === 'room' ? (
             <RoomTab state={state} onError={onError} onLeft={onRoomLeft} />
           ) : tab === 'file' ? (
             <FileTab state={state} />
           ) : tab === 'queue' ? (
             <QueueTab state={state} onError={onError} />
-          ) : tab === 'ide' ? (
-            <IdeTab state={state} onError={onError} />
+          ) : tab === 'extensions' ? (
+            <ExtensionsTab state={state} onError={onError} />
           ) : tab === 'server' ? (
             <ServerTab
               state={state}
@@ -143,22 +137,14 @@ export function Shell({ state, logs, onError, onClearLogs, onRoomLeft }: ShellPr
               onClearLogs={onClearLogs}
               onOpenWeb={() => setTab('web')}
             />
-          ) : (
-            <WebTab url={state.server.url ?? ''} />
-          )}
-          {editorMounted ? (
-            <Suspense
-              fallback={
-                <div className="tab">
-                  <section className="card">
-                    <p className="card-sub">Menyiapkan editor, terminal, dan panel…</p>
-                  </section>
-                </div>
-              }
-            >
-              <EditorShell state={state} active={tab === 'editor'} onError={onError} />
-            </Suspense>
+          ) : tab === 'web' ? (
+            <WebTab
+              url={webUrl}
+              projectPath={state.projectPath}
+              onUrlChange={handleWebUrlChange}
+            />
           ) : null}
+          <EditorShell state={state} active={tab === 'editor'} onError={onError} />
         </main>
       </div>
 

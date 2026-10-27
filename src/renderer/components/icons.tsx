@@ -256,6 +256,35 @@ export function IconCode(p: IconProps) {
   );
 }
 
+export function IconExtension(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M12 3.5v5.5c0 .8.7 1.5 1.5 1.5h5c.8 0 1.5-.7 1.5-1.5V3.5a2 2 0 0 0-2-2h-5a2 2 0 0 0-2 2z" />
+      <path d="M8.5 19.5c0 .8.7 1.5 1.5 1.5h5c.8 0 1.5-.7 1.5-1.5v-5c0-.8-.7-1.5-1.5-1.5h-5a2 2 0 0 0-2 2v5z" />
+      <path d="M19.5 12.5c0 .8-.7 1.5-1.5 1.5h-5c-.8 0-1.5-.7-1.5-1.5v-5c0-.8.7-1.5 1.5-1.5h5a2 2 0 0 1 2 2v5z" />
+      <path d="M4.5 12.5c0 .8.7 1.5 1.5 1.5h5c.8 0 1.5-.7 1.5-1.5v-5c0-.8-.7-1.5-1.5-1.5h-5a2 2 0 0 0-2 2v5z" />
+    </Svg>
+  );
+}
+
+export function IconSearch(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="M21 21l-4.3-4.3" />
+    </Svg>
+  );
+}
+
+export function IconEdit(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M12 4v16M4 12h16" />
+      <path d="M18.5 5.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5a2.1 2.1 0 0 1 3 0z" />
+    </Svg>
+  );
+}
+
 export function IconWifi(p: IconProps) {
   return (
     <Svg {...p}>

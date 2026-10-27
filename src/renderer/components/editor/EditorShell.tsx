@@ -25,7 +25,7 @@ type PaletteMode = 'commands' | 'files' | 'themes';
 
 const SIDE_MIN = 180;
 const SIDE_MAX = 420;
-const PANEL_MIN = 120;
+const PANEL_MIN = 60;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -51,7 +51,7 @@ function relPath(root: string | null, path: string): string {
 }
 
 function maxPanelHeight(): number {
-  return Math.round(window.innerHeight * 0.6);
+  return Math.round(window.innerHeight * 0.85);
 }
 
 /** Resizer pointer-events + keyboard (role="separator"). */
@@ -59,10 +59,12 @@ function Resizer({
   orientation,
   label,
   onDelta,
+  onDoubleClick,
 }: {
   orientation: 'vertical' | 'horizontal';
   label: string;
   onDelta: (delta: number) => void;
+  onDoubleClick?: () => void;
 }) {
   const [dragging, setDragging] = useState(false);
 
@@ -112,6 +114,7 @@ function Resizer({
       className={`ed-resizer ${orientation === 'vertical' ? 'ed-resizer-v' : 'ed-resizer-h'}${dragging ? ' dragging' : ''}`}
       onPointerDown={start}
       onKeyDown={onKeyDown}
+      onDoubleClick={onDoubleClick}
     />
   );
 }
@@ -153,11 +156,11 @@ export function EditorShell({ state, active, onError }: Props) {
 
   // Laporan aktivitas untuk sistem antrian (throttle >= 5 detik).
   const lastReport = useRef(0);
-  const reportActivity = useCallback(() => {
+  const reportActivity = useCallback((source: 'ui' | 'file' = 'ui') => {
     const now = Date.now();
     if (now - lastReport.current < 5000) return;
     lastReport.current = now;
-    void window.rk.reportActivity('ide').catch(() => undefined);
+    void window.rk.reportActivity(source).catch(() => undefined);
   }, []);
 
   // Teruskan error workbench ke onError sekali per error baru.
@@ -233,11 +236,11 @@ export function EditorShell({ state, active, onError }: Props) {
       if (key === 's' && e.shiftKey) {
         e.preventDefault();
         void wb.saveAll();
-        reportActivity();
+        reportActivity('file');
       } else if (key === 's') {
         e.preventDefault();
         void wb.save();
-        reportActivity();
+        reportActivity('file');
       } else if (key === 'p' && e.shiftKey) {
         e.preventDefault();
         setPalette('commands');
@@ -404,11 +407,11 @@ export function EditorShell({ state, active, onError }: Props) {
                     breakpoints={wb.activePath ? (wb.breakpoints[wb.activePath] ?? []) : []}
                     onChange={(value) => {
                       wb.changeContent(value);
-                      reportActivity();
+                      reportActivity('file');
                     }}
                     onSave={() => {
                       void wb.save();
-                      reportActivity();
+                      reportActivity('file');
                     }}
                     onCursor={wb.setCursor}
                     onToggleBreakpoint={(line) => {
@@ -430,6 +433,7 @@ export function EditorShell({ state, active, onError }: Props) {
                   orientation="horizontal"
                   label="Ubah tinggi panel"
                   onDelta={(d) => setPanelHeight((h) => clamp(h + d, PANEL_MIN, maxPanelHeight()))}
+                  onDoubleClick={() => setPanelOpen(false)}
                 />
                 <div className="ed-panel" style={{ height: panelHeight }}>
                   <PanelHost

@@ -142,11 +142,11 @@ export function useIdeWorkbench(root: string | null): IdeWorkbench {
   const previousRoot = useRef<string | null>(root);
 
   // ---- aktivitas kolaborasi ----
-  const reportActivity = useCallback(() => {
+  const reportActivity = useCallback((source: 'ui' | 'file' = 'ui') => {
     const now = Date.now();
     if (now - lastActivity.current < ACTIVITY_THROTTLE_MS) return;
     lastActivity.current = now;
-    void window.rk.reportActivity('ide').catch(() => undefined);
+    void window.rk.reportActivity(source).catch(() => undefined);
   }, []);
 
   // ---- explorer ----
@@ -290,13 +290,13 @@ export function useIdeWorkbench(root: string | null): IdeWorkbench {
   const save = useCallback(async () => {
     const path = latest.current.activePath;
     if (!path) return;
-    if (await writePath(path)) reportActivity();
+    if (await writePath(path)) reportActivity('file');
   }, [writePath, reportActivity]);
 
   const saveAll = useCallback(async () => {
     const dirty = Object.keys(latest.current.buffers).filter((path) => latest.current.buffers[path]?.dirty);
     for (const path of dirty) await writePath(path);
-    if (dirty.length > 0) reportActivity();
+    if (dirty.length > 0) reportActivity('file');
   }, [writePath, reportActivity]);
 
   // ---- realtime: file berubah di disk / sync kolaborasi ----

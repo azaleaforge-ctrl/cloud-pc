@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { IconExternal, IconRefresh } from './icons';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { IconExternal, IconRefresh, IconSearch, IconEdit } from './icons';
 
 /** Subset API elemen <webview> Electron yang dipakai. */
 type RkWebview = HTMLElement & {
@@ -8,30 +8,75 @@ type RkWebview = HTMLElement & {
 };
 type WebviewFailure = Event & { errorCode?: number; errorDescription?: string; validatedURL?: string; isMainFrame?: boolean };
 
-export function WebTab({ url }: { url: string }) {
+interface WebTabProps {
+  url: string;
+  projectPath: string | null;
+  onUrlChange: (url: string) => void;
+}
+
+function detectProjectUrl(projectPath: string | null): string | null {
+  if (!projectPath) return null;
+  // This is a placeholder - actual detection would need main process access
+  // For now, return common defaults based on framework
+  return null;
+}
+
+export function WebTab({ url, projectPath, onUrlChange }: WebTabProps) {
   const ref = useRef<HTMLElement | null>(null);
   const [currentUrl, setCurrentUrl] = useState(url);
+  const [inputUrl, setInputUrl] = useState(url);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     setCurrentUrl(url);
+    setInputUrl(url);
     setLoadError(null);
     setLoading(true);
+    setEditing(false);
   }, [url]);
+
+  const navigate = useCallback((targetUrl: string) => {
+    const normalized = targetUrl.trim();
+    if (!normalized) return;
+    if (!/^https?:\/\//i.test(normalized)) {
+      setLoadError('URL harus dimulai dengan http:// atau https://');
+      return;
+    }
+    setInputUrl(normalized);
+    setCurrentUrl(normalized);
+    setLoadError(null);
+    setLoading(true);
+    setEditing(false);
+    onUrlChange(normalized);
+    (ref.current as RkWebview | null)?.loadURL(normalized);
+  }, [onUrlChange]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      navigate(e.currentTarget.value);
+    } else if (e.key === 'Escape') {
+      setInputUrl(currentUrl);
+      setEditing(false);
+    }
+  };
 
   useEffect(() => {
     const webview = ref.current;
     if (!webview) return;
     const onNavigate = (event: Event) => {
       const nav = event as Event & { url?: string };
-      if (nav.url) setCurrentUrl(nav.url);
+      if (nav.url) {
+        setCurrentUrl(nav.url);
+        setInputUrl(nav.url);
+        onUrlChange(nav.url);
+      }
     };
     const onStart = () => { setLoading(true); setLoadError(null); };
     const onFinish = () => { setLoading(false); setLoadError(null); };
     const onFail = (event: Event) => {
       const failure = event as WebviewFailure;
-      // Electron emits ERR_ABORTED (-3) during normal redirects/navigation.
       if (failure.errorCode === -3 || failure.isMainFrame === false) return;
       setLoading(false);
       setLoadError((failure.errorDescription || 'Tidak diketahui') +
@@ -51,7 +96,7 @@ export function WebTab({ url }: { url: string }) {
       webview.removeEventListener('did-finish-load', onFinish);
       webview.removeEventListener('did-fail-load', onFail);
     };
-  }, []);
+  }, [onUrlChange]);
 
   const reload = () => {
     setLoadError(null);
@@ -60,7 +105,16 @@ export function WebTab({ url }: { url: string }) {
   };
 
   const openExternal = () => {
-    window.open(url, '_blank', 'noopener');
+    window.open(currentUrl, '_blank', 'noopener');
+  };
+
+  const startEdit = () => {
+    setEditing(true);
+    setTimeout(() => {
+      const input = document.querySelector('.web-url-input') as HTMLInputElement;
+      input?.focus();
+      input?.select();
+    }, 0);
   };
 
   return (
@@ -69,7 +123,25 @@ export function WebTab({ url }: { url: string }) {
         <button type="button" className="icon-btn" onClick={reload} aria-label="Muat ulang" title="Muat ulang">
           <IconRefresh size={16} />
         </button>
-        <span className="web-url" title={currentUrl}>{currentUrl}</span>
+        {editing ? (
+          <input
+            type="text"
+            className="web-url-input"
+            value={inputUrl}
+            onChange={(e) => setInputUrl(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onBlur={() => setEditing(false)}
+            placeholder="Masukkan URL (http://...)"
+            autoComplete="off"
+          />
+        ) : (
+          <span className="web-url" title={currentUrl} onClick={startEdit}>{currentUrl}</span>
+        )}
+        {editing && (
+          <button type="button" className="icon-btn" onClick={() => navigate(inputUrl)} aria-label="Buka URL" title="Buka">
+            <IconSearch size={16} />
+          </button>
+        )}
         {loading ? <span className="web-loading-status">Memuat…</span> : null}
         <button type="button" className="icon-btn" onClick={openExternal} aria-label="Buka di browser eksternal" title="Buka di browser eksternal">
           <IconExternal size={16} />
@@ -83,7 +155,7 @@ export function WebTab({ url }: { url: string }) {
           <button type="button" className="btn btn-primary btn-sm" onClick={openExternal}>Buka di browser</button>
         </div>
       ) : null}
-      <webview ref={ref} src={url} className="web-frame" allowpopups={true} />
+      <webview ref={ref} src={currentUrl} className="web-frame" allowpopups={true} />
     </div>
   );
 }
