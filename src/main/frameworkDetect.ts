@@ -4,45 +4,163 @@ import type { FrameworkInfo } from '../shared/types';
 
 type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun';
 
+const IS_WINDOWS = process.platform === 'win32';
+
 interface JsFramework {
   id: string;
   name: string;
   port: number;
   deps: string[];
   requires?: string[];
-  hostArgs?: boolean;
+  /** Biner di node_modules/.bin; string kosong = hanya lewat script package.json. */
+  bin: string;
+  /** Argumen penuh yang diteruskan ke biner, termasuk subcommand dev. */
+  binArgs: (port: number, dir: string) => string[];
+  /** Argumen host/port saja, untuk perintah `npm run <script> -- <args>`. */
+  scriptArgs: (port: number, dir: string) => string[];
+  /** Perintah cadangan bila biner dan script tidak tersedia. */
+  fallback?: (port: number) => string;
+}
+
+const lanFlags = (port: number): string[] => ['--host', '0.0.0.0', '--port', String(port)];
+const nextFlags = (port: number): string[] => ['--hostname', '0.0.0.0', '--port', String(port)];
+const noFlags = (): string[] => [];
+
+function parcelEntry(dir: string): string {
+  if (existsSync(join(dir, 'index.html'))) return 'index.html';
+  if (existsSync(join(dir, 'src', 'index.html'))) return 'src/index.html';
+  return '';
 }
 
 /** Urutan penting: framework paling spesifik lebih dulu. */
 const JS_FRAMEWORKS: JsFramework[] = [
-  { id: 'next', name: 'Next.js', port: 3000, deps: ['next'], hostArgs: true },
-  { id: 'nuxt', name: 'Nuxt', port: 3000, deps: ['nuxt'], hostArgs: true },
-  { id: 'astro', name: 'Astro', port: 4321, deps: ['astro'], hostArgs: true },
-  { id: 'remix', name: 'Remix', port: 5173, deps: ['@remix-run/dev'], hostArgs: true },
-  { id: 'sveltekit', name: 'SvelteKit', port: 5173, deps: ['@sveltejs/kit'], hostArgs: true },
-  { id: 'angular', name: 'Angular', port: 4200, deps: ['@angular/cli'], hostArgs: true },
-  { id: 'gatsby', name: 'Gatsby', port: 8000, deps: ['gatsby'], hostArgs: true },
-  { id: 'cra', name: 'Create React App', port: 3000, deps: ['react-scripts'], hostArgs: false },
-  { id: 'vite', name: 'Vite', port: 5173, deps: ['vite'], hostArgs: true },
-  { id: 'vue-cli', name: 'Vue CLI', port: 8080, deps: ['@vue/cli-service'], requires: ['vue'], hostArgs: true },
-  { id: 'parcel', name: 'Parcel', port: 1234, deps: ['parcel', 'parcel-bundler'], hostArgs: true },
-  { id: 'expo', name: 'Expo', port: 8081, deps: ['expo'], hostArgs: true },
-  { id: 'docusaurus', name: 'Docusaurus', port: 3000, deps: ['@docusaurus/core'], hostArgs: true },
-  { id: 'eleventy', name: 'Eleventy', port: 8080, deps: ['@11ty/eleventy', 'eleventy'], hostArgs: true },
+  {
+    id: 'next', name: 'Next.js', port: 3000, deps: ['next'], bin: 'next',
+    binArgs: (port) => ['dev', ...nextFlags(port)],
+    scriptArgs: (port) => nextFlags(port),
+  },
+  {
+    id: 'nuxt', name: 'Nuxt', port: 3000, deps: ['nuxt'], bin: 'nuxt',
+    binArgs: (port) => ['dev', ...lanFlags(port)],
+    scriptArgs: (port) => lanFlags(port),
+  },
+  {
+    id: 'sveltekit', name: 'SvelteKit', port: 5173, deps: ['@sveltejs/kit'], bin: 'vite',
+    binArgs: (port) => lanFlags(port),
+    scriptArgs: (port) => lanFlags(port),
+  },
+  {
+    id: 'remix', name: 'Remix', port: 5173, deps: ['@remix-run/dev'], bin: 'remix',
+    binArgs: (port) => ['vite:dev', ...lanFlags(port)],
+    scriptArgs: (port) => lanFlags(port),
+  },
+  {
+    id: 'astro', name: 'Astro', port: 4321, deps: ['astro'], bin: 'astro',
+    binArgs: (port) => ['dev', ...lanFlags(port)],
+    scriptArgs: (port) => lanFlags(port),
+  },
+  {
+    id: 'angular', name: 'Angular', port: 4200, deps: ['@angular/cli'], bin: 'ng',
+    binArgs: (port) => ['serve', ...lanFlags(port)],
+    scriptArgs: (port) => lanFlags(port),
+  },
+  {
+    id: 'gatsby', name: 'Gatsby', port: 8000, deps: ['gatsby'], bin: 'gatsby',
+    binArgs: (port) => ['develop', ...lanFlags(port)],
+    scriptArgs: (port) => lanFlags(port),
+  },
+  {
+    id: 'cra', name: 'Create React App', port: 3000, deps: ['react-scripts'], bin: 'react-scripts',
+    // CRA tidak menerima --host/--port; port diatur lewat env PORT.
+    binArgs: () => ['start'],
+    scriptArgs: noFlags,
+  },
+  {
+    id: 'vue-cli', name: 'Vue CLI', port: 8080, deps: ['@vue/cli-service'], requires: ['vue'], bin: 'vue-cli-service',
+    binArgs: (port) => ['serve', ...lanFlags(port)],
+    scriptArgs: (port) => lanFlags(port),
+  },
+  {
+    id: 'parcel', name: 'Parcel', port: 1234, deps: ['parcel', 'parcel-bundler'], bin: 'parcel',
+    binArgs: (port, dir) => {
+      const entry = parcelEntry(dir);
+      return entry ? ['serve', entry, ...lanFlags(port)] : ['serve', ...lanFlags(port)];
+    },
+    scriptArgs: (port) => lanFlags(port),
+  },
+  {
+    id: 'expo', name: 'Expo', port: 8081, deps: ['expo'], bin: 'expo',
+    binArgs: (port) => ['start', '--host', 'lan', '--port', String(port)],
+    scriptArgs: (port) => ['--host', 'lan', '--port', String(port)],
+  },
+  {
+    id: 'docusaurus', name: 'Docusaurus', port: 3000, deps: ['@docusaurus/core'], bin: 'docusaurus',
+    binArgs: (port) => ['start', ...lanFlags(port)],
+    scriptArgs: (port) => lanFlags(port),
+  },
+  {
+    id: 'eleventy', name: 'Eleventy', port: 8080, deps: ['@11ty/eleventy', 'eleventy'], bin: 'eleventy',
+    binArgs: (port) => ['--serve', ...lanFlags(port)],
+    scriptArgs: (port) => lanFlags(port),
+  },
+  {
+    id: 'nestjs', name: 'NestJS', port: 3000, deps: ['@nestjs/core'], bin: 'nest',
+    // `nest start` tidak punya flag host/port; port diatur aplikasi lewat env PORT.
+    binArgs: () => ['start', '--watch'],
+    scriptArgs: noFlags,
+  },
+  {
+    id: 'strapi', name: 'Strapi', port: 1337, deps: ['@strapi/strapi'], bin: 'strapi',
+    binArgs: () => ['develop'],
+    scriptArgs: noFlags,
+  },
+  {
+    id: 'adonis', name: 'AdonisJS', port: 3333, deps: ['@adonisjs/core'], bin: '',
+    binArgs: noFlags,
+    scriptArgs: noFlags,
+    fallback: () => 'node ace serve --hmr',
+  },
+  {
+    id: 'redwood', name: 'RedwoodJS', port: 8910, deps: ['@redwoodjs/core'], bin: 'rw',
+    binArgs: () => ['dev'],
+    scriptArgs: noFlags,
+  },
+  {
+    id: 'qwik', name: 'Qwik', port: 5173, deps: ['@builder.io/qwik'], requires: ['vite'], bin: 'vite',
+    binArgs: (port) => lanFlags(port),
+    scriptArgs: (port) => lanFlags(port),
+  },
+  {
+    id: 'solid', name: 'SolidStart', port: 3000, deps: ['solid-start', '@solidjs/start'], requires: ['vite'], bin: 'vite',
+    binArgs: (port) => lanFlags(port),
+    scriptArgs: (port) => lanFlags(port),
+  },
+  {
+    id: 'vite', name: 'Vite', port: 5173, deps: ['vite'], bin: 'vite',
+    binArgs: (port) => lanFlags(port),
+    scriptArgs: (port) => lanFlags(port),
+  },
+  {
+    // Hono tidak punya CLI dev; selalu lewat script project.
+    id: 'hono', name: 'Hono', port: 3000, deps: ['hono'], bin: '',
+    binArgs: noFlags,
+    scriptArgs: noFlags,
+  },
 ];
 
 const SCRIPT_ORDER = ['dev', 'develop', 'start', 'serve'] as const;
 
-interface NonJsFramework {
+interface ServerFramework {
   id: string;
   name: string;
   port: number;
   check: (dir: string) => boolean;
-  command: string;
+  command: (dir: string, port: number) => string;
   packageManager: string;
 }
 
-const NON_JS_FRAMEWORKS: NonJsFramework[] = [
+/** Framework server non-JS: dideteksi lebih dulu, karena project-nya sering punya package.json juga. */
+const SERVER_FRAMEWORKS: ServerFramework[] = [
   {
     id: 'laravel',
     name: 'Laravel',
@@ -53,40 +171,8 @@ const NON_JS_FRAMEWORKS: NonJsFramework[] = [
       const reqs = { ...asRecord(composer.require), ...asRecord(composer['require-dev']) };
       return Object.keys(reqs).some((key) => key.toLowerCase() === 'laravel/framework');
     },
-    command: 'php artisan serve --host=0.0.0.0 --port=8000',
+    command: (_dir, port) => `php artisan serve --host=0.0.0.0 --port=${port}`,
     packageManager: 'composer',
-  },
-  {
-    id: 'django',
-    name: 'Django',
-    port: 8000,
-    check: (dir) => existsSync(join(dir, 'manage.py')),
-    command: 'python manage.py runserver 0.0.0.0:8000',
-    packageManager: 'python',
-  },
-  {
-    id: 'fastapi',
-    name: 'FastAPI',
-    port: 8000,
-    check: (dir) => hasPythonPackage(dir, /\bfastapi\b/i) && existsSync(join(dir, 'main.py')),
-    command: 'python -m uvicorn main:app --host 0.0.0.0 --port 8000',
-    packageManager: 'python',
-  },
-  {
-    id: 'flask',
-    name: 'Flask',
-    port: 5000,
-    check: (dir) => hasPythonPackage(dir, /\bflask\b/i) && (existsSync(join(dir, 'app.py')) || existsSync(join(dir, 'wsgi.py'))),
-    command: 'python -m flask --app app run --host 0.0.0.0 --port 5000',
-    packageManager: 'python',
-  },
-  {
-    id: 'rails',
-    name: 'Ruby on Rails',
-    port: 3000,
-    check: (dir) => existsSync(join(dir, 'Gemfile')) && existsSync(join(dir, 'config', 'application.rb')),
-    command: 'bundle exec rails server -b 0.0.0.0 -p 3000',
-    packageManager: 'bundler',
   },
   {
     id: 'symfony',
@@ -95,25 +181,63 @@ const NON_JS_FRAMEWORKS: NonJsFramework[] = [
     check: (dir) => {
       const composer = readJsonObject(join(dir, 'composer.json'));
       const reqs = { ...asRecord(composer?.require), ...asRecord(composer?.['require-dev']) };
-      return Object.keys(reqs).some((key) => key.toLowerCase() === 'symfony/framework-bundle') && existsSync(join(dir, 'public'));
+      return Object.keys(reqs).some((key) => key.toLowerCase() === 'symfony/framework-bundle')
+        && existsSync(join(dir, 'public'));
     },
-    command: 'php -S 0.0.0.0:8000 -t public',
+    command: (_dir, port) => `php -S 0.0.0.0:${port} -t public`,
     packageManager: 'composer',
+  },
+  {
+    id: 'django',
+    name: 'Django',
+    port: 8000,
+    check: (dir) => existsSync(join(dir, 'manage.py')),
+    command: (dir, port) => `${pythonExecutable(dir)} manage.py runserver 0.0.0.0:${port}`,
+    packageManager: 'python',
+  },
+  {
+    id: 'fastapi',
+    name: 'FastAPI',
+    port: 8000,
+    check: (dir) => hasPythonPackage(dir, /\bfastapi\b/i) && existsSync(join(dir, 'main.py')),
+    command: (dir, port) => `${pythonExecutable(dir)} -m uvicorn main:app --host 0.0.0.0 --port ${port}`,
+    packageManager: 'python',
+  },
+  {
+    id: 'flask',
+    name: 'Flask',
+    port: 5000,
+    check: (dir) => hasPythonPackage(dir, /\bflask\b/i)
+      && (existsSync(join(dir, 'app.py')) || existsSync(join(dir, 'wsgi.py'))),
+    command: (dir, port) => `${pythonExecutable(dir)} -m flask --app app run --host 0.0.0.0 --port ${port}`,
+    packageManager: 'python',
+  },
+  {
+    id: 'rails',
+    name: 'Ruby on Rails',
+    port: 3000,
+    check: (dir) => existsSync(join(dir, 'Gemfile')) && existsSync(join(dir, 'config', 'application.rb')),
+    command: (_dir, port) => `bundle exec rails server -b 0.0.0.0 -p ${port}`,
+    packageManager: 'bundler',
   },
   {
     id: 'dotnet',
     name: '.NET / ASP.NET Core',
     port: 5000,
     check: (dir) => hasRootCsproj(dir),
-    command: 'dotnet run --urls http://0.0.0.0:5000',
+    command: (_dir, port) => `dotnet run --urls http://0.0.0.0:${port}`,
     packageManager: 'dotnet',
   },
+];
+
+/** Hanya dipakai bila project jelas bukan project JS. */
+const PLATFORM_FRAMEWORKS: ServerFramework[] = [
   {
     id: 'go',
     name: 'Go',
     port: 8080,
     check: (dir) => existsSync(join(dir, 'go.mod')),
-    command: 'go run .',
+    command: () => 'go run .',
     packageManager: 'go',
   },
   {
@@ -121,7 +245,7 @@ const NON_JS_FRAMEWORKS: NonJsFramework[] = [
     name: 'Rust',
     port: 3000,
     check: (dir) => existsSync(join(dir, 'Cargo.toml')),
-    command: 'cargo run',
+    command: () => 'cargo run',
     packageManager: 'cargo',
   },
   {
@@ -129,7 +253,7 @@ const NON_JS_FRAMEWORKS: NonJsFramework[] = [
     name: 'PHP (Built-in)',
     port: 8000,
     check: (dir) => existsSync(join(dir, 'index.php')) && !existsSync(join(dir, 'composer.json')),
-    command: 'php -S 0.0.0.0:8000',
+    command: (_dir, port) => `php -S 0.0.0.0:${port}`,
     packageManager: 'php',
   },
 ];
@@ -150,36 +274,6 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function detectPackageManager(dir: string): PackageManager {
-  if (existsSync(join(dir, 'pnpm-lock.yaml'))) return 'pnpm';
-  if (existsSync(join(dir, 'yarn.lock'))) return 'yarn';
-  if (existsSync(join(dir, 'bun.lockb')) || existsSync(join(dir, 'bun.lock'))) return 'bun';
-  return 'npm';
-}
-
-function buildCommand(pm: PackageManager, script: string, forwardedArgs: string[] = []): string {
-  const suffix = forwardedArgs.length ? ` ${forwardedArgs.join(' ')}` : '';
-  switch (pm) {
-    case 'pnpm':
-      return `pnpm ${script}${suffix}`;
-    case 'yarn':
-      return `yarn ${script}${suffix}`;
-    case 'bun':
-      return `bun run ${script}${suffix}`;
-    default:
-      return script === 'start'
-        ? `npm start${suffix ? ` --${suffix}` : ''}`
-        : `npm run ${script}${suffix ? ` --${suffix}` : ''}`;
-  }
-}
-
-function lanArgsFor(id: string, port: number): string[] {
-  if (id === 'next') return ['--hostname', '0.0.0.0', '--port', String(port)];
-  if (id === 'expo') return ['--host', 'lan', '--port', String(port)];
-  // Keep common JavaScript dev servers reachable from the LAN; the host also has a proxy fallback.
-  return ['--host', '0.0.0.0', '--port', String(port)];
-}
-
 function readProjectText(file: string): string {
   try { return existsSync(file) ? readFileSync(file, 'utf8') : ''; } catch { return ''; }
 }
@@ -197,33 +291,84 @@ function hasRootCsproj(dir: string): boolean {
   try { return readdirSync(dir).some((name) => name.toLowerCase().endsWith('.csproj')); } catch { return false; }
 }
 
-function defaultJsCommand(id: string, pm: PackageManager, port: number): string {
-  const commands: Record<string, string> = {
-    next: 'next dev --hostname 0.0.0.0 --port ' + port,
-    nuxt: 'nuxt dev --host 0.0.0.0 --port ' + port,
-    astro: 'astro dev --host 0.0.0.0 --port ' + port,
-    remix: 'remix vite:dev --host 0.0.0.0 --port ' + port,
-    sveltekit: 'vite --host 0.0.0.0 --port ' + port,
-    angular: 'ng serve --host 0.0.0.0 --port ' + port,
-    gatsby: 'gatsby develop --host 0.0.0.0 --port ' + port,
-    cra: 'react-scripts start',
-    vite: 'vite --host 0.0.0.0 --port ' + port,
-    'vue-cli': 'vue-cli-service serve --host 0.0.0.0 --port ' + port,
-    parcel: 'parcel serve index.html --host 0.0.0.0 --port ' + port,
-    expo: 'expo start --host lan --port ' + port,
-    docusaurus: 'docusaurus start --host 0.0.0.0 --port ' + port,
-    eleventy: 'eleventy --serve --host 0.0.0.0 --port ' + port,
-    nestjs: 'nest start --watch',
-    express: 'node index.js',
-    fastify: 'node index.js',
-    strapi: 'strapi develop',
-  };
-  const command = commands[id];
-  if (!command) return '';
-  if (pm === 'pnpm') return 'pnpm exec ' + command;
-  if (pm === 'yarn') return 'yarn ' + command;
-  if (pm === 'bun') return 'bunx ' + command;
-  return 'npx --no-install ' + command;
+/** Python dari virtualenv project lebih dulu, lalu `python` biasa. */
+function pythonExecutable(dir: string): string {
+  const venv = IS_WINDOWS
+    ? join(dir, '.venv', 'Scripts', 'python.exe')
+    : join(dir, '.venv', 'bin', 'python');
+  if (existsSync(venv)) return /\s/.test(venv) ? `"${venv}"` : venv;
+  return 'python';
+}
+
+function detectPackageManager(dir: string): PackageManager {
+  if (existsSync(join(dir, 'pnpm-lock.yaml'))) return 'pnpm';
+  if (existsSync(join(dir, 'yarn.lock'))) return 'yarn';
+  if (existsSync(join(dir, 'bun.lockb')) || existsSync(join(dir, 'bun.lock'))) return 'bun';
+  return 'npm';
+}
+
+function quotePath(path: string): string {
+  return /\s/.test(path) ? `"${path}"` : path;
+}
+
+function quoteArg(arg: string): string {
+  return /\s/.test(arg) ? `"${arg}"` : arg;
+}
+
+function joinCommand(head: string, args: string[]): string {
+  return [head, ...args.filter(Boolean)].join(' ').trim();
+}
+
+function localBin(dir: string, bin: string): string | null {
+  if (!bin) return null;
+  const base = join(dir, 'node_modules', '.bin', bin);
+  const candidates = IS_WINDOWS ? [base + '.cmd', base + '.exe', base] : [base];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function expectedBinPath(dir: string, bin: string): string {
+  return join(dir, 'node_modules', '.bin', bin + (IS_WINDOWS ? '.cmd' : ''));
+}
+
+/**
+ * Perintah script yang benar:
+ * - npm/pnpm/bun butuh `--` sebelum argumen tambahan.
+ * - yarn menerima argumen langsung setelah nama script.
+ * Bug lama menghasilkan `npm run dev ---host ...` (tiga strip) → EUNKNOWNCONFIG.
+ */
+function scriptCommand(pm: PackageManager, script: string, forwardedArgs: string[] = []): string {
+  const tail = forwardedArgs.filter(Boolean).map(quoteArg).join(' ');
+  switch (pm) {
+    case 'pnpm':
+      return tail ? `pnpm run ${script} -- ${tail}` : `pnpm run ${script}`;
+    case 'yarn':
+      return tail ? `yarn ${script} ${tail}` : `yarn ${script}`;
+    case 'bun':
+      return tail ? `bun run ${script} -- ${tail}` : `bun run ${script}`;
+    default:
+      return tail ? `npm run ${script} -- ${tail}` : `npm run ${script}`;
+  }
+}
+
+/**
+ * Script dianggap "polos" bila isinya hanya memanggil biner framework tanpa flag
+ * khusus; kalau ada flag tambahan (mis. `next dev --turbopack`), script dipakai apa
+ * adanya supaya perilakunya tidak hilang.
+ */
+function scriptIsPlain(scriptText: string, bin: string): boolean {
+  if (!bin) return false;
+  const tokens = scriptText.trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return false;
+  const head = tokens[0].replace(/^.*[\\/]/, '').replace(/\.(cmd|exe|bat)$/i, '');
+  if (head !== bin) return false;
+  return tokens.slice(1).every((token) => (
+    /^[a-z][a-z:._-]*$/i.test(token) && !token.startsWith('-')
+  ) || /^-{1,2}(host|port|hostname)(=|$)/.test(token)
+    || /^\d+$/.test(token)
+    || token === '0.0.0.0');
 }
 
 function pickScript(scripts: Record<string, unknown>): string | null {
@@ -233,93 +378,168 @@ function pickScript(scripts: Record<string, unknown>): string | null {
   return null;
 }
 
+function buildJsCommand(
+  fw: JsFramework,
+  dir: string,
+  pm: PackageManager,
+  script: string | null,
+  scriptText: string,
+  port: number,
+): { command: string; via: string } | null {
+  const found = localBin(dir, fw.bin);
+  const useScriptFirst = script !== null && !scriptIsPlain(scriptText, fw.bin);
+
+  if (useScriptFirst && script) {
+    return { command: scriptCommand(pm, script, fw.scriptArgs(port, dir)), via: `script "${script}" (${pm})` };
+  }
+  if (found) {
+    return { command: joinCommand(quotePath(found), fw.binArgs(port, dir).map(quoteArg)), via: `biner lokal ${fw.bin}` };
+  }
+  if (script) {
+    return { command: scriptCommand(pm, script, fw.scriptArgs(port, dir)), via: `script "${script}" (${pm})` };
+  }
+  if (fw.bin) {
+    return { command: joinCommand(quotePath(expectedBinPath(dir, fw.bin)), fw.binArgs(port, dir).map(quoteArg)), via: `biner lokal ${fw.bin} (belum terpasang)` };
+  }
+  if (fw.fallback) {
+    return { command: fw.fallback(port), via: 'perintah bawaan framework' };
+  }
+  return null;
+}
+
+/**
+ * Ganti nomor port di dalam perintah agar sesuai port yang benar-benar dipakai.
+ * honey: pola terbatas (flag port, host:port, listen(...)); perintah dev selalu pendek.
+ */
+export function retargetPort(command: string, from: number, to: number): string {
+  if (!command || from === to || !Number.isFinite(from) || from <= 0) return command;
+  const needle = String(from);
+  const patterns = [
+    new RegExp(`(--port[=\\s]+)${needle}\\b`, 'g'),
+    new RegExp(`(-p[=\\s]+)${needle}\\b`, 'g'),
+    new RegExp(`(:)${needle}\\b`, 'g'),
+    new RegExp(`(listen\\(\\s*)${needle}\\b`, 'g'),
+  ];
+  let next = command;
+  for (const pattern of patterns) next = next.replace(pattern, `$1${to}`);
+  if (next !== command) return next;
+  return command.replace(new RegExp(`\\b${needle}\\b`), String(to));
+}
+
+/** Project JS nyata (bukan sekadar folder berisi go.mod). */
+function looksLikeJsProject(pkg: Record<string, unknown> | null): boolean {
+  if (!pkg) return false;
+  const deps = { ...asRecord(pkg.dependencies), ...asRecord(pkg.devDependencies) };
+  const markers = [
+    'react', 'react-dom', 'vue', 'svelte', 'vite', 'webpack', 'next', 'nuxt',
+    '@angular/core', 'express', 'fastify', 'koa', 'hono', 'solid-js', '@builder.io/qwik',
+  ];
+  if (markers.some((dep) => dep in deps)) return true;
+  const scripts = asRecord(pkg.scripts);
+  return SCRIPT_ORDER.some((name) => typeof scripts[name] === 'string');
+}
+
 export function detectFramework(dir: string): FrameworkInfo | null {
   try {
-    // Cek framework non-JS (composer.json, manage.py, go.mod, Cargo.toml)
-    // DULUAN, karena Laravel/Vue/Vite biasanya punya package.json juga.
-    for (const fw of NON_JS_FRAMEWORKS) {
-      if (fw.check(dir)) {
+    const pkg = readJsonObject(join(dir, 'package.json'));
+    const pm = detectPackageManager(dir);
+    const scripts = pkg ? asRecord(pkg.scripts) : {};
+    const script = pkg ? pickScript(scripts) : null;
+    const scriptText = script && typeof scripts[script] === 'string' ? String(scripts[script]) : '';
+
+    // 1. Framework server non-JS (Laravel/Symfony/Django/FastAPI/Flask/Rails/.NET).
+    for (const fw of SERVER_FRAMEWORKS) {
+      if (!fw.check(dir)) continue;
+      const command = fw.command(dir, fw.port);
+      return {
+        id: fw.id,
+        name: fw.name,
+        command,
+        args: [],
+        cwd: dir,
+        packageManager: fw.packageManager,
+        detectedPort: fw.port,
+        notes: `Perintah: ${command} · port ${fw.port} · dikelola ${fw.packageManager}.`,
+      };
+    }
+
+    // 2. Framework JS dari package.json.
+    if (pkg) {
+      const deps = { ...asRecord(pkg.dependencies), ...asRecord(pkg.devDependencies) };
+      for (const fw of JS_FRAMEWORKS) {
+        if (!fw.deps.some((dep) => dep in deps)) continue;
+        if (fw.requires && !fw.requires.every((dep) => dep in deps)) continue;
+        const built = buildJsCommand(fw, dir, pm, script, scriptText, fw.port);
+        if (!built) continue;
         return {
           id: fw.id,
           name: fw.name,
-          command: fw.command,
+          command: built.command,
           args: [],
           cwd: dir,
-          packageManager: fw.packageManager,
+          packageManager: pm,
           detectedPort: fw.port,
+          notes: `Perintah: ${built.command} · port ${fw.port} · ${built.via}.`,
         };
       }
     }
 
-    const pkg = readJsonObject(join(dir, 'package.json'));
+    // 3. Node web generik: hanya bila ada script dev/start dan dependensi web.
     if (pkg) {
       const deps = { ...asRecord(pkg.dependencies), ...asRecord(pkg.devDependencies) };
-      for (const fw of JS_FRAMEWORKS) {
-        const hit = fw.deps.some((dep) => dep in deps);
-        if (!hit) continue;
-        if (fw.requires && !fw.requires.every((dep) => dep in deps)) continue;
-        const pm = detectPackageManager(dir);
-        const script = pickScript(asRecord(pkg.scripts));
-        const forwardedArgs = fw.hostArgs === false ? [] : lanArgsFor(fw.id, fw.port);
-        const command = script
-          ? buildCommand(pm, script, forwardedArgs)
-          : defaultJsCommand(fw.id, pm, fw.port);
-        if (!command) continue;
+      const webDependencies = [
+        'express', 'fastify', 'koa', 'hono', 'h3', 'http-server', 'serve',
+        'webpack', 'react', 'vue', 'svelte', '@nestjs/core', '@strapi/strapi',
+      ].some((dep) => dep in deps);
+      if (script && webDependencies) {
+        const command = scriptCommand(pm, script);
+        return {
+          id: 'node-generic',
+          name: `Node.js Web Server (${script})`,
+          command,
+          args: [],
+          cwd: dir,
+          packageManager: pm,
+          detectedPort: 3000,
+          notes: `Perintah: ${command} · port 3000 (env PORT/HOST disetel otomatis).`,
+        };
+      }
+    }
+
+    // 4. Go/Rust/PHP hanya bila project ini bukan project JS.
+    if (!looksLikeJsProject(pkg)) {
+      for (const fw of PLATFORM_FRAMEWORKS) {
+        if (!fw.check(dir)) continue;
+        const command = fw.command(dir, fw.port);
         return {
           id: fw.id,
           name: fw.name,
           command,
           args: [],
           cwd: dir,
-          packageManager: pm,
+          packageManager: fw.packageManager,
           detectedPort: fw.port,
-          notes: script
-            ? 'Script package.json dipilih otomatis; host/port diteruskan bila framework mendukungnya.'
-            : 'Perintah dev dibuat otomatis dari framework yang terdeteksi.',
+          notes: `Perintah: ${command} · port ${fw.port} · dikelola ${fw.packageManager}.`,
         };
       }
     }
 
-    // Generic Node web projects: use their existing dev/start script only when web dependencies are present.
-    if (pkg) {
-      const deps = { ...asRecord(pkg.dependencies), ...asRecord(pkg.devDependencies) };
-      const scripts = asRecord(pkg.scripts);
-      const script = pickScript(scripts);
-      const webDependencies = ['express', 'fastify', 'koa', 'hono', 'h3', 'http-server', 'serve', 'vite', 'webpack', 'react', 'vue', 'svelte', '@nestjs/core', '@strapi/strapi']
-        .some((dep) => dep in deps);
-      if (script && webDependencies) {
-        const pm = detectPackageManager(dir);
-        return {
-          id: 'node-generic',
-          name: 'Node.js Web Server (' + script + ')',
-          command: buildCommand(pm, script),
-          args: [],
-          cwd: dir,
-          packageManager: pm,
-          detectedPort: 3000,
-          notes: 'Menggunakan script "' + script + '" di package.json; HOST/PORT disetel otomatis jika framework mendukung.',
-        };
-      }
-    }
-
-    // Static site fallback (tidak peduli package.json)
+    // 5. Situs statis.
     if (existsSync(join(dir, 'index.html'))) {
-      const pm = pkg ? detectPackageManager(dir) : 'system' as PackageManager | 'system';
-      const script = pkg ? pickScript(asRecord(pkg.scripts)) : null;
-      const command = pm === 'system'
-        ? 'npx --yes serve -l 0.0.0.0:5173 .'
-        : script
-          ? buildCommand(pm, script)
-          : 'npx --no-install vite --host 0.0.0.0 --port 5173';
+      const command = pkg && script
+        ? scriptCommand(pm, script)
+        : existsSync(join(dir, 'node_modules', '.bin', IS_WINDOWS ? 'vite.cmd' : 'vite'))
+          ? joinCommand(quotePath(expectedBinPath(dir, 'vite')), ['--host', '0.0.0.0', '--port', '5173'])
+          : 'npx --yes serve -l 0.0.0.0:5173 .';
       return {
         id: 'static',
         name: 'Situs Statis',
         command,
         args: [],
         cwd: dir,
-        packageManager: pm ?? 'system',
+        packageManager: pkg ? pm : 'system',
         detectedPort: 5173,
-        notes: 'Disajikan dengan server statis.',
+        notes: `Perintah: ${command} · port 5173 · disajikan sebagai situs statis.`,
       };
     }
 

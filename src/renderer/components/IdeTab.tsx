@@ -103,8 +103,8 @@ export function IdeTab({
     <div className="tab">
       <div className="tab-heading">
         <div>
-          <h2>IDE</h2>
-          <p>Cari IDE di laptop atau pilih IDE dari katalog. Jendela IDE yang kompatibel akan ditempatkan di dalam Ruang Kerja.</p>
+          <h2>IDE Eksternal</h2>
+          <p>Cari IDE di laptop atau pilih IDE dari katalog. Jendela IDE yang kompatibel akan ditempatkan di dalam Ruang Kerja. Untuk menulis kode tanpa aplikasi lain, pakai tab <strong>Editor</strong>.</p>
         </div>
         <button type="button" className="btn btn-ghost" onClick={rescan} disabled={scanning}>
           {scanning ? <Spinner size={15} /> : <IconRefresh size={15} />}

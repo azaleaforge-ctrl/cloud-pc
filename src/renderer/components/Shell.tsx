@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactElement } from 'react';
+import { lazy, Suspense, useEffect, useState, type ReactElement } from 'react';
 import type { AppState } from '../../shared/types';
-import { IconGlobe, IconHourglass, IconMonitor, IconServer, IconUsers, IconZap, LogoMark, IconFolder } from './icons';
+import { IconCode, IconGlobe, IconHourglass, IconMonitor, IconServer, IconUsers, IconZap, LogoMark, IconFolder } from './icons';
 import { RoomTab } from './RoomTab';
 import { QueueTab } from './QueueTab';
 import { IdeTab } from './IdeTab';
@@ -9,7 +9,11 @@ import { WebTab } from './WebTab';
 import { FileTab } from './FileTab';
 import { FooterBar, VersionModal } from './ui';
 
-type TabId = 'room' | 'file' | 'queue' | 'ide' | 'server' | 'web';
+type TabId = 'room' | 'file' | 'queue' | 'ide' | 'editor' | 'server' | 'web';
+
+// Monaco + xterm berat: muat hanya saat tab Editor pertama kali dibuka,
+// lalu biarkan tetap ter-mount agar buffer dan terminal tidak hilang.
+const EditorShell = lazy(() => import('./editor/EditorShell').then((mod) => ({ default: mod.EditorShell })));
 
 interface ShellProps {
   state: AppState;
@@ -42,6 +46,11 @@ export function Shell({ state, logs, onError, onClearLogs, onRoomLeft }: ShellPr
   const [tab, setTab] = useState<TabId>('room');
   const [showVersion, setShowVersion] = useState(false);
   const [checkingUpdate, setChecking] = useState(false);
+  const [editorMounted, setEditorMounted] = useState(false);
+
+  useEffect(() => {
+    if (tab === 'editor') setEditorMounted(true);
+  }, [tab]);
 
   const handleCheckUpdate = async () => {
     if (!showVersion) setShowVersion(true);
@@ -65,8 +74,9 @@ export function Shell({ state, logs, onError, onClearLogs, onRoomLeft }: ShellPr
   const tabs: Array<{ id: TabId; label: string; icon: ReactElement; dot?: 'green' }> = [
     { id: 'room', label: 'Ruangan', icon: <IconUsers size={17} /> },
     { id: 'file', label: 'File', icon: <IconFolder size={17} /> },
+    { id: 'editor', label: 'Editor', icon: <IconCode size={17} /> },
     { id: 'queue', label: 'Antrian', icon: <IconHourglass size={17} /> },
-    { id: 'ide', label: 'IDE', icon: <IconMonitor size={17} /> },
+    { id: 'ide', label: 'IDE Eksternal', icon: <IconMonitor size={17} /> },
     { id: 'server', label: 'Server', icon: <IconServer size={17} /> },
   ];
   if (webAvailable) {
@@ -116,8 +126,8 @@ export function Shell({ state, logs, onError, onClearLogs, onRoomLeft }: ShellPr
           </div>
         </nav>
 
-        <main className="content">
-          {tab === 'room' ? (
+        <main className={'content' + (tab === 'editor' ? ' content-editor' : '')}>
+          {tab === 'editor' ? null : tab === 'room' ? (
             <RoomTab state={state} onError={onError} onLeft={onRoomLeft} />
           ) : tab === 'file' ? (
             <FileTab state={state} />
@@ -136,6 +146,19 @@ export function Shell({ state, logs, onError, onClearLogs, onRoomLeft }: ShellPr
           ) : (
             <WebTab url={state.server.url ?? ''} />
           )}
+          {editorMounted ? (
+            <Suspense
+              fallback={
+                <div className="tab">
+                  <section className="card">
+                    <p className="card-sub">Menyiapkan editor, terminal, dan panel…</p>
+                  </section>
+                </div>
+              }
+            >
+              <EditorShell state={state} active={tab === 'editor'} onError={onError} />
+            </Suspense>
+          ) : null}
         </main>
       </div>
 

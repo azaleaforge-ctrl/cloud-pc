@@ -942,6 +942,13 @@ button {
   padding: 26px 30px 32px;
 }
 
+/* IDE bawaan mengisi seluruh area kerja (tanpa padding halaman). */
+.content-editor {
+  display: flex;
+  padding: 0;
+  overflow: hidden;
+}
+
 .tab {
   display: flex;
   flex-direction: column;

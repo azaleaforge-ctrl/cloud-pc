@@ -1,6 +1,8 @@
 // Kontrak bersama antara proses main, preload, dan renderer.
 // Semua tipe di file ini adalah satu-satunya sumber kebenaran untuk IPC.
 
+import type { EditorApi } from './editor';
+
 export type Role = 'none' | 'host' | 'member';
 
 export type MemberStatus = 'working' | 'queued' | 'idle' | 'offline';
@@ -190,6 +192,8 @@ export interface FetchReleasesResult {
 
 export interface RkApi {
   version: string;
+  /** IDE bawaan: editor file, terminal, ekstensi, debugger. */
+  editor: EditorApi;
   getState(): Promise<AppState>;
   pickFolder(): Promise<string | null>;
   createRoom(input: CreateRoomInput): Promise<ActionResult>;
@@ -258,4 +262,8 @@ export const IGNORED_DIRS = [
   '.DS_Store',
 ];
 
-export const APP_VERSION = '0.3.6';
+// Versi tunggal: ikut package.json supaya build lokal dan rilis CI (yang
+// menimpa versi dari tag `v*`) tidak pernah menampilkan versi berbeda.
+import { version as pkgVersion } from '../../package.json';
+
+export const APP_VERSION = pkgVersion;

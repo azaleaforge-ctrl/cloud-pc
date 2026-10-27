@@ -25,6 +25,10 @@ import { findRoom, getLanIp, startAdvertise, stopAdvertise } from './discovery';
 import { createHostRoom, type HostRoom } from './hostRoom';
 import { joinAsMember, type MemberRoom } from './memberRoom';
 import { startDevServer, type DevServerHandle } from './devServer';
+import { createWorkspaceService } from './editor/workspace';
+import { createTerminalService } from './editor/terminal';
+import { createExtensionService } from './editor/extensions';
+import { createDebugService } from './editor/debugger';
 import { scanProjectEntries } from './fsScan';
 import { watchProjectFileChanges, type ProjectFileWatch } from './projectFileWatcher';
 import { openEmbeddedIde, closeEmbeddedIde, resizeEmbeddedIde, focusEmbeddedIde } from './nativeHost';
@@ -107,6 +111,9 @@ autoUpdater.on('update-downloaded', (info) => {
 
 function checkForUpdates(): Promise<void> {
   if (process.env.NODE_ENV === 'development') return Promise.resolve();
+  // Build tanpa kanal rilis (mis. `electron-builder --dir` atau versi portabel)
+  // tidak punya app-update.yml; jangan munculkan status error karena itu.
+  if (!existsSync(join(process.resourcesPath, 'app-update.yml'))) return Promise.resolve();
   if (updateCheckPromise) return updateCheckPromise;
   // autoDownload is enabled: don't start another check/download while one is
   // already available, downloading, or ready to install.
@@ -242,6 +249,17 @@ let stopActivityMonitor: (() => void) | null = null;
 let projectFileWatcher: ProjectFileWatch | null = null;
 let watchedProjectPath: string | null = null;
 
+// IDE bawaan: service hidup selama aplikasi, tapi hanya melayani saat ada project.
+const editorRoot = (): string | null => (store.get().role === 'none' ? null : store.get().projectPath);
+const editorWorkspace = createWorkspaceService(editorRoot);
+const editorTerminals = createTerminalService({
+  getRoot: editorRoot,
+  onData: (event) => send('rk:editor:term-data', event),
+  onExit: (event) => send('rk:editor:term-exit', event),
+});
+const editorExtensions = createExtensionService(() => join(app.getPath('userData'), 'ide'));
+const editorDebugger = createDebugService({ onEvent: (event) => send('rk:editor:debug-event', event) });
+
 function startProjectFilesWatcher(root: string): void {
   if (projectFileWatcher && watchedProjectPath === root) return;
   const previous = projectFileWatcher;
@@ -320,6 +338,8 @@ async function shutdownRoom(): Promise<void> {
   await stopProjectFilesWatcher();
   stopActivityMonitor?.();
   stopActivityMonitor = null;
+  editorDebugger.dispose();
+  editorTerminals.disposeAll();
   await closeEmbeddedIde().catch(() => undefined);
   store.patch({ ideMode: false, activeIdeId: null, queueNotice: null });
   if (devServer) {
@@ -474,13 +494,25 @@ async function handleStartServer(): Promise<ActionResult> {
     const state = store.get();
     if (state.role !== 'host') return { ok: false, error: 'Server dev hanya bisa dinyalakan oleh host.' };
     if (!framework || !state.projectPath) return { ok: false, error: 'Framework belum terdeteksi.' };
-    if (devServer) return { ok: false, error: 'Server sudah berjalan.' };
-    devServer = await startDevServer({
+    if (devServer) {
+      const status = store.get().server.status;
+      if (status === 'running' || status === 'starting') return { ok: false, error: 'Server sudah berjalan.' };
+      // Sisa proses dari percobaan sebelumnya: matikan dulu supaya start bersih.
+      const stale = devServer;
+      devServer = null;
+      await stale.stop().catch(() => undefined);
+    }
+    let handle: DevServerHandle | null = null;
+    handle = await startDevServer({
       framework,
       cwd: state.projectPath,
       onLog: pushServerLog,
       onState: applyServerState,
+      onExit: () => {
+        if (devServer === handle) devServer = null;
+      },
     });
+    devServer = handle;
     return { ok: true };
   } catch (err) {
     devServer = null;
@@ -490,10 +522,19 @@ async function handleStartServer(): Promise<ActionResult> {
 }
 
 async function handleStopServer(): Promise<ActionResult> {
-  if (!devServer) return { ok: false, error: 'Server tidak sedang berjalan.' };
-  await devServer.stop();
+  if (!devServer) {
+    // Status bisa tertinggal di error/starting walau proses sudah mati.
+    const server = store.get().server;
+    if (server.status === 'running' || server.status === 'starting' || server.status === 'error') {
+      applyServerState({ ...server, status: 'stopped', url: null, port: null, targetPort: null, proxied: false, error: null });
+      return { ok: true };
+    }
+    return { ok: false, error: 'Server tidak sedang berjalan.' };
+  }
+  const handle = devServer;
   devServer = null;
-  applyServerState({ ...store.get().server, status: 'stopped', url: null, port: null });
+  await handle.stop();
+  applyServerState({ ...store.get().server, status: 'stopped', url: null, port: null, targetPort: null, proxied: false, error: null });
   return { ok: true };
 }
 
@@ -775,6 +816,36 @@ function registerIpc(): void {
       return [];
     }
   });
+
+  // --- IDE bawaan ---------------------------------------------------------
+  ipcMain.handle('rk:editor:list-dir', (_e, path: string) => editorWorkspace.listDir(path));
+  ipcMain.handle('rk:editor:read-file', (_e, path: string) => editorWorkspace.readFile(path));
+  ipcMain.handle('rk:editor:write-file', (_e, path: string, content: string) => editorWorkspace.writeFile(path, content));
+  ipcMain.handle('rk:editor:create-file', (_e, path: string) => editorWorkspace.createFile(path));
+  ipcMain.handle('rk:editor:create-folder', (_e, path: string) => editorWorkspace.createFolder(path));
+  ipcMain.handle('rk:editor:rename', (_e, from: string, to: string) => editorWorkspace.renamePath(from, to));
+  ipcMain.handle('rk:editor:delete', (_e, path: string) => editorWorkspace.deletePath(path));
+  ipcMain.handle('rk:editor:search', (_e, query: string, opts?: { caseSensitive?: boolean; maxResults?: number }) => editorWorkspace.search(query, opts));
+
+  ipcMain.handle('rk:editor:term-create', (_e, opts) => editorTerminals.create(opts));
+  ipcMain.handle('rk:editor:term-write', (_e, id: string, data: string) => editorTerminals.write(id, data));
+  ipcMain.handle('rk:editor:term-resize', (_e, id: string, cols: number, rows: number) => editorTerminals.resize(id, cols, rows));
+  ipcMain.handle('rk:editor:term-kill', (_e, id: string) => editorTerminals.kill(id));
+  ipcMain.handle('rk:editor:term-list', () => editorTerminals.list());
+
+  ipcMain.handle('rk:editor:ext-search', (_e, query: string, offset?: number) => editorExtensions.search(query, offset));
+  ipcMain.handle('rk:editor:ext-list', () => editorExtensions.list());
+  ipcMain.handle('rk:editor:ext-install', (_e, id: string, version?: string) => editorExtensions.install(id, version));
+  ipcMain.handle('rk:editor:ext-uninstall', (_e, id: string) => editorExtensions.uninstall(id));
+  ipcMain.handle('rk:editor:ext-read-file', (_e, path: string) => editorExtensions.readFile(path));
+
+  ipcMain.handle('rk:editor:debug-start', (_e, entry: string) => editorDebugger.start(entry));
+  ipcMain.handle('rk:editor:debug-stop', () => editorDebugger.stop());
+  ipcMain.handle('rk:editor:debug-breakpoints', (_e, points: Array<{ path: string; line: number }>) => editorDebugger.setBreakpoints(points));
+  ipcMain.handle('rk:editor:debug-resume', () => editorDebugger.resume());
+  ipcMain.handle('rk:editor:debug-pause', () => editorDebugger.pause());
+  ipcMain.handle('rk:editor:debug-step', (_e, kind: 'over' | 'into' | 'out') => editorDebugger.step(kind));
+  ipcMain.handle('rk:editor:debug-eval', (_e, expression: string) => editorDebugger.evaluate(expression));
 }
 
 async function createWindow(): Promise<void> {
@@ -896,6 +967,8 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   stopAdvertise();
+  editorDebugger.dispose();
+  editorTerminals.disposeAll();
   if (tray) {
     tray.destroy();
     tray = null;

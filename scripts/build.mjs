@@ -14,7 +14,8 @@ const common = {
   sourcemap: true,
   target: 'node20',
   logLevel: 'info',
-  external: ['electron'],
+  // Native module (ConPTY) harus tetap di-resolve dari node_modules saat runtime.
+  external: ['electron', '@lydell/node-pty'],
 };
 
 if (target === 'main') {
