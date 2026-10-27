@@ -11,7 +11,7 @@ import type { TerminalSessionInfo } from '../../../shared/editor';
 import { IconPlus, IconTerminal, IconTrash, IconX, IconMaximize, IconMinimize } from '../icons';
 import { onTerminalSessionData } from './useIdeWorkbench';
 
-const MONO_FONT = "'Cascadia Code', 'Cascadia Mono', Consolas, '\''JetBrains Mono'\'', '\''Courier New'\'', monospace";
+const MONO_FONT = "'Cascadia Code', 'Cascadia Mono', Consolas, 'JetBrains Mono', 'Courier New', monospace";
 
 const XTERM_THEME = {
   background: '#0b0f17',
@@ -103,7 +103,6 @@ export function TerminalPane({
         allowTransparency: false,
         theme: XTERM_THEME,
         rightClickSelectsWord: true,
-        unicodeVersion: '15',
         convertEol: true,
         screenReaderMode: false,
       });
@@ -210,7 +209,7 @@ export function TerminalPane({
     if (term) {
       entry.search.findNext(term);
     } else {
-      entry.search.clear();
+      entry.search.clearDecorations();
     }
   }, [activeId]);
 
@@ -330,7 +329,7 @@ export function TerminalPane({
                 } else if (e.key === 'Escape') {
                   setShowSearch(false);
                   setSearchTerm('');
-                  sessionsRef.current.get(activeId!)?.search.clear();
+                  sessionsRef.current.get(activeId!)?.search.clearDecorations();
                 }
               }}
               style={{
@@ -346,7 +345,7 @@ export function TerminalPane({
             />
             <button type="button" className="icon-btn" title="Sebelumnya" onClick={handleSearchPrev}><IconX size={14} /></button>
             <button type="button" className="icon-btn" title="Berikutnya" onClick={handleSearchNext}><IconX size={14} /></button>
-            <button type="button" className="icon-btn" title="Tutup pencarian" onClick={() => { setShowSearch(false); setSearchTerm(''); sessionsRef.current.get(activeId!)?.search.clear(); }}><IconX size={14} /></button>
+            <button type="button" className="icon-btn" title="Tutup pencarian" onClick={() => { setShowSearch(false); setSearchTerm(''); sessionsRef.current.get(activeId!)?.search.clearDecorations(); }}><IconX size={14} /></button>
           </div>
         )}
         {!showSearch && (
