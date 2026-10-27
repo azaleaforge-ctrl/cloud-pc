@@ -370,3 +370,35 @@ export function IconDownload(p: IconProps) {
     </Svg>
   );
 }
+
+export function IconChevronUp(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M18 15L12 9 6 15" />
+    </Svg>
+  );
+}
+
+export function IconChevronDown(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M6 9l6 6 6-6" />
+    </Svg>
+  );
+}
+
+export function IconChevronLeft(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M15 18L9 12l6-6" />
+    </Svg>
+  );
+}
+
+export function IconChevronRight(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M9 6l6 6-6 6" />
+    </Svg>
+  );
+}

@@ -8,7 +8,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
 import '@xterm/xterm/css/xterm.css';
 import type { TerminalSessionInfo } from '../../../shared/editor';
-import { IconPlus, IconTerminal, IconTrash, IconX, IconMaximize, IconMinimize } from '../icons';
+import { IconPlus, IconTerminal, IconTrash, IconX, IconSearch, IconChevronUp, IconChevronDown } from '../icons';
 import { onTerminalSessionData } from './useIdeWorkbench';
 
 const MONO_FONT = "'Cascadia Code', 'Cascadia Mono', Consolas, 'JetBrains Mono', 'Courier New', monospace";
@@ -343,13 +343,13 @@ export function TerminalPane({
               }}
               autoFocus
             />
-            <button type="button" className="icon-btn" title="Sebelumnya" onClick={handleSearchPrev}><IconX size={14} /></button>
-            <button type="button" className="icon-btn" title="Berikutnya" onClick={handleSearchNext}><IconX size={14} /></button>
+            <button type="button" className="icon-btn" title="Sebelumnya" onClick={handleSearchPrev}><IconChevronUp size={14} /></button>
+            <button type="button" className="icon-btn" title="Berikutnya" onClick={handleSearchNext}><IconChevronDown size={14} /></button>
             <button type="button" className="icon-btn" title="Tutup pencarian" onClick={() => { setShowSearch(false); setSearchTerm(''); sessionsRef.current.get(activeId!)?.search.clearDecorations(); }}><IconX size={14} /></button>
           </div>
         )}
         {!showSearch && (
-          <button type="button" className="icon-btn" title="Cari (Ctrl+F)" onClick={() => setShowSearch(true)}><IconX size={14} /></button>
+          <button type="button" className="icon-btn" title="Cari (Ctrl+F)" onClick={() => setShowSearch(true)}><IconSearch size={14} /></button>
         )}
       </div>
 

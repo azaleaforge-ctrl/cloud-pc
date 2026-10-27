@@ -55,9 +55,9 @@ const HEARTBEAT_MS = 20_000;
 const CLIENT_TIMEOUT_MS = 60_000;
 const DEBOUNCE_MS = 50;
 const SYNC_DEBOUNCE_MS = 300;
-const IDLE_TIMEOUT_MS = 120_000; // 2 menit idle → auto release (AI agent, IDE)
-const MANUAL_IDLE_TIMEOUT_MS = 60_000; // 1 menit idle → auto release (manual coding)
-const MANUAL_WARN_TIMEOUT_MS = 45_000; // 45 detik → warning notification
+const IDLE_TIMEOUT_MS = 120_000; // 2 menit idle → auto release (semua sumber: manual/AI agent)
+const MANUAL_IDLE_TIMEOUT_MS = 120_000; // 2 menit idle → auto release (manual coding) - sama seperti AI agent
+const MANUAL_WARN_TIMEOUT_MS = 90_000; // 90 detik → warning notification
 
 export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   const members = new Map<string, Member>();
@@ -131,7 +131,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
         if (holder && !closed && holderActivitySource === source) {
           const holderMember = members.get(holder);
           const name = holderMember?.name ?? 'Anggota';
-          opts.notify({ kind: 'warn', message: `${name} idle ${Math.round(warnTimeout / 1000)} detik - giliran akan dilepas otomatis dalam ${Math.round((idleTimeout - warnTimeout) / 1000)} detik.` });
+          opts.notify({ kind: 'warn', message: `${name} idle 90 detik - giliran akan dilepas otomatis dalam 30 detik.` });
         }
       }, warnTimeout);
       warnTimer.unref?.();
@@ -325,14 +325,12 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
       clearWarnTimer();
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = null;
-      const wasManual = isManualSource(holderActivitySource ?? '');
-      const idleMinutes = wasManual ? 1 : 2;
       holder = queue.shift() ?? null;
       holderLastActivity = holder ? Date.now() : null;
       holderActivitySource = holder ? 'idle-auto' : null;
       updateStatuses();
       broadcast({ t: 'turn-released', holder, name });
-      broadcast({ t: 'notify', kind: 'warn', message: `${name} idle selama ${idleMinutes} menit - giliran dilepas otomatis.` });
+      broadcast({ t: 'notify', kind: 'warn', message: `${name} idle selama 2 menit - giliran dilepas otomatis.` });
       if (byId !== opts.hostId) opts.notify({ kind: 'warn', message: `${name} idle - giliran dilepas otomatis.` });
       if (holder) {
         const nextName = members.get(holder)?.name ?? 'Anggota';

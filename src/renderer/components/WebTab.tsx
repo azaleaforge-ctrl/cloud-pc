@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { IconExternal, IconRefresh, IconSearch, IconEdit } from './icons';
+import { IconExternal, IconRefresh, IconSearch, IconEdit, IconChevronLeft, IconChevronRight } from './icons';
 
 /** Subset API elemen <webview> Electron yang dipakai. */
 type RkWebview = HTMLElement & {
@@ -104,6 +104,14 @@ export function WebTab({ url, projectPath, onUrlChange }: WebTabProps) {
     (ref.current as RkWebview | null)?.reload();
   };
 
+  const goBack = () => {
+    (ref.current as RkWebview | null)?.loadURL('javascript:history.back()');
+  };
+
+  const goForward = () => {
+    (ref.current as RkWebview | null)?.loadURL('javascript:history.forward()');
+  };
+
   const openExternal = () => {
     window.open(currentUrl, '_blank', 'noopener');
   };
@@ -120,6 +128,12 @@ export function WebTab({ url, projectPath, onUrlChange }: WebTabProps) {
   return (
     <div className="tab-web">
       <div className="web-toolbar">
+        <button type="button" className="icon-btn" onClick={goBack} aria-label="Kembali" title="Kembali">
+          <IconChevronLeft size={16} />
+        </button>
+        <button type="button" className="icon-btn" onClick={goForward} aria-label="Maju" title="Maju">
+          <IconChevronRight size={16} />
+        </button>
         <button type="button" className="icon-btn" onClick={reload} aria-label="Muat ulang" title="Muat ulang">
           <IconRefresh size={16} />
         </button>

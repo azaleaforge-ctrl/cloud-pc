@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { AppState } from '../../shared/types';
-import { IconCheck, IconCopy, IconFolder, IconMonitor, IconWifi, IconX, IconDownload, IconRefresh } from './icons';
+import { IconCheck, IconCopy, IconFolder, IconError, IconMonitor, IconWifi, IconX, IconDownload, IconRefresh, Spinner } from './icons';
 
 type Tone = 'teal' | 'amber' | 'green' | 'red' | 'slate';
 
@@ -208,10 +208,18 @@ export function FooterBar({
         <IconWifi size={compact ? 12 : 13} />
         IP LAN <b>{state.lanAddress ?? 'tidak terdeteksi'}</b>
       </span>
-      <span className="footer-item">
-        <IconMonitor size={compact ? 12 : 13} />
-        <b>{state.ides.length}</b> IDE terdeteksi
-      </span>
+      {state.sync && (
+        <span className="footer-item sync-item">
+          {state.sync.status === 'syncing' ? (
+            <Spinner size={compact ? 12 : 13} />
+          ) : state.sync.status === 'ready' ? (
+            <IconCheck size={compact ? 12 : 13} />
+          ) : state.sync.status === 'error' ? (
+            <IconError size={compact ? 12 : 13} />
+          ) : null}
+          <b>{state.sync.files ?? 0}</b> berkas
+        </span>
+      )}
     </>
   );
 }
