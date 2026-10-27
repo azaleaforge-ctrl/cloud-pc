@@ -76,7 +76,10 @@ function Resizer({
     let last = orientation === 'vertical' ? e.clientX : e.clientY;
     const move = (ev: PointerEvent) => {
       const cur = orientation === 'vertical' ? ev.clientX : ev.clientY;
-      onDelta(cur - last);
+      // Horizontal resizer (panel): dragging UP should expand panel (negative delta = increase height)
+      // because panel is anchored at bottom. Vertical resizer (sidebar): dragging RIGHT expands (positive).
+      const delta = orientation === 'vertical' ? cur - last : last - cur;
+      onDelta(delta);
       last = cur;
     };
     const end = () => {
@@ -96,8 +99,9 @@ function Resizer({
       if (e.key === 'ArrowRight') delta = 16;
       if (e.key === 'ArrowLeft') delta = -16;
     } else {
-      if (e.key === 'ArrowDown') delta = 16;
-      if (e.key === 'ArrowUp') delta = -16;
+      // Panel: ArrowUp expands (increase height), ArrowDown collapses
+      if (e.key === 'ArrowUp') delta = 16;
+      if (e.key === 'ArrowDown') delta = -16;
     }
     if (delta !== null) {
       e.preventDefault();

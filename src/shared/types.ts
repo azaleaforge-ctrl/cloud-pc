@@ -212,6 +212,7 @@ export interface RkApi {
   startServer(): Promise<ActionResult>;
   stopServer(): Promise<ActionResult>;
   checkForUpdates(): Promise<ActionResult>;
+  downloadUpdate(): Promise<ActionResult>;
   installUpdate(): Promise<ActionResult>;
   fetchReleaseNotes(): Promise<FetchReleasesResult>;
   listProjectFiles(): Promise<ProjectFile[]>;

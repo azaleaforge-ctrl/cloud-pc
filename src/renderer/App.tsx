@@ -3,7 +3,7 @@ import type { AppState, NotifyPayload } from '../shared/types';
 import { Landing } from './components/Landing';
 import { Shell } from './components/Shell';
 import { Toasts, type ToastItem } from './components/Toasts';
-import { IconCheck, IconError, IconInfo, IconRefresh, LogoMark } from './components/icons';
+import { IconCheck, IconError, IconInfo, IconRefresh, LogoMark, IconDownload } from './components/icons';
 import { FooterBar } from './components/ui';
 
 function Splash({ error, onRetry }: { error?: string | null; onRetry?: () => void }) {
@@ -106,6 +106,11 @@ function UpdateNotice({ state }: { state: AppState }) {
     try { await window.rk.checkForUpdates(); }
     finally { setActionPending(false); }
   };
+  const download = async () => {
+    setActionPending(true);
+    try { await window.rk.downloadUpdate(); }
+    finally { setActionPending(false); }
+  };
   const install = async () => {
     setActionPending(true);
     try { await window.rk.installUpdate(); }
@@ -113,7 +118,7 @@ function UpdateNotice({ state }: { state: AppState }) {
   };
 
   const title = update.status === 'checking' ? 'Memeriksa pembaruan'
-    : update.status === 'available' ? 'Pembaruan ditemukan'
+    : update.status === 'available' ? 'Pembaruan tersedia'
     : update.status === 'downloading' ? 'Mengunduh Ruang Kerja ' + (update.version ?? '')
     : update.status === 'downloaded' ? 'Pembaruan siap dipasang'
     : 'Pembaruan gagal';
@@ -127,7 +132,7 @@ function UpdateNotice({ state }: { state: AppState }) {
         <div className="update-notice-copy">
           <strong>{title}</strong>
           <span>{update.status === 'checking' ? 'Memeriksa rilis terbaru dari GitHub…'
-            : update.status === 'available' ? 'Menyiapkan unduhan dan memeriksa file pembaruan…'
+            : update.status === 'available' ? 'Klik tombol Update untuk mengunduh.'
             : update.status === 'downloading' ? 'Notifikasi ini akan tetap tampil sampai proses unduhan selesai.'
             : update.status === 'downloaded' ? 'File sudah diunduh dan siap diverifikasi oleh installer.'
             : (update.error ?? 'Unduhan tidak berhasil diselesaikan.')}</span>
@@ -140,7 +145,7 @@ function UpdateNotice({ state }: { state: AppState }) {
           </div>
           <div className="update-progress-meta">
             <b>{Math.round(progress)}%</b>
-            <span>{total > 0 ? formatBytes(transferred) + ' / ' + formatBytes(total) : update.status === 'downloaded' ? 'Download selesai' : 'Menyiapkan ukuran file…'}</span>
+            <span>{total > 0 ? formatBytes(transferred) + ' / ' + formatBytes(total) : update.status === 'downloaded' ? 'Download selesai' : update.status === 'available' ? 'Siap diunduh' : 'Menyiapkan ukuran file…'}</span>
           </div>
           {update.status === 'downloading' ? (
             <div className="update-progress-details">
@@ -150,9 +155,13 @@ function UpdateNotice({ state }: { state: AppState }) {
           ) : null}
         </div>
       ) : null}
-      {update.status === 'downloaded' ? (
+      {update.status === 'available' ? (
+        <button type="button" className="btn btn-warning btn-sm update-notice-action" onClick={() => void download()} disabled={actionPending}>
+          <IconDownload size={14} /> Update
+        </button>
+      ) : update.status === 'downloaded' ? (
         <button type="button" className="btn btn-primary btn-sm update-notice-action" onClick={() => void install()} disabled={actionPending}>
-          <IconRefresh size={14} /> Pasang & mulai ulang
+          <IconCheck size={14} /> Pasang & mulai ulang
         </button>
       ) : update.status === 'error' ? (
         <button type="button" className="btn btn-ghost btn-sm update-notice-action" onClick={() => void retry()} disabled={actionPending}>

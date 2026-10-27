@@ -57,6 +57,14 @@ const FATAL_PATTERNS: RegExp[] = [
   /Fatal error/i,
   /SyntaxError/,
   /error TS\d+/,
+  // PHP / Laravel specific
+  /PHP Fatal error/i,
+  /PHP Warning.*failed to open stream/i,
+  /Could not open input file: artisan/i,
+  /The \"artisan\" command could not be found/i,
+  /Composer dependencies not installed/i,
+  /vendor\/autoload\.php.*not found/i,
+  /No application encryption key has been specified/i,
 ];
 
 function stripAnsi(line: string): string {
@@ -502,6 +510,8 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
   try {
     const env = {
       ...process.env,
+      // Ensure PATH is inherited for PHP/composer/node discovery
+      PATH: process.env.PATH,
       FORCE_COLOR: '0',
       BROWSER: 'none',
       CI: '1',
@@ -537,7 +547,7 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
       clearWatchdog();
       if (!stopped && status !== 'error') {
         if (typeof code === 'number' && code !== 0) {
-          emit('error', null, `Server berhenti dengan kode ${code}.`);
+          emit('error', null, `Server berhenti dengan kode ${code}. Periksa log di atas untuk detail error.`);
         } else {
           emit('stopped', null);
         }

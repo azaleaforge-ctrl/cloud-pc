@@ -170,6 +170,16 @@ export function IconExternal(p: IconProps) {
   );
 }
 
+export function IconDownload(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M12 3v12" />
+      <path d="M5 12l7 7 7-7" />
+      <path d="M19 12H5" />
+    </Svg>
+  );
+}
+
 export function IconX(p: IconProps) {
   return (
     <Svg {...p}>

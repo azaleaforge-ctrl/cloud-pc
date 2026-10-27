@@ -49,7 +49,7 @@ function emitUpdateState(state: UpdateState): void {
   store.patch({ update: state });
 }
 
-autoUpdater.autoDownload = true;
+autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = true;
 // Differential NSIS updates stay enabled. A version-aware override lets GitHub find
 // the blockmap attached to the installed version's release instead of falling back
@@ -782,6 +782,23 @@ function registerIpc(): void {
     return updateState.status === 'error'
       ? { ok: false, error: updateState.error ?? 'Gagal memeriksa pembaruan.' }
       : { ok: true };
+  });
+  ipcMain.handle('rk:download-update', async () => {
+    if (process.env.NODE_ENV === 'development') {
+      return { ok: false, error: 'Auto-update tidak berjalan di mode development.' };
+    }
+    if (updateState.status === 'available') {
+      try {
+        await autoUpdater.downloadUpdate();
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
+    }
+    if (updateState.status === 'downloading') return { ok: true };
+    if (updateState.status === 'downloaded') return { ok: true };
+    if (updateState.status === 'error') return { ok: false, error: updateState.error ?? 'Download pembaruan gagal.' };
+    return { ok: false, error: 'Tidak ada pembaruan yang tersedia.' };
   });
   ipcMain.handle('rk:install-update', async () => {
     if (updateState.status === 'downloaded') {

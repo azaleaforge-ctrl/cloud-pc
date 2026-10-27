@@ -1,3 +1,40 @@
+# Ruang Kerja v0.3.9
+
+## Perbaikan Editor & Panel
+- **Editor background**: Editor tetap hidup (mounted) saat pindah tab; terminal, breakpoint, dan state Monaco tidak reset. Masuk tab Editor = full size.
+- **Panel resize (terminal/masalah/output)**: Tarik **naik = expand**, **turun = collapse** (seperti VS Code). Double-click resizer = toggle panel. Min height 60px, max 85% viewport.
+
+## Ekstensi Editor (tab baru: **Ekstensi**)
+- Ganti tab **IDE Eksternal** → **Ekstensi**.
+- Cari & pasang dari Open VSX (publisher.nama). Ekstensi terpasang masuk ke `manifest.json`, tema & snippet aktif otomatis di Monaco.
+- Daftar terpasang: lihat versi, tema, snippet, kontribusi belum didukung. Tombol **Hapus** untuk uninstall.
+
+## Sistem Antrian (Queue) — Manual & AI sama
+- **AI agent** (`ide`, `agent`) + **Manual coding** (`file`, `terminal`, `ui`) sekarang **satu antrian**.
+- **Manual coding idle 1 menit** → warning notifikasi 45 detik → auto-release. AI agent tetap 2 menit.
+- Holder keluar/disconnect → next in queue auto-assign.
+
+## Website Tab — URL bisa diubah
+- Toolbar: **klik URL** → edit manual, **Enter** → buka. Bukan read-only lagi.
+- Auto-sync dari `server.url` saat server start, tapi user bisa override.
+
+## Laravel Server — Lebih Stabil
+- Probe HTTP attempts: **8 → 20**, delay **500ms → 1s** untuk PHP/Laravel/Symfony.
+- Fatal patterns tambahan: `PHP Fatal error`, `Could not open input file: artisan`, `No application encryption key`, dsb.
+- PATH diwariskan eksplisit ke child process; error exit code dikirim ke UI.
+
+## Update Behavior — Manual, Bukan Otomatis
+- `autoDownload = false`. Saat update tersedia: tombol kuning **"Update Tersedia"** di footer & notifikasi.
+- Klik **Update** → `downloadUpdate()` → progress bar → selesai → tombol **"Pasang & Mulai Ulang"**.
+- "Cek Pembaruan" di modal versi hanya cek, **tidak** download otomatis.
+- Error state: tombol **"Coba Lagi"**.
+
+## Tutup Aplikasi — Benar-Benar Keluar
+- Klik X / Alt+F4 → **hide to tray** (seperti biasa).
+- Klik kanan tray → **Keluar** → `isQuitting = true` → `shutdownRoom()` → `app.quit()` (proses benar-benar mati, tidak nyangkut di background).
+
+---
+
 # Ruang Kerja VFIX 0.3.7
 
 ## Server project benar-benar bisa dijalankan

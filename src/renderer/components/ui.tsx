@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { AppState } from '../../shared/types';
-import { IconCheck, IconCopy, IconFolder, IconMonitor, IconWifi, IconX } from './icons';
+import { IconCheck, IconCopy, IconFolder, IconMonitor, IconWifi, IconX, IconDownload, IconRefresh } from './icons';
 
 type Tone = 'teal' | 'amber' | 'green' | 'red' | 'slate';
 
@@ -161,6 +161,15 @@ export function FooterBar({
         <span className="footer-item update-item">
           {state.update.status === 'checking' ? (
             <span className="update-status checking">Memeriksa...</span>
+          ) : state.update.status === 'available' ? (
+            <button
+              type="button"
+              className="btn btn-warning btn-xs update-available-btn"
+              onClick={() => window.rk.downloadUpdate()}
+              title="Unduh pembaruan"
+            >
+              <IconDownload size={12} /> Update Tersedia
+            </button>
           ) : state.update.status === 'downloading' ? (
             <span className={'update-inline' + (compact ? ' compact' : '')} title={
               'Download ' + Math.round(state.update.progress ?? 0) + '% — ' +
@@ -175,20 +184,23 @@ export function FooterBar({
           ) : state.update.status === 'downloaded' ? (
             <button
               type="button"
-              className="btn btn-ghost btn-xs update-install"
+              className="btn btn-primary btn-xs update-install"
               onClick={() => window.rk.installUpdate()}
               title="Pasang pembaruan dan restart"
             >
-              Pasang Sekarang
+              <IconCheck size={12} /> Pasang Sekarang
             </button>
-          ) : state.update.status === 'available' ? (
-            <span className="update-status available">Menyiapkan…</span>
           ) : state.update.status === 'latest' ? (
             <span className="update-status latest">Terbaru</span>
           ) : state.update.status === 'error' ? (
-            <span className="update-status error" title={state.update.error ?? ''}>
-              Gagal
-            </span>
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs update-error"
+              onClick={() => window.rk.downloadUpdate()}
+              title={state.update.error ?? 'Coba lagi'}
+            >
+              <IconRefresh size={12} /> Gagal — Coba Lagi
+            </button>
           ) : null}
         </span>
       )}
@@ -293,7 +305,7 @@ export function VersionModal({
               }}
               title="Periksa pembaruan aplikasi"
             >
-              Cek Pembaruan
+              <IconRefresh size={14} /> Cek Pembaruan
             </button>
             <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
               Tutup
