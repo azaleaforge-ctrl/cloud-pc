@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ReactNode } from "react";
 
 interface IconProps {
   size?: number;
@@ -170,16 +170,6 @@ export function IconExternal(p: IconProps) {
   );
 }
 
-export function IconDownload(p: IconProps) {
-  return (
-    <Svg {...p}>
-      <path d="M12 3v12" />
-      <path d="M5 12l7 7 7-7" />
-      <path d="M19 12H5" />
-    </Svg>
-  );
-}
-
 export function IconX(p: IconProps) {
   return (
     <Svg {...p}>
@@ -337,7 +327,7 @@ export function IconSync(p: IconProps) {
 export function Spinner({ size = 16, className }: IconProps) {
   return (
     <svg
-      className={className ? `spin ${className}` : 'spin'}
+      className={className ? `spin ${className}` : "spin"}
       width={size}
       height={size}
       viewBox="0 0 24 24"
@@ -352,5 +342,31 @@ export function Spinner({ size = 16, className }: IconProps) {
         strokeLinecap="round"
       />
     </svg>
+  );
+}
+
+export function IconMaximize(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" />
+    </Svg>
+  );
+}
+
+export function IconMinimize(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M8 8H5a2 2 0 0 0-2 2v3M21 16V13a2 2 0 0 0-2-2h-3M3 8v3a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 0 2 2v3" />
+    </Svg>
+  );
+}
+
+export function IconDownload(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M12 3v12" />
+      <path d="M5 12l7 7 7-7" />
+      <path d="M19 12H5" />
+    </Svg>
   );
 }

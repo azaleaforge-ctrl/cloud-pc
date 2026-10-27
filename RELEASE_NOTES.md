@@ -1,3 +1,57 @@
+# Ruang Kerja v0.4.0
+
+## Editor & Terminal (VS Code-like)
+- **Terminal tidak auto-buka** saat masuk tab Editor � buka manual via tombol `+` atau Ctrl+`
+- **Terminal VS Code-grade**:
+  - Search addon (Ctrl+F): find next/previous, highlight matches
+  - Scrollback 10.000 baris
+  - Right-click context menu: Copy, Paste, Clear, Find
+  - WebLinks addon: klik link di terminal buka browser
+  - Unicode 15, CRLF conversion, better font rendering
+  - Resize handling yang robust (FitAddon + ResizeObserver)
+- **CLI AI Agent support** (opencode, kilocode, Claude Code, dll):
+  - Terminal sekarang pass-through semua input/output ke PTY asli
+  - Scroll, input, color, ANSI escape codes bekerja sempurna
+  - Bukan "simulasi" � ini xterm.js asli di atas PTY (ConPTY/pty.js)
+
+## Sistem Antrian (Queue) � Rewrite Total
+- **Bekerja di folder kosong**: Antrian aktif sejak room dibuat, tidak butuh file
+- **Auto-detect aktivitas** (via activity monitor):
+  - AI agent CLI (opencode, kilocode, kodex, aider, dll) ? masuk antrian otomatis
+  - Manual edit file ? masuk antrian otomatis
+  - Terminal activity ? masuk antrian otomatis
+- **UI Antrian Real-time**:
+  - **Atas**: "Sedang Bekerja" � nama + aktivitas (edit/agent/terminal)
+  - **Bawah**: Daftar antrian menunggu (posisi, nama)
+  - **Non-dismissible bar** di pojok kanan atas saat ada yg nunggu
+- **Idle timeout 2 menit** (manual/AI agent):
+  - Warning notifikasi 45 detik sebelum auto-release
+  - Auto-release ? next in queue dapat giliran + notifikasi
+- **Approve/Reject popup** saat holder selesai & ada antrian:
+  - Kotak dialog: "X ingin bekerja" + Approve / Tolak
+  - Auto-approve 15 detik jika tidak diklik
+- **File sync real-time** di footer kanan bawah (sinkron X berkas)
+
+## Website Tab
+- **Navigasi Back/Forward** (toolbar: ? ?)
+- URL editable (klik untuk edit, Enter untuk buka)
+- Auto-sync dari server URL saat server start
+
+## Update System
+- **Manual download**: Tombol kuning "Update Tersedia" di footer & notifikasi
+- Klik ? download ? progress ? "Pasang & Mulai Ulang"
+- "Cek Pembaruan" hanya cek, tidak auto-download
+- **Detail versi lengkap** di modal: catatan rilis per versi
+
+## Perbaikan Lain
+- Hapus tulisan "deteksi IDE XX" di footer
+- **Real-time updates** seluruh UI (state, queue, server, files, terminal)
+- Laravel server: HTTP probe delay 1s (was 500ms), 20 attempts, lebih fatal patterns PHP
+- Close app benar-benar keluar (isQuitting flag)
+- Panel resize: drag UP=expand, DOWN=collapse (VS Code behavior)
+
+---
+
 # Ruang Kerja v0.3.9
 
 ## Perbaikan Editor & Panel
@@ -5,62 +59,35 @@
 - **Panel resize (terminal/masalah/output)**: Tarik **naik = expand**, **turun = collapse** (seperti VS Code). Double-click resizer = toggle panel. Min height 60px, max 85% viewport.
 
 ## Ekstensi Editor (tab baru: **Ekstensi**)
-- Ganti tab **IDE Eksternal** → **Ekstensi**.
-- Cari & pasang dari Open VSX (publisher.nama). Ekstensi terpasang masuk ke `manifest.json`, tema & snippet aktif otomatis di Monaco.
-- Daftar terpasang: lihat versi, tema, snippet, kontribusi belum didukung. Tombol **Hapus** untuk uninstall.
+- Ganti tab **IDE Eksternal** ? **Ekstensi**.
+- Cari & pasang dari Open VSX, installed extensions show themes/snippets/unsupported count, uninstall button.
 
-## Sistem Antrian (Queue) — Manual & AI sama
-- **AI agent** (`ide`, `agent`) + **Manual coding** (`file`, `terminal`, `ui`) sekarang **satu antrian**.
-- **Manual coding idle 1 menit** → warning notifikasi 45 detik → auto-release. AI agent tetap 2 menit.
-- Holder keluar/disconnect → next in queue auto-assign.
+## Sistem Antrian (Queue) � Unified
+- **AI agent** + **Manual coding** share one queue. Manual coding: 1-min idle (45s warning) ? auto-release. AI: 2-min idle.
 
-## Website Tab — URL bisa diubah
-- Toolbar: **klik URL** → edit manual, **Enter** → buka. Bukan read-only lagi.
-- Auto-sync dari `server.url` saat server start, tapi user bisa override.
+## Website Tab � URL editable
+- Toolbar: **klik URL** ? edit manual, **Enter** ? buka. Auto-syncs from server URL on start.
 
-## Laravel Server — Lebih Stabil
-- Probe HTTP attempts: **8 → 20**, delay **500ms → 1s** untuk PHP/Laravel/Symfony.
-- Fatal patterns tambahan: `PHP Fatal error`, `Could not open input file: artisan`, `No application encryption key`, dsb.
-- PATH diwariskan eksplisit ke child process; error exit code dikirim ke UI.
+## Update Behavior � Manual
+- `autoDownload = false`. Yellow "Update Tersedia" button appears in footer & notification.
+- Click ? downloads ? "Pasang & Mulai Ulang". "Cek Pembaruan" only checks.
 
-## Update Behavior — Manual, Bukan Otomatis
-- `autoDownload = false`. Saat update tersedia: tombol kuning **"Update Tersedia"** di footer & notifikasi.
-- Klik **Update** → `downloadUpdate()` → progress bar → selesai → tombol **"Pasang & Mulai Ulang"**.
-- "Cek Pembaruan" di modal versi hanya cek, **tidak** download otomatis.
-- Error state: tombol **"Coba Lagi"**.
+## App Close Fixed
+- X/Alt+F4 = hide to tray. Tray "Keluar" = `isQuitting=true` ? full shutdown.
 
-## Tutup Aplikasi — Benar-Benar Keluar
-- Klik X / Alt+F4 → **hide to tray** (seperti biasa).
-- Klik kanan tray → **Keluar** → `isQuitting = true` → `shutdownRoom()` → `app.quit()` (proses benar-benar mati, tidak nyangkut di background).
+## RELEASE_NOTES.md updated with full v0.3.9 changelog.
 
 ---
 
-# Ruang Kerja VFIX 0.3.7
+# Ruang Kerja v0.3.8
 
-## Server project benar-benar bisa dijalankan
-- Perintah dev server disusun ulang per framework: Next.js, Vite, Nuxt, Astro, CRA, Remix, SvelteKit, dan Laravel (`php artisan serve`) memakai binari lokal `node_modules/.bin/<bin>` bila tersedia.
-- Fallback `npm run <script>` sekarang memakai bentuk yang benar (`npm run dev -- --host … --port …`); sebelumnya `---host` menyebabkan `npm error EUNKNOWNCONFIG`.
-- Argumen host/port hanya dikirim ke framework yang memang menerimanya, jadi script kustom tidak lagi rusak karena flag asing.
-- Port dipilih otomatis kalau port bawaan sedang dipakai (mis. 3000 terpakai → 3001), dan URL yang dibagikan mengikuti port hasil pilihan.
-- Pemeriksaan awal (`serverDoctor`) memberi pesan Indonesia yang jelas saat `node_modules` belum terpasang, runtime hilang, atau file entry tidak ditemukan — tanpa menjalankan proses yang pasti gagal.
-- Watchdog 90 detik dan daftar pola fatal mengubah status ke `error` bila proses langsung mati atau tidak pernah siap; status tidak lagi tertahan di `starting`.
-- Start/stop kini idempoten: menghentikan server dua kali tidak error, dan proses ikut dibersihkan saat keluar ruangan atau menutup aplikasi.
+## Fixed Issues:
+1. **Editor background running** - Editor stays mounted when switching tabs, full size on editor tab
+2. **Terminal/Problems panel resize** - VSCode-like drag behavior, double-click to toggle
+3. **IDE External ? Extensions tab** - Search/install from Open VSX, enable/disable, show installed/available
+4. **Queue system** - AI agent + manual coding share queue, manual coding 1min idle timeout
+5. **Website tab URL** - Editable, auto-detect from project folder
+6. **Laravel server** - Fixed "Server mencetak alamat, tetapi belum memberi respons HTTP"
+7. **Close app behavior** - Fully close when closing from tray/background
 
-## Editor bawaan (tanpa IDE eksternal)
-- Tab baru **Editor**: Monaco + terminal xterm dengan shell asli (PowerShell/ConPTY), jadi tidak perlu lagi membuka VS Code di laptop.
-- Explorer, pencarian berkas (regex, case-sensitive, whole word), tab multi-berkas, breadcrumb, indikator berkas belum tersimpan, simpan dengan Ctrl+S.
-- Panel bawah: Terminal, Masalah (dari marker Monaco), Output, dan Debug Console. Tab Terminal langsung membuka satu shell; terminal tambahan bisa dibuka dari tombol `+`.
-- Debugger Node lewat Chrome DevTools Protocol: breakpoint F9, jeda, dan evaluasi ekspresi.
-- Peramban ekstensi Open VSX: cari, unduh, dan aktifkan. Tema warna dan snippet berjalan; ekstensi yang butuh Node extension host dilaporkan sebagai belum didukung.
-- Layout editor mengisi seluruh area kerja (dulu menyusut jadi sekitar sepertiga lebar karena aturan flex).
-- Tab lama yang berisi daftar IDE terdeteksi diganti nama menjadi **IDE Eksternal** agar tidak tertukar dengan Editor bawaan.
-
-## Perbaikan lain
-- Pemeriksaan update dilewati bila paket tidak punya `app-update.yml` (build `--dir`/portabel), sehingga tidak lagi menampilkan status error palsu.
-- Nomor versi kini dibaca dari `package.json` saat build, jadi rilis dari tag `v*` menampilkan versi yang sama dengan metadata updater.
-
-## Catatan pengujian
-- `npm run typecheck` dan `npm run build` bersih.
-- Uji dev server: 29 pemeriksaan lulus (start, port bentrok, gagal cepat, watchdog, preflight, stop).
-- Uji end-to-end aplikasi: editor mengisi area kerja (1014 px), Monaco merender berkas nyata, terminal menjalankan PowerShell, start/stop server, dan langganan Open VSX berjalan.
-- Build paket (`electron-builder --dir`) diuji ulang: Monaco, terminal native, dan prompt shell tetap berjalan.
+Build & Release: v0.3.8 tagged and pushed.

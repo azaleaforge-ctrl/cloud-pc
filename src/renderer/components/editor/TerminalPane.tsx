@@ -5,12 +5,13 @@ import { Terminal } from '@xterm/xterm';
 import type { IDisposable } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { SearchAddon } from '@xterm/addon-search';
 import '@xterm/xterm/css/xterm.css';
 import type { TerminalSessionInfo } from '../../../shared/editor';
-import { IconPlus, IconTerminal, IconTrash } from '../icons';
+import { IconPlus, IconTerminal, IconTrash, IconX, IconMaximize, IconMinimize } from '../icons';
 import { onTerminalSessionData } from './useIdeWorkbench';
 
-const MONO_FONT = "'Cascadia Code', 'Cascadia Mono', Consolas, 'JetBrains Mono', 'Courier New', monospace";
+const MONO_FONT = "'Cascadia Code', 'Cascadia Mono', Consolas, '\''JetBrains Mono'\'', '\''Courier New'\'', monospace";
 
 const XTERM_THEME = {
   background: '#0b0f17',
@@ -40,8 +41,11 @@ const XTERM_THEME = {
 interface ManagedTerminal {
   term: Terminal;
   fit: FitAddon;
+  search: SearchAddon;
   host: HTMLDivElement;
   inputSub: IDisposable;
+  dataSub: IDisposable;
+  keySub: IDisposable;
 }
 
 export function TerminalPane({
@@ -62,6 +66,8 @@ export function TerminalPane({
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
   const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null);
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [showSearch, setShowSearch] = useState(false);
 
   // ---- buat / buang instance xterm mengikuti daftar sesi ----
   useEffect(() => {
@@ -73,6 +79,8 @@ export function TerminalPane({
     for (const [id, entry] of Array.from(managed.entries())) {
       if (alive.has(id)) continue;
       entry.inputSub.dispose();
+      entry.dataSub.dispose();
+      entry.keySub.dispose();
       entry.term.dispose();
       entry.host.remove();
       managed.delete(id);
@@ -91,18 +99,36 @@ export function TerminalPane({
         fontSize: 12.5,
         lineHeight: 1.25,
         cursorBlink: true,
-        scrollback: 5000,
+        scrollback: 10000,
         allowTransparency: false,
         theme: XTERM_THEME,
+        rightClickSelectsWord: true,
+        unicodeVersion: '15',
+        convertEol: true,
+        screenReaderMode: false,
       });
       const fit = new FitAddon();
+      const search = new SearchAddon();
       term.loadAddon(fit);
+      term.loadAddon(search);
       term.loadAddon(new WebLinksAddon());
       term.open(host);
+      
+      // Handle input - send to main process
       const inputSub = term.onData((data) => {
         void window.rk.editor.writeTerminal(session.id, data).catch(() => undefined);
       });
-      managed.set(session.id, { term, fit, host, inputSub });
+      
+      // Handle key events for search and other shortcuts
+      const keySub = term.onKey((event) => {
+        if (event.key === 'f' && (event.domEvent.ctrlKey || event.domEvent.metaKey)) {
+          event.domEvent.preventDefault();
+          setShowSearch(true);
+          setTimeout(() => term.focus(), 0);
+        }
+      });
+
+      managed.set(session.id, { term, fit, search, host, inputSub, dataSub: { dispose: () => {} }, keySub });
     }
   }, [sessions]);
 
@@ -168,10 +194,39 @@ export function TerminalPane({
   useEffect(() => () => {
     for (const entry of sessionsRef.current.values()) {
       entry.inputSub.dispose();
+      entry.dataSub.dispose();
+      entry.keySub.dispose();
       entry.term.dispose();
     }
     sessionsRef.current.clear();
   }, []);
+
+  // ---- search functionality ----
+  const handleSearch = useCallback((term: string) => {
+    setSearchTerm(term);
+    if (!activeId) return;
+    const entry = sessionsRef.current.get(activeId);
+    if (!entry) return;
+    if (term) {
+      entry.search.findNext(term);
+    } else {
+      entry.search.clear();
+    }
+  }, [activeId]);
+
+  const handleSearchNext = useCallback(() => {
+    if (!activeId) return;
+    const entry = sessionsRef.current.get(activeId);
+    if (!entry) return;
+    entry.search.findNext(searchTerm);
+  }, [activeId, searchTerm]);
+
+  const handleSearchPrev = useCallback(() => {
+    if (!activeId) return;
+    const entry = sessionsRef.current.get(activeId);
+    if (!entry) return;
+    entry.search.findPrevious(searchTerm);
+  }, [activeId, searchTerm]);
 
   // ---- menu klik kanan ----
   useEffect(() => {
@@ -192,7 +247,6 @@ export function TerminalPane({
     try {
       await navigator.clipboard.writeText(text);
     } catch {
-      // clipboard API butuh secure context; file:// tidak selalu tersedia.
       const area = document.createElement('textarea');
       area.value = text;
       area.style.cssText = 'position:fixed;opacity:0;pointer-events:none;';
@@ -262,6 +316,42 @@ export function TerminalPane({
         >
           <IconTrash size={14} />
         </button>
+        {showSearch && (
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center', flex: '0 0 auto' }}>
+            <input
+              type="text"
+              placeholder="Cari di terminal..."
+              value={searchTerm}
+              onChange={(e) => handleSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  if (e.shiftKey) handleSearchPrev();
+                  else handleSearchNext();
+                } else if (e.key === 'Escape') {
+                  setShowSearch(false);
+                  setSearchTerm('');
+                  sessionsRef.current.get(activeId!)?.search.clear();
+                }
+              }}
+              style={{
+                background: 'rgba(148, 163, 184, 0.07)',
+                color: 'var(--text, #e8edf6)',
+                border: '1px solid rgba(148, 163, 184, 0.14)',
+                borderRadius: 7,
+                padding: '3px 8px',
+                font: '500 11px/1.4 var(--font, system-ui)',
+                width: 200,
+              }}
+              autoFocus
+            />
+            <button type="button" className="icon-btn" title="Sebelumnya" onClick={handleSearchPrev}><IconX size={14} /></button>
+            <button type="button" className="icon-btn" title="Berikutnya" onClick={handleSearchNext}><IconX size={14} /></button>
+            <button type="button" className="icon-btn" title="Tutup pencarian" onClick={() => { setShowSearch(false); setSearchTerm(''); sessionsRef.current.get(activeId!)?.search.clear(); }}><IconX size={14} /></button>
+          </div>
+        )}
+        {!showSearch && (
+          <button type="button" className="icon-btn" title="Cari (Ctrl+F)" onClick={() => setShowSearch(true)}><IconX size={14} /></button>
+        )}
       </div>
 
       <div
@@ -312,6 +402,7 @@ export function TerminalPane({
             { label: 'Copy', run: () => { void copySelection(menu.id); } },
             { label: 'Paste', run: () => { void pasteClipboard(menu.id); } },
             { label: 'Clear', run: () => sessionsRef.current.get(menu.id)?.term.clear() },
+            { label: 'Cari (Ctrl+F)', run: () => { setShowSearch(true); closeMenu(); } },
           ].map((item) => (
             <button
               key={item.label}

@@ -1,4 +1,3 @@
-import { useEffect, useRef } from 'react';
 import type { IdeWorkbench, PanelView } from './types';
 import { TerminalPane } from './TerminalPane';
 import { IconPlus, IconX } from '../icons';
@@ -16,17 +15,6 @@ interface Props {
 
 /** Panel bawah: Terminal / Masalah / Output / Debug Console. */
 export function PanelHost({ wb, view, onView, onClose, onOpenFile }: Props) {
-  const autoShell = useRef(false);
-
-  // Seperti VS Code: tab Terminal yang kosong langsung membuka satu shell.
-  // Hanya sekali per pemasangan panel, supaya menutup terminal terakhir
-  // tidak langsung memunculkan terminal baru.
-  useEffect(() => {
-    if (autoShell.current || view !== 'terminal' || !wb.root || wb.terminals.length > 0) return;
-    autoShell.current = true;
-    void wb.newTerminal();
-  }, [view, wb.root, wb.terminals.length, wb.newTerminal]);
-
   const errors = wb.problems.filter((p) => p.severity === 'error').length;
   const warnings = wb.problems.filter((p) => p.severity === 'warning').length;
   const problemCount = errors + warnings;
