@@ -112,10 +112,10 @@ function checkHttpResponse(port: number, host = '127.0.0.1', timeoutMs = 1_500):
   });
 }
 
-async function waitForHttp(port: number, host = '127.0.0.1', attempts = 8): Promise<boolean> {
+async function waitForHttp(port: number, host = '127.0.0.1', attempts = 8, delayMs = 500): Promise<boolean> {
   for (let attempt = 0; attempt < attempts; attempt++) {
     if (await checkHttpResponse(port, host, 1_500)) return true;
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
   return false;
 }
@@ -418,10 +418,11 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
       try {
         // Never probe a TCP socket and close it without HTTP bytes: PHP's built-in
         // server logs that as "Invalid request". Use a valid GET / readiness probe.
-        // PHP/Laravel butuh lebih lama untuk boot, gunakan lebih banyak attempts.
+        // PHP/Laravel butuh lebih lama untuk boot, gunakan lebih banyak attempts & delay.
         const isPhp = framework.id === 'laravel' || framework.id === 'symfony' || framework.packageManager === 'composer';
         const probeAttempts = isPhp ? PHP_PROBE_ATTEMPTS : 8;
-        const ready = await waitForHttp(port, '127.0.0.1', probeAttempts);
+        const probeDelayMs = isPhp ? PHP_PROBE_DELAY_MS : 500;
+        const ready = await waitForHttp(port, '127.0.0.1', probeAttempts, probeDelayMs);
         if (!ready) {
           failAndKill('Server mencetak alamat, tetapi belum memberi respons HTTP. Periksa dependensi dan log framework.');
           return;
