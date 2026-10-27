@@ -551,7 +551,7 @@ async function scanIdesAndUpdate(): Promise<IdeInfo[]> {
   }
 }
 
-const RELEASE_HISTORY_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const RELEASE_HISTORY_CACHE_TTL_MS = 1 * 60 * 60 * 1000; // 1 jam - cukup untuk refresh release notes
 
 type ReleaseHistoryCache = { savedAt: number; releases: ReleaseInfo[] };
 
