@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { AppState } from '../../shared/types';
-import { IconRefresh, Spinner } from './icons';
+import { IconRefresh, Spinner, IconExtension } from './icons';
 import { Badge, EmptyState } from './ui';
 
 export function ExtensionsTab({
@@ -16,7 +16,7 @@ export function ExtensionsTab({
     displayName: string;
     version: string;
     description: string;
-    publisher: string;
+    publisher: string | null;
     iconUrl: string | null;
     namespace: string;
   }>>([]);

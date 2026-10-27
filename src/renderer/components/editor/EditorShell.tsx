@@ -156,11 +156,12 @@ export function EditorShell({ state, active, onError }: Props) {
 
   // Laporan aktivitas untuk sistem antrian (throttle >= 5 detik).
   const lastReport = useRef(0);
-  const reportActivity = useCallback((source: 'ui' | 'file' = 'ui') => {
+  const reportActivity = useCallback((source?: 'ui' | 'file' | React.PointerEvent) => {
     const now = Date.now();
     if (now - lastReport.current < 5000) return;
     lastReport.current = now;
-    void window.rk.reportActivity(source).catch(() => undefined);
+    const activitySource = typeof source === 'object' ? 'ui' : (source ?? 'ui');
+    void window.rk.reportActivity(activitySource).catch(() => undefined);
   }, []);
 
   // Teruskan error workbench ke onError sekali per error baru.
