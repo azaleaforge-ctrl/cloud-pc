@@ -46,6 +46,7 @@ interface LlmSession {
   memoryPath: string;
   isConversationCurrent: () => boolean;
   todos: AgentTodo[];
+  saveTodos: (todos: AgentTodo[]) => void;
   runStartedAt: number;
   totalToolCalls: number;
 }
@@ -614,7 +615,7 @@ async function executeTool(
     case 'todo_write': {
       const next = applyAgentTodoUpdate(session.todos, args.todos);
       session.todos = next;
-      conversationTodos.set(session.conversationId, next);
+      session.saveTodos(next);
       emit(session, { type: 'todo-update', todos: next });
       const completed = next.filter((todo) => todo.status === 'completed').length;
       return 'Todo List diperbarui: ' + completed + '/' + next.length + ' task completed. Task berikutnya: ' +
@@ -1133,6 +1134,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         memoryPath: conversationMemoryPath(selectedConversation),
         isConversationCurrent: () => isCurrentConversation(selectedConversation),
         todos: [...initialTodos],
+        saveTodos: (todos) => conversationTodos.set(selectedConversation, [...todos]),
         runStartedAt: Date.now(),
         totalToolCalls: 0,
       };
