@@ -1183,6 +1183,73 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         </section>
       ) : null}
 
+      {historyOpen ? (
+        <section className="ai-session-history" aria-label="Riwayat percakapan tersimpan">
+          <header className="ai-session-panel-head">
+            <div>
+              <strong>Riwayat percakapan</strong>
+              <small>Tersimpan lokal di perangkat ini, terpisah dari folder project.</small>
+            </div>
+            <button type="button" className="ai-icon-btn" onClick={() => setHistoryOpen(false)} aria-label="Tutup riwayat"><IconX size={14} /></button>
+          </header>
+          {loadingSessions ? <p className="ai-session-empty">Memuat riwayat…</p> : sessions.length === 0 ? (
+            <p className="ai-session-empty">Belum ada percakapan tersimpan.</p>
+          ) : (
+            <div className="ai-session-list">
+              {sessions.map(session => (
+                <div className={'ai-session-item' + (session.id === conversationId ? ' active' : '')} key={session.id}>
+                  <button type="button" className="ai-session-open" disabled={loading}
+                    onClick={() => { setHistoryOpen(false); if (session.id !== conversationId) setConversationId(session.id); }}>
+                    <strong>{session.title || 'Percakapan baru'}</strong>
+                    <span>{session.lastMessage || 'Belum ada pesan'}</span>
+                    <small>{new Date(session.updatedAt).toLocaleString()} · {session.messageCount} pesan · {session.checkpointCount} checkpoint</small>
+                  </button>
+                  <button type="button" className="ai-icon-btn ai-session-delete" title="Hapus riwayat ini"
+                    aria-label={'Hapus riwayat ' + (session.title || session.id)} disabled={loading}
+                    onClick={() => void deleteStoredSession(session.id)}><IconTrash size={13} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {checkpointsOpen ? (
+        <section className="ai-session-history ai-checkpoint-panel" aria-label="Checkpoint perubahan file">
+          <header className="ai-session-panel-head">
+            <div>
+              <strong>Checkpoint perubahan file</strong>
+              <small>Rewind/redo hanya berjalan jika isi file masih cocok dengan checkpoint. Perubahan manual yang konflik tidak akan ditimpa.</small>
+            </div>
+            <button type="button" className="ai-icon-btn" onClick={() => setCheckpointsOpen(false)} aria-label="Tutup checkpoint"><IconX size={14} /></button>
+          </header>
+          {checkpoints.length === 0 ? <p className="ai-session-empty">Belum ada checkpoint untuk sesi ini. Checkpoint dibuat saat agent menulis file melalui tool-nya.</p> : (
+            <div className="ai-checkpoint-list">
+              {checkpoints.map(checkpoint => (
+                <article className="ai-checkpoint-item" key={checkpoint.id}>
+                  <div className="ai-checkpoint-info">
+                    <strong>{new Date(checkpoint.createdAt).toLocaleString()}</strong>
+                    <small>{checkpoint.paths.join(', ') || 'Perubahan file'}</small>
+                    <span className={'ai-checkpoint-status ' + checkpoint.status}>{checkpoint.status === 'applied' ? 'Perubahan aktif' : 'Sudah di-rewind'}</span>
+                  </div>
+                  {checkpoint.status === 'applied' ? (
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || checkpointActionBusy === checkpoint.id}
+                      onClick={() => void runCheckpointAction(checkpoint.id, 'rewind')}>
+                      {checkpointActionBusy === checkpoint.id ? 'Memulihkan…' : 'Rewind'}
+                    </button>
+                  ) : (
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || checkpointActionBusy === checkpoint.id}
+                      onClick={() => void runCheckpointAction(checkpoint.id, 'redo')}>
+                      {checkpointActionBusy === checkpoint.id ? 'Menerapkan…' : 'Redo'}
+                    </button>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
       <div className="ai-agent-toolbar">
         <div className="ai-agent-switcher">
           {agents.map((agent) => (
@@ -1204,6 +1271,14 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         </div>
         <button type="button" className="ai-clear-btn" onClick={() => setSettingsOpen((open) => !open)} title="Pengaturan AI">
           ⚙ Pengaturan AI
+        </button>
+        <button type="button" className={'ai-clear-btn' + (historyOpen ? ' active' : '')}
+          onClick={() => { setHistoryOpen(open => !open); setCheckpointsOpen(false); }} title="Riwayat percakapan">
+          ☷ Riwayat ({sessions.length})
+        </button>
+        <button type="button" className={'ai-clear-btn' + (checkpointsOpen ? ' active' : '')}
+          onClick={() => { setCheckpointsOpen(open => !open); setHistoryOpen(false); }} title="Checkpoint dan rewind">
+          ↶ Checkpoint ({checkpoints.length})
         </button>
         {loading ? (
           <button type="button" className="ai-clear-btn" onClick={() => void stopAgent()} title="Hentikan agent">
