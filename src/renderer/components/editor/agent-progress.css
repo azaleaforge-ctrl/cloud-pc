@@ -73,3 +73,56 @@
   .ai-run-result { grid-template-columns: minmax(0,1fr); }
   .ai-run-result > small { grid-column: 1; }
 }
+
+.ai-terminal-run {
+  flex: none;
+  width: 100%;
+  max-width: 1320px;
+  margin: 0 auto 10px;
+  border: 1px solid var(--ed-border, rgba(148,163,184,.18));
+  border-radius: 10px;
+  background: #080c13;
+  color: var(--ed-text, #e8edf6);
+  overflow: hidden;
+}
+.ai-terminal-run-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  padding: 8px 11px;
+  border-bottom: 1px solid var(--ed-border, rgba(148,163,184,.18));
+  background: rgba(148,163,184,.035);
+}
+.ai-terminal-run-header > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ai-terminal-run-header strong { font-size: 10.5px; font-weight: 650; }
+.ai-terminal-run-header small { color: var(--ed-text-3, #6b7690); font: 9px var(--ed-mono, Consolas, monospace); }
+.ai-terminal-status { padding: 2px 6px; border: 1px solid var(--ed-border, rgba(148,163,184,.18)); border-radius: 5px; color: var(--ed-text-3, #6b7690); font-size: 9px; }
+.ai-terminal-status.status-running,
+.ai-terminal-status.status-starting { border-color: rgba(45,212,191,.28); color: var(--ed-accent-soft, #5eead4); }
+.ai-terminal-status.status-completed { border-color: rgba(52,211,153,.28); color: var(--ed-green, #34d399); }
+.ai-terminal-status.status-failed,
+.ai-terminal-status.status-timed_out { border-color: rgba(251,113,133,.28); color: var(--ed-red, #fb7185); }
+.ai-terminal-status.status-cancelled { border-color: rgba(251,191,36,.28); color: var(--ed-amber, #fbbf24); }
+.ai-terminal-command {
+  display: block;
+  padding: 8px 11px;
+  border-bottom: 1px solid rgba(148,163,184,.08);
+  color: var(--ed-text-2, #a3aec4);
+  font: 10px/1.5 var(--ed-mono, Consolas, monospace);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.ai-terminal-message { margin: 0; padding: 6px 11px; color: var(--ed-red, #fb7185); font-size: 10px; }
+.ai-terminal-output {
+  max-height: 240px;
+  margin: 0;
+  padding: 9px 11px;
+  overflow: auto;
+  color: #d6deeb;
+  font: 10px/1.55 var(--ed-mono, Consolas, monospace);
+  tab-size: 2;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

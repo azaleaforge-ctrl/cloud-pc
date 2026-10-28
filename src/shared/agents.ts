@@ -76,6 +76,26 @@ export interface AgentRunResult {
   durationMs: number;
 }
 
+export type AgentTerminalStatus = 'starting' | 'running' | 'completed' | 'failed' | 'timed_out' | 'cancelled';
+
+export interface AgentTerminalProcess {
+  commandId: string;
+  command: string;
+  status: AgentTerminalStatus;
+  startedAt: number;
+  finishedAt?: number;
+  timeoutMs: number;
+  exitCode?: number | null;
+  message?: string;
+}
+
+export interface AgentTerminalOutput {
+  commandId: string;
+  stream: 'stdout' | 'stderr';
+  data: string;
+  ts: number;
+}
+
 export interface AgentRunState {
   status: 'idle' | 'starting' | 'running' | 'completed' | 'stopped' | 'cancelled' | 'blocked' | 'error';
   agentId: string;
@@ -105,7 +125,9 @@ export type AgentEvent =
   | { type: 'skills'; skills: AgentSkillSelection[] }
   | { type: 'todo-update'; todos: AgentTodo[] }
   | { type: 'tool-status'; activity: AgentToolActivity }
-  | { type: 'run-result'; result: AgentRunResult };
+  | { type: 'run-result'; result: AgentRunResult }
+  | { type: 'terminal-process'; process: AgentTerminalProcess }
+  | { type: 'terminal-output'; output: AgentTerminalOutput };
 
 export interface RouterConfig {
   apiKey: string;
