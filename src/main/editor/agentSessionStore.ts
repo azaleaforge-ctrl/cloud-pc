@@ -3,6 +3,23 @@ import { lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { AgentCheckpointSummary, AgentFileChange, AgentTodo, ChatMessage } from '../../shared/agents';
 
+const mutationLocks = new Map<string, Promise<void>>();
+async function withSessionLock<T>(userDataDir: string, id: string, action: () => Promise<T>): Promise<T> {
+  const key = sessionPath(userDataDir, id);
+  const prior = mutationLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const current = prior.catch(() => undefined).then(() => gate);
+  mutationLocks.set(key, current);
+  await prior.catch(() => undefined);
+  try {
+    return await action();
+  } finally {
+    release();
+    if (mutationLocks.get(key) === current) mutationLocks.delete(key);
+  }
+}
+
 const SCHEMA_VERSION = 1;
 const MAX_MESSAGES = 1000;
 const MAX_MESSAGE_CHARS = 80_000;
@@ -227,6 +244,7 @@ export async function listAgentCheckpoints(userDataDir: string, id: string): Pro
   return record ? [...record.checkpoints].sort((a, b) => b.createdAt - a.createdAt).map(checkpointSummary) : [];
 }
 export async function saveAgentSession(userDataDir: string, input: AgentSessionSnapshot): Promise<AgentSessionSummary> {
+  return withSessionLock(userDataDir, input.id, async () => {
   validateSessionId(input.id);
   if (!Array.isArray(input.messages) || input.messages.length > MAX_MESSAGES) {
     throw new Error('Jumlah pesan sesi tidak valid (maksimal 1.000 pesan).');
@@ -260,11 +278,14 @@ export async function saveAgentSession(userDataDir: string, input: AgentSessionS
   };
   await writeRecord(userDataDir, record);
   return summaryFor(record);
+  });
 }
 export async function deleteAgentSession(userDataDir: string, id: string): Promise<boolean> {
+  return withSessionLock(userDataDir, id, async () => {
   await rm(sessionPath(userDataDir, id), { force: true });
   await rm(join(userDataDir, 'ai-memory', 'sessions', id + '.md'), { force: true }).catch(() => undefined);
   return true;
+  });
 }
 function validateCheckpointRelativePath(path: string): string {
   if (!path || path.length > 2000 || isAbsolute(path) || path.includes('\0')) throw new Error('Path checkpoint tidak valid.');
@@ -307,6 +328,7 @@ export async function recordAgentFileCheckpoint(
   projectPath: string,
   change: AgentFileChange,
 ): Promise<AgentCheckpoint> {
+  return withSessionLock(userDataDir, sessionId, async () => {
   validateSessionId(sessionId);
   const record = await readRecord(userDataDir, sessionId);
   if (!record) throw new Error('Sesi untuk checkpoint tidak ditemukan.');
@@ -352,6 +374,7 @@ export async function recordAgentFileCheckpoint(
   record.updatedAt = Date.now();
   await writeRecord(userDataDir, record);
   return checkpoint;
+  });
 }
 async function applyCheckpoint(
   userDataDir: string,
@@ -360,6 +383,7 @@ async function applyCheckpoint(
   checkpointId: string,
   direction: 'rewind' | 'redo',
 ): Promise<CheckpointActionResult> {
+  return withSessionLock(userDataDir, sessionId, async () => {
   validateSessionId(sessionId);
   const record = await readRecord(userDataDir, sessionId);
   if (!record) return { ok: false, message: 'Sesi tidak ditemukan.' };
@@ -425,6 +449,7 @@ async function applyCheckpoint(
   } finally {
     for (const item of staged) await rm(item.temp, { force: true }).catch(() => undefined);
   }
+  });
 }
 export async function rewindAgentCheckpoint(
   userDataDir: string, sessionId: string, projectPath: string, checkpointId: string,
