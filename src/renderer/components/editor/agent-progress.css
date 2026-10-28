@@ -197,3 +197,61 @@
   .ai-model-manager-head .ai-settings-test, .ai-model-select-row .ai-settings-save { width: 100%; }
   .ai-model-check { flex-direction: column; }
 }
+
+
+.ai-session-history {
+  margin: 0 12px 10px;
+  padding: 12px;
+  border: 1px solid var(--ed-border, rgba(148,163,184,.2));
+  border-radius: 10px;
+  background: var(--ed-panel, rgba(15,23,42,.9));
+  display: grid;
+  gap: 10px;
+  max-height: 340px;
+  overflow: auto;
+}
+.ai-session-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+.ai-session-panel-head > div { display: grid; gap: 4px; min-width: 0; }
+.ai-session-panel-head strong { font-size: 12px; color: var(--ed-text, #e8edf6); }
+.ai-session-panel-head small { max-width: 680px; color: var(--ed-muted, #94a3b8); font-size: 10px; line-height: 1.5; }
+.ai-session-empty { color: var(--ed-muted, #94a3b8); margin: 6px 0; font-size: 11px; line-height: 1.5; }
+.ai-session-list, .ai-checkpoint-list { display: grid; gap: 6px; }
+.ai-session-item, .ai-checkpoint-item {
+  display: flex; align-items: stretch; gap: 8px; min-width: 0;
+  border: 1px solid var(--ed-border, rgba(148,163,184,.13)); border-radius: 8px;
+  background: rgba(148,163,184,.025);
+}
+.ai-session-item.active { border-color: rgba(96,165,250,.45); background: rgba(96,165,250,.055); }
+.ai-session-open {
+  flex: 1; min-width: 0; display: grid; text-align: left; gap: 4px;
+  padding: 9px 10px; background: transparent; border: 0; color: inherit; cursor: pointer;
+}
+.ai-session-open:disabled { opacity: .55; cursor: not-allowed; }
+.ai-session-open strong { color: var(--ed-text, #e8edf6); font-size: 11px; font-weight: 600; overflow-wrap: anywhere; }
+.ai-session-open span { color: var(--ed-muted, #94a3b8); font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
+.ai-session-open small { color: var(--ed-muted, #94a3b8); font-size: 9px; }
+.ai-session-delete { align-self: center; flex: none; margin-right: 6px; }
+.ai-checkpoint-item { justify-content: space-between; align-items: center; padding: 9px 10px; }
+.ai-checkpoint-info { display: grid; min-width: 0; gap: 4px; }
+.ai-checkpoint-info strong { font-size: 10px; color: var(--ed-text, #e8edf6); font-weight: 600; }
+.ai-checkpoint-info small { font-size: 10px; color: var(--ed-muted, #94a3b8); line-height: 1.45; overflow-wrap: anywhere; }
+.ai-checkpoint-status { width: fit-content; padding: 2px 6px; border-radius: 4px; font-size: 9px; }
+.ai-checkpoint-status.applied { background: rgba(45,212,191,.1); color: #5eead4; }
+.ai-checkpoint-status.rewound { background: rgba(148,163,184,.1); color: #cbd5e1; }
+.ai-checkpoint-action {
+  flex: none; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--ed-border, rgba(148,163,184,.25));
+  background: rgba(148,163,184,.07); color: var(--ed-text, #e8edf6); font-size: 10px; cursor: pointer;
+}
+.ai-checkpoint-action:hover:not(:disabled) { border-color: rgba(96,165,250,.5); background: rgba(96,165,250,.1); }
+.ai-checkpoint-action:disabled { opacity: .45; cursor: not-allowed; }
+.ai-clear-btn.active { border-color: rgba(96,165,250,.42); background: rgba(96,165,250,.1); }
+@media (max-width: 720px) {
+  .ai-session-history { margin-left: 6px; margin-right: 6px; padding: 8px; }
+  .ai-checkpoint-item { align-items: stretch; flex-direction: column; }
+  .ai-checkpoint-action { width: 100%; }
+}
