@@ -253,11 +253,16 @@ export async function saveAgentSession(userDataDir: string, input: AgentSessionS
   const current = await readRecord(userDataDir, input.id);
   const now = Date.now();
   const messages = input.messages.map(compactStoredMessage);
-  const compaction = buildConversationSummary(
-    typeof input.summary === 'string' ? input.summary : current?.summary ?? '',
-    messages,
-    Number.isFinite(input.summaryThroughTs) ? Number(input.summaryThroughTs) : current?.summaryThroughTs ?? 0,
-  );
+  const requestedThrough = Number.isFinite(input.summaryThroughTs)
+    ? Number(input.summaryThroughTs)
+    : current?.summaryThroughTs ?? 0;
+  // An older autosave may finish after a newer one. Never regress the compacted memory cursor.
+  const storedThrough = current?.summaryThroughTs ?? 0;
+  const summaryThroughBase = Math.max(storedThrough, requestedThrough);
+  const summaryBase = current && storedThrough >= requestedThrough
+    ? current.summary
+    : typeof input.summary === 'string' ? input.summary : current?.summary ?? '';
+  const compaction = buildConversationSummary(summaryBase, messages, summaryThroughBase);
   const firstUser = messages.find(message => message.role === 'user' && message.content.trim());
   const inferredTitle = firstUser ? summarySnippet(firstUser.content, 80) : 'Percakapan baru';
   const record: AgentSessionRecord = {
