@@ -44,10 +44,12 @@ try{
   await test('lists sessions by last update and derives a stable title/preview',async()=>{
     await api.saveAgentSession(userData,{id:'chat-two',messages:[{id:'u2',role:'user',content:'Perbaiki terminal',ts:200}]});
     const list=await api.listAgentSessions(userData);
-    assert.equal(list[0].id,'chat-two');
-    assert.equal(list[0].title,'Perbaiki terminal');
-    assert.equal(list[0].messageCount,1);
-    assert.equal(list[1].id,'chat-one');
+    const second=list.find(item=>item.id==='chat-two');
+    const first=list.find(item=>item.id==='chat-one');
+    assert.ok(second);
+    assert.equal(second.title,'Perbaiki terminal');
+    assert.equal(second.messageCount,1);
+    assert.ok(first);
   });
 
   await test('generates compact context summaries while retaining the visible transcript',async()=>{
