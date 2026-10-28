@@ -843,9 +843,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setActiveSessionId(null);
     setPermission(null);
     cancelRequestedRef.current = false;
-    // Allow initial events while IPC resolves the newly created session ID. The
-    // ID becomes authoritative as soon as agentStartChat returns.
-    activeSessionRef.current = null;
+    // Ignore stale events until the new session ID is registered. Escape can
+    // still mark cancellation requested and stop the session as soon as it exists.
+    activeSessionRef.current = 'pending-session';
     try {
       const compactContext = [...messages.filter(message => !message.streaming), userMessage]
         .filter(message => message.role === 'user' || message.role === 'assistant')
