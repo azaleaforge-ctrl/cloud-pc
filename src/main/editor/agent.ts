@@ -10,7 +10,7 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import * as pty from '@lydell/node-pty';
 import type { IPty } from '@lydell/node-pty';
-import type { AgentAttachmentRef, AgentEntry, AgentEvent, AgentFileChange, AgentRunResult, AgentSkillInfo, AgentSkillSelection, AgentTodo, AgentToolActivity, ChatMessage, RouterConfig } from '../../shared/agents';
+import type { AgentAttachmentRef, AgentEntry, AgentEvent, AgentFileChange, AgentQuestionOption, AgentRunResult, AgentSkillInfo, AgentSkillSelection, AgentTodo, AgentToolActivity, ChatMessage, RouterConfig } from '../../shared/agents';
 import { applyAgentTodoUpdate } from './agentTodo';
 import { installBuiltinSkills, loadAgentSkillInstructions, selectAgentSkills } from './skills';
 import { startTerminalCommand } from './terminalRuntime';
@@ -34,6 +34,7 @@ export interface AgentService {
   sendInput(sessionId: string, data: string): Promise<void>;
   resizeTerminal(sessionId: string, cols: number, rows: number): Promise<void>;
   approveTool(sessionId: string, requestId: string, approved: boolean): Promise<void>;
+  answerQuestion(sessionId: string, requestId: string, answer: string): Promise<void>;
   stopAgent(sessionId: string): Promise<void>;
   disposeAll(): void;
 }
@@ -70,6 +71,10 @@ interface ToolDefinition {
 }
 interface PendingApproval {
   resolve: (approved: boolean) => void;
+  timeout: NodeJS.Timeout;
+}
+interface PendingUserQuestion {
+  resolve: (answer: string) => void;
   timeout: NodeJS.Timeout;
 }
 
@@ -212,6 +217,36 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
         type: 'object',
         properties: { content: { type: 'string', description: 'Catatan Markdown maksimal 8000 karakter tentang keputusan, task status, file yang benar-benar berubah, dan informasi yang perlu diingat.' } },
         required: ['content'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ask_user',
+      description: 'Ajukan pertanyaan terstruktur kepada pengguna ketika keputusan mereka benar-benar diperlukan untuk melanjutkan dengan aman atau memilih antara alternatif yang berdampak. Sertakan konteks, tepat 3 pilihan yang berbeda dengan penjelasan, dan tandai satu pilihan rekomendasi beserta alasannya. Jangan gunakan untuk hal sepele yang dapat diputuskan berdasarkan kode atau dokumentasi.',
+      parameters: {
+        type: 'object',
+        properties: {
+          question: { type: 'string', minLength: 5, maxLength: 280, description: 'Pertanyaan langsung yang perlu dijawab pengguna.' },
+          context: { type: 'string', minLength: 5, maxLength: 700, description: 'Jelaskan mengapa keputusan ini diperlukan, dampak utama, dan trade-off.' },
+          options: {
+            type: 'array', minItems: 3, maxItems: 3,
+            items: {
+              type: 'object',
+              properties: {
+                label: { type: 'string', minLength: 1, maxLength: 100 },
+                description: { type: 'string', minLength: 1, maxLength: 260 },
+              },
+              required: ['label', 'description'],
+              additionalProperties: false,
+            },
+          },
+          recommended_option: { type: 'integer', enum: [1, 2, 3], description: 'Nomor opsi paling direkomendasikan (1-based). Rekomendasi bukan persetujuan otomatis.' },
+          recommendation_reason: { type: 'string', minLength: 5, maxLength: 400, description: 'Jelaskan alasan teknis pilihan yang direkomendasikan.' },
+        },
+        required: ['question', 'context', 'options', 'recommended_option', 'recommendation_reason'],
         additionalProperties: false,
       },
     },
@@ -560,6 +595,37 @@ function askForCommandApproval(session: LlmSession, command: string, reason: str
   });
 }
 
+function askForUserAnswer(
+  session: LlmSession,
+  question: string,
+  context: string,
+  options: AgentQuestionOption[],
+  recommendedOption: number,
+  recommendationReason: string,
+  questions: Map<string, PendingUserQuestion>,
+): Promise<string> {
+  const requestId = randomUUID();
+  const key = session.id + ':' + requestId;
+  return new Promise<string>((resolveAnswer) => {
+    const timeout = setTimeout(() => {
+      const pending = questions.get(key);
+      if (!pending) return;
+      questions.delete(key);
+      emit(session, { type: 'question-result', requestId, answered: false });
+      pending.resolve('Pengguna belum menjawab dalam 10 menit. Jangan mengulangi pertanyaan yang sama; lanjutkan dengan pilihan yang paling aman hanya bila tidak memerlukan keputusan eksplisit, atau akhiri dengan menjelaskan apa yang masih perlu diputuskan.');
+    }, 10 * 60 * 1000);
+    questions.set(key, { resolve: resolveAnswer, timeout });
+    emit(session, {
+      type: 'question-request',
+      requestId,
+      question,
+      context: context + '\n\nRekomendasi: ' + options[recommendedOption - 1].label + '. ' + recommendationReason,
+      options,
+      recommendedOption,
+    });
+  });
+}
+
 function isSourceCodeOrBuildConfigPath(path: string): boolean {
   return /\.(?:ts|tsx|js|jsx|mjs|cjs|json|jsonc|css|scss|sass|less|html|vue|svelte|astro|php|py|pyi|rs|go|java|kt|kts|cs|fs|cpp|cc|c|h|hpp|sql|sh|bash|ps1|psm1|bat|cmd|yml|yaml|toml|xml|gradle|properties|swift|rb|ex|exs|erl|hrl|dart)$/i.test(path);
 }
@@ -652,6 +718,7 @@ async function executeTool(
   root: string | null,
   call: ToolCall,
   approvals: Map<string, PendingApproval>,
+  questions: Map<string, PendingUserQuestion>,
 ): Promise<string> {
   if (!root) return 'Tool gagal: belum ada folder proyek yang terbuka.';
   let args: Record<string, unknown>;
@@ -785,6 +852,30 @@ async function executeTool(
       const timezone = stringArg('timezone').trim();
       if (timezone.length > 100) throw new Error('Zona waktu terlalu panjang.');
       return getCurrentTime(timezone || undefined);
+    }
+    case 'ask_user': {
+      const question = stringArg('question').trim();
+      const context = stringArg('context').trim();
+      const recommendationReason = stringArg('recommendation_reason').trim();
+      const rawOptions = args.options;
+      const recommendedOption = Number(args.recommended_option);
+      if (!question || question.length > 280) throw new Error('Pertanyaan harus berisi 1–280 karakter.');
+      if (!context || context.length > 700) throw new Error('Konteks pertanyaan harus berisi 1–700 karakter.');
+      if (!recommendationReason || recommendationReason.length > 400) throw new Error('Alasan rekomendasi wajib dijelaskan.');
+      if (!Array.isArray(rawOptions) || rawOptions.length !== 3) throw new Error('Pertanyaan harus berisi tepat 3 pilihan.');
+      if (!Number.isInteger(recommendedOption) || recommendedOption < 1 || recommendedOption > 3) throw new Error('recommended_option harus 1, 2, atau 3.');
+      const options: AgentQuestionOption[] = rawOptions.map((raw, index) => {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Pilihan ke-' + (index + 1) + ' tidak valid.');
+        const item = raw as Record<string, unknown>;
+        const label = typeof item.label === 'string' ? item.label.trim() : '';
+        const description = typeof item.description === 'string' ? item.description.trim() : '';
+        if (!label || label.length > 100 || !description || description.length > 260) {
+          throw new Error('Pilihan ke-' + (index + 1) + ' harus memiliki label dan penjelasan yang valid.');
+        }
+        return { label, description };
+      });
+      emit(session, { type: 'activity', message: 'Menunggu keputusan darimu…' });
+      return await askForUserAnswer(session, question, context, options, recommendedOption, recommendationReason, questions);
     }
     case 'run_terminal': {
       const command = stringArg('command').trim();
@@ -939,6 +1030,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
   const cliSessions = new Map<string, CliSession>();
   const llmSessions = new Map<string, LlmSession>();
   const pendingApprovals = new Map<string, PendingApproval>();
+  const pendingQuestions = new Map<string, PendingUserQuestion>();
   const conversationTodos = new Map<string, AgentTodo[]>();
   const userDataDir = app.getPath('userData');
   const memorySessionsDir = join(userDataDir, 'ai-memory', 'sessions');
@@ -985,6 +1077,18 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       clearTimeout(item.timeout);
       pendingApprovals.delete(key);
       item.resolve(approved);
+    }
+  };
+
+  const settlePendingQuestions = (sessionId: string): void => {
+    for (const [key, item] of pendingQuestions) {
+      if (!key.startsWith(sessionId + ':')) continue;
+      clearTimeout(item.timeout);
+      pendingQuestions.delete(key);
+      const requestId = key.slice(sessionId.length + 1);
+      const session = llmSessions.get(sessionId);
+      if (session) emit(session, { type: 'question-result', requestId, answered: false });
+      item.resolve('Pertanyaan dibatalkan karena agent dihentikan. Jangan melanjutkan berdasarkan jawaban yang belum diberikan.');
     }
   };
 
@@ -1038,6 +1142,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         'Todo List saat ini (gunakan todo_read untuk detail lengkap):\n' + (session.todos.length ? JSON.stringify(session.todos.map(({ id, title, status, blockedBy, verification, blockedReason }) => ({ id, title, status, blockedBy, verification, blockedReason }))) : '(belum ada; buat untuk tugas multi-langkah)'),
         'Jika ada keputusan, batasan, progres lintas-turn, atau perubahan bermakna yang perlu diingat untuk turn berikutnya, perbarui dengan write_session_memory. Ringkas, tulis ulang bukan append, maksimal sekitar 3 KB bila memungkinkan. Jangan simpan secret/credential. Chat Baru menghapus memory ini.',
         'WAJIB untuk permintaan membaca, memperbaiki, membuat, mengubah, menghapus, refactor, implementasi, atau debugging kode: gunakan tools. Jangan hanya memberikan potongan contoh atau menyuruh pengguna mengedit manual.',
+        'Jika keputusan pengguna benar-benar diperlukan, gunakan tool ask_user untuk menampilkan 3 opsi yang berbeda, konteks/dampak, dan alasan rekomendasi. Rekomendasi tidak berarti otomatis dipilih; tunggu jawaban pengguna. Untuk hal yang dapat diputuskan dengan aman dari kode, test, atau dokumentasi, jangan mengganggu pengguna dengan pertanyaan.',
         'Untuk tugas multi-langkah atau perubahan kode yang substantif, buat Todo List dahulu menggunakan todo_write sebelum membaca/menulis/mengubah file atau menjalankan terminal. Pada rencana awal, mulai satu task sebagai in_progress dan sisanya pending dengan blockedBy bila berurutan. JANGAN menandai task pending sebagai completed pada pembaruan yang sama saat task itu baru diaktifkan. Sebelum mengerjakan task, pastikan status task sudah in_progress melalui pembaruan todo_write yang berhasil diterima. Setelah pekerjaan dan kriteria verification benar-benar diperiksa, tandai completed pada panggilan todo_write berikutnya dengan completionEvidence spesifik. Jika todo_write gagal, jangan ulangi payload yang sama: panggil todo_read, ikuti validator, perbaiki status yang benar-benar tersimpan, lalu lanjutkan. Jangan mulai task dependen sebelum prasyarat completed. Jangan mengubah ID, judul, atau dependensi task selesai.',
         'Jangan tandai task completed hanya agar bisa maju. Setelah pekerjaan task dilakukan, verifikasi sesuai field verification dan berikan completionEvidence spesifik pada todo_write. Jika terhambat, tandai blocked dengan blockedReason dan jelaskan hambatan; jangan mengarang keberhasilan. Todo List adalah kontrak eksekusi, bukan dekorasi.',
         'Lanjutkan agent loop selama pekerjaan masih dapat dilanjutkan, tetapi jangan mengulang kegagalan dengan variasi argumen kecil. Setelah tool gagal, analisis hasilnya dan ubah pendekatan. Untuk error todo_write, wajib todo_read sebelum pembaruan berikutnya. Untuk error terminal, perbaiki sintaks sesuai shell aktif; jangan mengubah source code yang tidak terkait untuk menutupi error shell. Sistem menghentikan run jika pengguna membatalkan, ada error fatal, run mencapai safety budget, akar kegagalan tool yang sama berulang, atau tidak ada kemajuan setelah instruksi koreksi.',
@@ -1214,7 +1319,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
             if (requiresTodoPlan && session.todos.length === 0 && call.name !== 'todo_write' && call.name !== 'todo_read') {
               result = 'Tool ditahan: buat Todo List dengan todo_write terlebih dahulu untuk tugas multi-langkah, lalu ulangi tool ini.';
             } else {
-              result = await executeTool(session, userDataDir, root, call, pendingApprovals);
+              result = await executeTool(session, userDataDir, root, call, pendingApprovals, pendingQuestions);
             }
           } catch (error) {
             result = 'Tool gagal: ' + ((error as Error).message || 'kesalahan tidak diketahui');
@@ -1422,6 +1527,18 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       pendingApprovals.delete(key);
       pending.resolve(approved);
     },
+    async answerQuestion(sessionId, requestId, answer): Promise<void> {
+      const cleanAnswer = answer.trim();
+      if (!cleanAnswer || cleanAnswer.length > 2000) throw new Error('Jawaban harus berisi 1–2000 karakter.');
+      const key = sessionId + ':' + requestId;
+      const pending = pendingQuestions.get(key);
+      if (!pending) throw new Error('Pertanyaan sudah kedaluwarsa atau tidak lagi menunggu jawaban.');
+      clearTimeout(pending.timeout);
+      pendingQuestions.delete(key);
+      const session = llmSessions.get(sessionId);
+      if (session) emit(session, { type: 'question-result', requestId, answered: true });
+      pending.resolve(cleanAnswer);
+    },
     async stopAgent(sessionId): Promise<void> {
       const llm = llmSessions.get(sessionId);
       if (llm) {
@@ -1429,6 +1546,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         llm.cancelTerminal?.();
         llm.controller.abort();
         settlePending(sessionId, false);
+        settlePendingQuestions(sessionId);
         return;
       }
       const cli = cliSessions.get(sessionId);
@@ -1459,10 +1577,13 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         session.cancelTerminal?.();
         session.controller.abort();
         settlePending(session.id, false);
+        settlePendingQuestions(session.id);
       }
       llmSessions.clear();
       for (const pending of pendingApprovals.values()) clearTimeout(pending.timeout);
       pendingApprovals.clear();
+      for (const pending of pendingQuestions.values()) clearTimeout(pending.timeout);
+      pendingQuestions.clear();
       tearingDown = false;
     },
   };
