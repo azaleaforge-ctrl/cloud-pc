@@ -366,7 +366,7 @@ function ChangeList({ changes, onSelect }: { changes: AgentFileChange[]; onSelec
           <p className="ai-no-changes">File yang diubah agent akan muncul di sini. Pilih file untuk membuka perbandingan diff.</p>
         ) : (
           <div className="ai-side-changes">
-            {changes.slice().reverse().map((change) => (
+            {changes.map((change) => (
               <button type="button" key={change.id} onClick={() => onSelect(change)} title={'Lihat diff ' + change.path}>
                 <span className="ai-side-change-path">{change.path}</span>
                 <span className="ai-diff-added">+{change.addedLines}</span>
