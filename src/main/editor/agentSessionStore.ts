@@ -58,7 +58,7 @@ export interface AgentSessionSummary {
   hasSummary: boolean;
   checkpointCount: number;
 }
-export interface AgentSessionRecord extends AgentSessionSummary {
+export interface AgentSessionRecord extends Omit<AgentSessionSummary, 'messageCount' | 'lastMessage' | 'hasSummary' | 'checkpointCount'> {
   schemaVersion: number;
   messages: ChatMessage[];
   summary: string;
