@@ -412,3 +412,23 @@ export function IconChevronRight(p: IconProps) {
     </Svg>
   );
 }
+
+export function IconBot(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M12 8V4a4 4 0 0 1 4 4v2M8 8V4a4 4 0 0 0-4 4v2" />
+      <path d="M16 16v2a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2" />
+      <rect x="4" y="8" width="16" height="10" rx="2" />
+    </Svg>
+  );
+}
+
+export function IconSend(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M22 2L11 13" />
+      <path d="M22 2l-4 10-8 4 14-14z" />
+    </Svg>
+  );
+}
+

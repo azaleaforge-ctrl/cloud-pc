@@ -1,7 +1,7 @@
 import './editor.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppState } from '../../../shared/types';
-import { LogoMark } from '../icons';
+import { LogoMark, IconBot } from '../icons';
 import { useIdeWorkbench } from './useIdeWorkbench';
 import { MonacoPane } from './MonacoPane';
 import { ActivityBar } from './ActivityBar';
@@ -12,6 +12,7 @@ import { TabBar } from './TabBar';
 import { StatusBar } from './StatusBar';
 import { PanelHost } from './PanelHost';
 import { CommandPalette, type PaletteItem } from './CommandPalette';
+import { AgentChat } from './AgentChat';
 import type { PanelView, SideView } from './types';
 import { IconError, IconX } from '../icons';
 
@@ -157,6 +158,15 @@ export function EditorShell({ state, active, onError }: Props) {
     readSize('rk.ide.panelHeight', 220, PANEL_MIN, maxPanelHeight()),
   );
   const [palette, setPalette] = useState<PaletteMode | null>(null);
+  const [agentChatOpen, setAgentChatOpen] = useState(false);
+  const [agentMaximized, setAgentMaximized] = useState(false);
+
+  // Listen for Ctrl+Shift+L toggle via custom event from StatusBar button
+  useEffect(() => {
+    const handler = () => setAgentChatOpen((o) => !o);
+    window.addEventListener('rk:ai-chat-toggle', handler);
+    return () => window.removeEventListener('rk:ai-chat-toggle', handler);
+  }, []);
 
   // Laporan aktivitas untuk sistem antrian (throttle >= 5 detik).
   const lastReport = useRef(0);
@@ -261,6 +271,9 @@ export function EditorShell({ state, active, onError }: Props) {
       } else if (key === 'w') {
         e.preventDefault();
         if (wb.activePath) wb.closeFile(wb.activePath);
+      } else if (key === 'l' && e.shiftKey) {
+        e.preventDefault();
+        setAgentChatOpen((o) => !o);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -462,6 +475,12 @@ export function EditorShell({ state, active, onError }: Props) {
         placeholder={palettePlaceholder}
         items={paletteItems}
         onClose={() => setPalette(null)}
+      />
+      <AgentChat
+        wb={{ root: wb.root, activePath: wb.activePath }}
+        visible={agentChatOpen}
+        onToggle={() => setAgentChatOpen((o) => !o)}
+        onMaximize={() => setAgentMaximized((m) => !m)}
       />
     </div>
   );

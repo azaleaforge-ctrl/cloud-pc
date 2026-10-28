@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState, type ReactElement } from 'react';
 import type { AppState } from '../../shared/types';
-import { IconCode, IconGlobe, IconHourglass, IconMonitor, IconServer, IconUsers, IconZap, LogoMark, IconFolder, IconExtension } from './icons';
+import { IconCode, IconGlobe, IconHourglass, IconMonitor, IconServer, IconUsers, IconZap, LogoMark, IconFolder, IconExtension, IconBot } from './icons';
 import { RoomTab } from './RoomTab';
 import { QueueTab } from './QueueTab';
 import { ExtensionsTab } from './ExtensionsTab';
@@ -97,6 +97,16 @@ export function Shell({ state, logs, onError, onClearLogs, onRoomLeft }: ShellPr
             </span>
           ) : null}
           <span className="role-chip">{state.role === 'host' ? 'Host' : 'Anggota'}</span>
+          {tab === 'editor' && (
+            <button
+              type="button"
+              className="ai-header-btn"
+              title="AI Agent Chat (Ctrl+Shift+L)"
+              onClick={() => window.dispatchEvent(new CustomEvent('rk:ai-chat-toggle'))}
+            >
+              <IconBot size={18} />
+            </button>
+          )}
         </div>
       </header>
 

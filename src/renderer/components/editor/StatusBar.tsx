@@ -1,7 +1,7 @@
 import type { AppState } from '../../../shared/types';
 import type { DebugStatus } from '../../../shared/editor';
 import type { IdeWorkbench, PanelView } from './types';
-import { IconError, IconWarn } from '../icons';
+import { IconError, IconWarn, IconBot } from '../icons';
 
 interface Props {
   wb: IdeWorkbench;
@@ -86,6 +86,14 @@ export function StatusBar({ wb, state, onShowPanel }: Props) {
       <span className="ed-status-item">Spaces: 2</span>
       <span className="ed-status-item">UTF-8</span>
       <span className="ed-status-item">LF</span>
+      <button
+        type="button"
+        className="ed-status-item"
+        title="AI Agent Chat (Ctrl+Shift+L)"
+        onClick={() => window.dispatchEvent(new CustomEvent('rk:ai-chat-toggle'))}
+      >
+        <IconBot size={13} /> AI Agent
+      </button>
     </div>
   );
 }
