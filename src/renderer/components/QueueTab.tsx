@@ -104,11 +104,12 @@ export function QueueTab({
             <span className="icon-chip">
               <IconHourglass size={16} />
             </span>
-            <h3 className="card-title">Idle Auto-Release</h3>
+            <h3 className="card-title">{agentBusy ? 'AI Coding Agent aktif' : 'Idle Auto-Release'}</h3>
           </div>
           <p className="card-sub">
-            Giliran akan otomatis dilepas jika tidak ada perubahan selama 2 menit.
-            Setelah melepas, rekan berikutnya langsung dapat giliran.
+            {agentBusy
+              ? 'Timer idle ditangguhkan selama AI mengerjakan tugas. Giliran tetap milikmu sampai agent selesai atau kamu menghentikannya.'
+              : 'Giliran akan otomatis dilepas setelah 2 menit tidak ada aktivitas. Setelah dilepas, rekan berikutnya bisa mendapat giliran.'}
           </p>
           <button
             type="button"
@@ -134,8 +135,9 @@ export function QueueTab({
             <h3 className="card-title">Menunggu Giliran</h3>
           </div>
           <p className="card-sub">
-            {holderName} sedang bekerja. Kamu antre di posisi {myPos >= 0 ? myPos + 1 : '-'} dan akan
-            mendapatkan giliran otomatis saat {holderName} selesai.
+            {agentBusy ? holderName + ' sedang menjalankan AI Coding Agent.' : holderName + ' sedang bekerja.'}
+            {' '}Kamu antre di posisi {myPos >= 0 ? myPos + 1 : '-'} dan akan mendapatkan giliran
+            setelah pekerjaan selesai dan aturan antrian diproses.
           </p>
           {myPos >= 0 ? null : (
             <p className="card-sub">
