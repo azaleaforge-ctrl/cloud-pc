@@ -18,12 +18,13 @@
     "dist": "npm run build && electron-builder --win nsis",
     "test:agent-todo": "node scripts/test-agent-todo.mjs",
     "test:agent-terminal": "node scripts/test-agent-terminal.mjs",
+    "test:agent-terminal-history": "node scripts/test-agent-terminal-history.mjs",
     "test:agent-attachments": "node scripts/test-agent-attachments.mjs",
     "test:agent-research": "node scripts/test-agent-research.mjs",
     "test:agent-model-capabilities": "node scripts/test-agent-model-capabilities.mjs",
     "test:agent-sessions": "node scripts/test-agent-sessions.mjs",
     "test:agent-failure-guard": "node scripts/test-agent-failure-guard.mjs",
-    "test:agent-runtime": "npm run test:agent-todo && npm run test:agent-terminal && npm run test:agent-failure-guard && npm run test:agent-attachments && npm run test:agent-research && npm run test:agent-model-capabilities && npm run test:agent-sessions"
+    "test:agent-runtime": "npm run test:agent-todo && npm run test:agent-terminal && npm run test:agent-terminal-history && npm run test:agent-failure-guard && npm run test:agent-attachments && npm run test:agent-research && npm run test:agent-model-capabilities && npm run test:agent-sessions"
   },
   "build": {
     "appId": "com.ruangkerja.app",

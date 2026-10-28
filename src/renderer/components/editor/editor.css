@@ -3099,6 +3099,65 @@ button.ed-status-item:hover {
 .ai-run-details-scroll > :last-child { margin-bottom: 0; }
 .ai-run-details-scroll .ai-terminal-run { margin-bottom: 6px; }
 .ai-run-details-scroll .ai-terminal-output { max-height: 70px; }
+.ai-terminal-meta {
+  display: grid;
+  gap: 3px;
+  margin: 4px 0;
+  color: var(--ed-text-3);
+  font-size: 9px;
+}
+.ai-terminal-meta code {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ed-text-2);
+}
+.ai-terminal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 5px 0;
+}
+.ai-terminal-actions small {
+  min-width: 0;
+  color: var(--ed-text-3);
+  font-size: 8.5px;
+}
+.ai-terminal-actions button {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border: 1px solid var(--ed-border-strong);
+  border-radius: 6px;
+  background: rgba(148,163,184,.05);
+  color: var(--ed-text-2);
+  font-size: 9px;
+  cursor: pointer;
+}
+.ai-terminal-actions button:hover {
+  border-color: var(--ed-accent);
+  color: var(--ed-text);
+}
+.ai-terminal-history {
+  margin-bottom: 6px;
+  border: 1px solid var(--ed-border);
+  border-radius: 8px;
+  background: rgba(148,163,184,.025);
+}
+.ai-terminal-history > summary {
+  padding: 7px 9px;
+  color: var(--ed-text-2);
+  font-size: 9.5px;
+  cursor: pointer;
+  user-select: none;
+}
+.ai-terminal-history-list {
+  max-height: 260px;
+  overflow: auto;
+  padding: 0 6px 6px;
+  overscroll-behavior: contain;
+}
+.ai-terminal-history-list .ai-terminal-output { max-height: 80px; }
 .ai-run-details-scroll .ai-tool-activities { margin-bottom: 6px; }
 .ai-run-details-scroll .ai-tool-activity-list { max-height: 64px; overflow: auto; }
 .ai-run-details-scroll .ai-run-result { margin-bottom: 0; }
@@ -3172,6 +3231,25 @@ button.ed-status-item:hover {
   color: var(--ed-accent-soft);
   font-size: 8.5px;
   white-space: nowrap;
+}
+.ai-question-recommendation {
+  display: grid;
+  gap: 3px;
+  padding: 7px 8px;
+  border: 1px solid rgba(45,212,191,.2);
+  border-radius: 7px;
+  background: rgba(45,212,191,.045);
+}
+.ai-question-recommendation strong {
+  color: var(--ed-accent-soft);
+  font-size: 9px;
+}
+.ai-question-recommendation p {
+  margin: 0;
+  color: var(--ed-text-2);
+  font-size: 9.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 .ai-question-context {
   max-height: 50px;

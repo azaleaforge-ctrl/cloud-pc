@@ -14,6 +14,8 @@ export interface TerminalOutputEvent {
 export interface TerminalProcessEvent {
   commandId: string;
   command: string;
+  cwd: string;
+  shell: string;
   status: TerminalProcessStatus;
   startedAt: number;
   finishedAt?: number;
@@ -147,6 +149,8 @@ export function startTerminalCommand(options: StartTerminalCommandOptions): Term
       emitState({
         commandId,
         command,
+        cwd: options.cwd,
+        shell: invocation.shellName,
         status,
         startedAt,
         finishedAt,
@@ -157,7 +161,7 @@ export function startTerminalCommand(options: StartTerminalCommandOptions): Term
       resolveResult(result);
     };
 
-    emitState({ commandId, command, status: 'starting', startedAt, timeoutMs: options.timeoutMs });
+    emitState({ commandId, command, cwd: options.cwd, shell: invocation.shellName, status: 'starting', startedAt, timeoutMs: options.timeoutMs });
     const isWindows = process.platform === 'win32';
 
     try {
@@ -179,7 +183,7 @@ export function startTerminalCommand(options: StartTerminalCommandOptions): Term
       finish(stopReason ?? 'failed', null, 'Gagal menjalankan command: ' + ((error as Error).message || String(error)));
     });
     child.once('spawn', () => {
-      emitState({ commandId, command, status: 'running', startedAt, timeoutMs: options.timeoutMs });
+      emitState({ commandId, command, cwd: options.cwd, shell: invocation.shellName, status: 'running', startedAt, timeoutMs: options.timeoutMs });
     });
     child.once('close', (code) => {
       if (stopReason === 'timed_out') {

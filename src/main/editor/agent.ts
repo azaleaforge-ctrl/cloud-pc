@@ -619,9 +619,10 @@ function askForUserAnswer(
       type: 'question-request',
       requestId,
       question,
-      context: context + '\n\nRekomendasi: ' + options[recommendedOption - 1].label + '. ' + recommendationReason,
+      context,
       options,
       recommendedOption,
+      recommendationReason,
     });
   });
 }

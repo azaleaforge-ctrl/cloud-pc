@@ -113,10 +113,12 @@ try {
   });
 
   const outputEvents = [];
-  const success = await startTerminalCommand(options(
+  const processEvents = [];
+  const successHandle = startTerminalCommand(options(
     terminalCommand('streams', shell),
-    { onOutput: (event) => outputEvents.push(event) },
-  )).promise;
+    { onOutput: (event) => outputEvents.push(event), onState: (event) => processEvents.push(event) },
+  ));
+  const success = await successHandle.promise;
   test('captures stdout and stderr and reports successful exit', () => {
     assert.equal(success.status, 'completed');
     assert.equal(success.exitCode, 0);
@@ -124,6 +126,9 @@ try {
     assert.match(success.output, /stderr-ok/);
     assert.ok(outputEvents.some((event) => event.stream === 'stdout'));
     assert.ok(outputEvents.some((event) => event.stream === 'stderr'));
+    assert.equal(processEvents[0].cwd, ROOT);
+    assert.equal(typeof processEvents[0].shell, 'string');
+    assert.ok(processEvents.some((event) => event.status === 'completed' && event.cwd === ROOT && event.shell === shell.name));
   });
 
   const failedRun = await startTerminalCommand(options(terminalCommand('fail', shell))).promise;

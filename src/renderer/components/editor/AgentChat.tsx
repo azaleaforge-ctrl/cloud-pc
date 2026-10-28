@@ -20,6 +20,13 @@ import type {
   ChatMessage,
 } from '../../../shared/agents';
 import { IconSend, IconPlus, Spinner, IconCopy, IconX, IconTrash, IconCheck } from '../icons';
+import {
+  appendAgentTerminalOutput,
+  formatAgentTerminalDiagnostics,
+  formatAgentTerminalOutput,
+  upsertAgentTerminalProcess,
+  type AgentTerminalHistoryEntry,
+} from '../../../shared/agentTerminalHistory';
 import './agent-progress.css';
 
 interface Props {
@@ -42,6 +49,7 @@ interface PendingAgentQuestion {
   context: string;
   options: AgentQuestionOption[];
   recommendedOption: number;
+  recommendationReason: string;
 }
 
 interface DiffRow {
@@ -480,7 +488,18 @@ function ToolActivityList({ activities }: { activities: AgentToolActivity[] }) {
   );
 }
 
-function TerminalRunPanel({ process, output }: { process: AgentTerminalProcess; output: string }) {
+function TerminalRunPanel({
+  entry,
+  copied,
+  onCopy,
+  outputOverride,
+}: {
+  entry: AgentTerminalHistoryEntry;
+  copied: boolean;
+  onCopy: (entry: AgentTerminalHistoryEntry) => void;
+  outputOverride?: string;
+}) {
+  const process = entry.process;
   const statusLabel: Record<AgentTerminalProcess['status'], string> = {
     starting: 'Memulai',
     running: 'Berjalan',
@@ -490,8 +509,9 @@ function TerminalRunPanel({ process, output }: { process: AgentTerminalProcess; 
     cancelled: 'Dibatalkan',
   };
   const elapsed = Math.max(0, Math.round(((process.finishedAt ?? Date.now()) - process.startedAt) / 1000));
+  const output = entry.outputs.length ? formatAgentTerminalOutput(entry.outputs) : (outputOverride ?? '');
   return (
-    <section className={'ai-terminal-run status-' + process.status} aria-label="Output terminal agent">
+    <section className={'ai-terminal-run status-' + process.status} aria-label="Detail proses terminal agent">
       <header className="ai-terminal-run-header">
         <div>
           <strong>Terminal agent</strong>
@@ -499,10 +519,57 @@ function TerminalRunPanel({ process, output }: { process: AgentTerminalProcess; 
         </div>
         <small>{process.exitCode === undefined ? 'Exit code menunggu' : 'Exit code: ' + (process.exitCode === null ? 'unknown' : process.exitCode)} · {elapsed} detik</small>
       </header>
+      <div className="ai-terminal-meta">
+        <span>{process.shell || 'Shell tidak tersedia'}</span>
+        <code title={process.cwd || ''}>{process.cwd || 'Direktori kerja tidak tersedia'}</code>
+      </div>
       <code className="ai-terminal-command">{process.command}</code>
       {process.message ? <p className="ai-terminal-message">{process.message}</p> : null}
+      <div className="ai-terminal-actions">
+        <small>{new Date(process.startedAt).toLocaleString()}{process.finishedAt ? ' · selesai ' + new Date(process.finishedAt).toLocaleTimeString() : ' · masih berjalan'}</small>
+        <button type="button" onClick={() => onCopy(entry)}>{copied ? 'Detail tersalin' : 'Salin detail diagnostik'}</button>
+      </div>
       <pre className="ai-terminal-output">{output || (process.status === 'running' ? 'Menunggu output dari command…' : '(tidak ada output)')}</pre>
     </section>
+  );
+}
+
+function TerminalRunHistory({
+  history,
+  copiedId,
+  onCopy,
+  currentProcess,
+  currentOutput,
+}: {
+  history: AgentTerminalHistoryEntry[];
+  copiedId: string | null;
+  onCopy: (entry: AgentTerminalHistoryEntry) => void;
+  currentProcess: AgentTerminalProcess | null;
+  currentOutput: string;
+}) {
+  if (history.length === 0) return null;
+  const latest = history[history.length - 1];
+  const previous = history.slice(0, -1).reverse();
+  return (
+    <>
+      {previous.length > 0 ? (
+        <details className="ai-terminal-history">
+          <summary>Riwayat terminal sebelumnya ({previous.length})</summary>
+          <div className="ai-terminal-history-list">
+            {previous.map((entry) => (
+              <TerminalRunPanel key={entry.process.commandId} entry={entry} copied={copiedId === entry.process.commandId} onCopy={onCopy} />
+            ))}
+          </div>
+        </details>
+      ) : null}
+      <TerminalRunPanel
+        key={latest.process.commandId}
+        entry={latest}
+        copied={copiedId === latest.process.commandId}
+        onCopy={onCopy}
+        outputOverride={currentProcess?.commandId === latest.process.commandId ? currentOutput : undefined}
+      />
+    </>
   );
 }
 
@@ -544,6 +611,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [lastRunResult, setLastRunResult] = useState<AgentRunResult | null>(null);
   const [terminalProcess, setTerminalProcess] = useState<AgentTerminalProcess | null>(null);
   const [terminalOutput, setTerminalOutput] = useState('');
+  const [terminalHistory, setTerminalHistory] = useState<AgentTerminalHistoryEntry[]>([]);
+  const [terminalCopiedId, setTerminalCopiedId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState<AgentAttachmentRef[]>([]);
   const [selectingAttachments, setSelectingAttachments] = useState(false);
@@ -715,9 +784,11 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         setLastRunResult(event.result);
       } else if (event.type === 'terminal-process') {
         setTerminalProcess(event.process);
+        setTerminalHistory((previous) => upsertAgentTerminalProcess(previous, event.process));
         if (event.process.status === 'starting') setTerminalOutput('');
       } else if (event.type === 'terminal-output') {
         setTerminalOutput((previous) => (previous + event.output.data).slice(-12000));
+        setTerminalHistory((previous) => appendAgentTerminalOutput(previous, event.output));
       } else if (event.type === 'skills') {
         setActiveSkills(event.skills);
       } else if (event.type === 'output') {
@@ -775,8 +846,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
           context: event.context,
           options: event.options,
           recommendedOption: event.recommendedOption,
+          recommendationReason: event.recommendationReason,
         });
-        setSelectedQuestionOption(event.recommendedOption);
+        setSelectedQuestionOption(null);
         setCustomQuestionAnswer('');
         setActivity('Menunggu jawaban darimu…');
       } else if (event.type === 'question-result') {
@@ -881,6 +953,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setToolActivities([]);
     setTerminalProcess(null);
     setTerminalOutput('');
+    setTerminalHistory([]);
+    setTerminalCopiedId(null);
     setActivity('Mempersiapkan workspace…');
     const userMessage: ChatMessage = {
       id: 'user-' + Date.now(), role: 'user',
@@ -950,7 +1024,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       if (event.key !== 'Escape' || event.repeat) return;
       const target = event.target instanceof HTMLElement ? event.target : null;
       const isAgentQuestionInput = target?.id === 'ai-question-custom-answer';
-      if (!isAgentQuestionInput && target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return;
+      const isAgentComposerInput = target?.classList.contains('ai-input');
+      if (!isAgentQuestionInput && !isAgentComposerInput && target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return;
       event.preventDefault();
       event.stopPropagation();
       void stopAgent();
@@ -1047,6 +1122,15 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       setSavingKey(false);
     }
   }, [apiKey, savingKey, refreshRouterStatus]);
+
+  const copyTerminalDiagnostics = useCallback(async (entry: AgentTerminalHistoryEntry) => {
+    try {
+      await navigator.clipboard.writeText(formatAgentTerminalDiagnostics(entry));
+      setTerminalCopiedId(entry.process.commandId);
+    } catch (err) {
+      setError('Gagal menyalin detail terminal: ' + ((err as Error).message || 'clipboard tidak tersedia.'));
+    }
+  }, []);
 
   const resolvePermission = useCallback(async (approved: boolean) => {
     const current = permission;
@@ -1170,6 +1254,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setLastRunResult(null);
     setTerminalProcess(null);
     setTerminalOutput('');
+    setTerminalHistory([]);
+    setTerminalCopiedId(null);
     setError(null);
     setActivity('');
     setPermission(null);
@@ -1509,6 +1595,10 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                   <span className="ai-question-chip">Menunggu jawaban</span>
                 </header>
                 <p className="ai-question-context">{agentQuestion.context}</p>
+                <div className="ai-question-recommendation">
+                  <strong>Alasan rekomendasi</strong>
+                  <p>{agentQuestion.recommendationReason}</p>
+                </div>
                 <div className="ai-question-options" role="group" aria-label="Pilihan jawaban">
                   {agentQuestion.options.map((option, index) => {
                     const optionNumber = index + 1;
@@ -1559,7 +1649,13 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
 
             {error ? <div className="ai-error ai-run-dock-error" role="alert">{error}</div> : null}
             <div className="ai-run-details-scroll">
-              {terminalProcess ? <TerminalRunPanel process={terminalProcess} output={terminalOutput} /> : null}
+              <TerminalRunHistory
+                history={terminalHistory}
+                copiedId={terminalCopiedId}
+                onCopy={(entry) => void copyTerminalDiagnostics(entry)}
+                currentProcess={terminalProcess}
+                currentOutput={terminalOutput}
+              />
               <ToolActivityList activities={toolActivities} />
               {lastRunResult ? <RunResultBanner result={lastRunResult} /> : null}
             </div>
