@@ -1024,7 +1024,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       if (event.key !== 'Escape' || event.repeat) return;
       const target = event.target instanceof HTMLElement ? event.target : null;
       const isAgentQuestionInput = target?.id === 'ai-question-custom-answer';
-      if (!isAgentQuestionInput && target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return;
+      const isAgentComposerInput = target?.classList.contains('ai-input');
+      if (!isAgentQuestionInput && !isAgentComposerInput && target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return;
       event.preventDefault();
       event.stopPropagation();
       void stopAgent();
