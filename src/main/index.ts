@@ -1019,12 +1019,13 @@ function registerIpc(): void {
   ipcMain.handle('rk:agent:get-config', () => getAgentRouterStatus());
   ipcMain.handle('rk:agent:save-config', (_e, apiKey: string) => saveAgentRouterKey(apiKey));
   ipcMain.handle('rk:agent:test-config', () => testAgentRouter());
-  ipcMain.handle('rk:agent:start-chat', async (_e, agentId: string, messages: ChatMessage[] = []) => {
+  ipcMain.handle('rk:agent:start-chat', async (_e, agentId: string, messages: ChatMessage[] = [], activePath: string | null = null) => {
     const projectPath = store.get().projectPath;
     try {
+      if (!projectPath) return { ok: false, error: 'Belum ada folder project aktif di ruangan.' };
       const sessionId = await agentService.startChat(agentId, projectPath, (event, eventSessionId) => {
         send('rk:agent:event', { sessionId: eventSessionId, event });
-      }, messages);
+      }, messages, activePath);
       return { ok: true, sessionId };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
