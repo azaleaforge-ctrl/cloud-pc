@@ -959,6 +959,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   }, [messages]);
 
   const activeAgent = agents.find((agent) => agent.id === activeAgentId);
+  const workspaceSessions = sessions.filter((session) => sameWorkspacePath(session.projectPath, wb.root));
 
   useEffect(() => {
     if (!testResult || testResult.ok) return;
@@ -1513,11 +1514,11 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             </div>
             <button type="button" className="ai-icon-btn" onClick={() => setHistoryOpen(false)} aria-label="Tutup riwayat"><IconX size={14} /></button>
           </header>
-          {loadingSessions ? <p className="ai-session-empty">Memuat riwayat…</p> : sessions.length === 0 ? (
+          {loadingSessions ? <p className="ai-session-empty">Memuat riwayat…</p> : workspaceSessions.length === 0 ? (
             <p className="ai-session-empty">Belum ada percakapan tersimpan.</p>
           ) : (
             <div className="ai-session-list">
-              {sessions.map(session => (
+              {workspaceSessions.map(session => (
                 <div className={'ai-session-item' + (session.id === conversationId ? ' active' : '')} key={session.id}>
                   <button type="button" className="ai-session-open" disabled={loading}
                     onClick={() => { setHistoryOpen(false); if (session.id !== conversationId) setConversationId(session.id); }}>
@@ -1595,7 +1596,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         </button>
         <button type="button" className={'ai-clear-btn' + (historyOpen ? ' active' : '')}
           onClick={() => { setHistoryOpen(open => !open); setCheckpointsOpen(false); }} title="Riwayat percakapan">
-          ☷ Riwayat ({sessions.length})
+          ☷ Riwayat ({workspaceSessions.length})
         </button>
         <button type="button" className={'ai-clear-btn' + (checkpointsOpen ? ' active' : '')}
           onClick={() => { setCheckpointsOpen(open => !open); setHistoryOpen(false); }} title="Checkpoint dan rewind">
