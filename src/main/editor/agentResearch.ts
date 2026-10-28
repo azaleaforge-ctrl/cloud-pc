@@ -7,6 +7,15 @@ export type PackageEcosystem = 'npm' | 'pypi' | 'crates' | 'packagist' | 'rubyge
 export interface WebSearchResult { title: string; url: string; snippet: string; }
 interface CacheEntry { expiresAt: number; output: string; }
 const resultCache = new Map<string, CacheEntry>();
+function cacheResult(key: string, output: string, ttl = CACHE_TTL_MS): void {
+  const now = Date.now();
+  for (const [entryKey, entry] of resultCache) if (entry.expiresAt <= now) resultCache.delete(entryKey);
+  if (!resultCache.has(key) && resultCache.size >= 100) {
+    const oldest = resultCache.keys().next().value;
+    if (oldest) resultCache.delete(oldest);
+  }
+  resultCache.set(key, { output, expiresAt: now + ttl });
+}
 const CACHE_TTL_MS = 2 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 15_000;
 const SEARCH_BODY_LIMIT = 1_500_000;
@@ -220,6 +229,7 @@ export function buildRegistryUrl(ecosystem: PackageEcosystem, packageName: strin
     case 'packagist': return 'https://repo.packagist.org/p2/' + name.split('/').map(encodeURIComponent).join('/') + '.json';
     case 'rubygems': return 'https://rubygems.org/api/v1/gems/' + encodeURIComponent(name) + '.json';
   }
+  throw new Error('Ekosistem package tidak didukung.');
 }
 
 async function fetchJson(url: string, maxBytes = REGISTRY_BODY_LIMIT, signal?: AbortSignal): Promise<{ data: Record<string, any>; finalUrl: string }> {
@@ -296,7 +306,7 @@ export async function checkPackageVersion(ecosystem: PackageEcosystem, packageNa
     'Waktu pengambilan data: ' + retrievedAt + ' (UTC)',
     'Catatan: ini adalah metadata upstream saat diambil, bukan rekomendasi otomatis untuk meng-upgrade proyek. Periksa kompatibilitas dan changelog resmi sebelum mengubah dependency.',
   ].filter(Boolean).join('\n');
-  resultCache.set(key, { output, expiresAt: Date.now() + CACHE_TTL_MS });
+  cacheResult(key, output);
   return output;
 }
 
@@ -313,7 +323,7 @@ export async function searchWeb(query: string, maxResults = 5, signal?: AbortSig
   const items = extractSearchResults(result.body, count);
   if (!items.length) {
     const output = 'Pencarian tidak mengembalikan hasil yang bisa dibaca. Penyedia pencarian mungkin membatasi permintaan atau query terlalu spesifik. Waktu pengambilan: ' + new Date().toISOString() + ' (UTC).';
-    resultCache.set(key, { output, expiresAt: Date.now() + 30_000 });
+    cacheResult(key, output, 30_000);
     return output;
   }
   const output = [
