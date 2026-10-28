@@ -2,7 +2,7 @@
 // Semua tipe di file ini adalah satu-satunya sumber kebenaran untuk IPC.
 
 import type { EditorApi } from './editor';
-import type { AgentAttachmentRef, AgentEntry, AgentRouterStatus, AgentRouterTestResult, AgentSkillInfo, ChatMessage, AgentEvent } from './agents';
+import type { AgentAttachmentRef, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentRouterStatus, AgentRouterTestResult, AgentSkillInfo, ChatMessage, AgentEvent } from './agents';
 
 export type Role = 'none' | 'host' | 'member';
 
@@ -235,6 +235,9 @@ export interface RkApi {
   agentGetConfig(): Promise<AgentRouterStatus>;
   agentSaveConfig(apiKey: string): Promise<ActionResult>;
   agentTestConfig(): Promise<AgentRouterTestResult>;
+  agentListModels(): Promise<AgentModelCatalogResult>;
+  agentSelectModel(model: string): Promise<ActionResult>;
+  agentDiagnoseModel(): Promise<AgentModelCapabilityReport>;
   agentListSkills(): Promise<AgentSkillInfo[]>;
   agentPickAttachments(): Promise<{ ok: boolean; attachments?: AgentAttachmentRef[]; error?: string }>;
   agentApproveTool(sessionId: string, requestId: string, approved: boolean): Promise<void>;

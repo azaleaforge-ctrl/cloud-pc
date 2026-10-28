@@ -835,7 +835,7 @@ async function openCompletionStream(
           'User-Agent': 'RuangKerja-Agent/0.4.8',
         },
         body: JSON.stringify({
-          model: session.agent.model || config.models[0] || DEFAULT_MODEL,
+          model: config.models[0] || session.agent.model || DEFAULT_MODEL,
           messages,
           tools: TOOL_DEFINITIONS,
           tool_choice: toolChoice,

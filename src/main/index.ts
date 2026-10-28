@@ -18,6 +18,7 @@ import type {
   UpdateState,
 } from '../shared/types';
 import type { AgentEvent, AgentRouterStatus, AgentRouterTestResult, ChatMessage } from '../shared/agents';
+import { diagnoseModelCapabilities, listAvailableModels, normalizeModelId } from './editor/modelCapabilities';
 import { APP_VERSION } from '../shared/types';
 import { StateStore } from './store';
 import { detectFramework } from './frameworkDetect';
@@ -273,6 +274,32 @@ function routerKeyPath(): string {
   return join(app.getPath('userData'), '9router-api-key.enc');
 }
 
+function selectedModelPath(): string {
+  return join(app.getPath('userData'), 'agent-model-selection.json');
+}
+
+function getSelectedAgentModel(): string {
+  try {
+    const raw = JSON.parse(readFileSync(selectedModelPath(), 'utf8')) as { model?: unknown };
+    return typeof raw.model === 'string' ? normalizeModelId(raw.model) : ROUTER_MODEL;
+  } catch {
+    return ROUTER_MODEL;
+  }
+}
+
+function saveSelectedAgentModel(value: unknown): ActionResult {
+  try {
+    if (typeof value !== 'string') throw new Error('ID model harus berupa teks.');
+    const model = normalizeModelId(value);
+    const path = selectedModelPath();
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify({ model, updatedAt: new Date().toISOString() }, null, 2), 'utf8');
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message || 'Gagal menyimpan model.' };
+  }
+}
+
 function readStoredRouterKey(): string {
   try {
     if (!safeStorage.isEncryptionAvailable()) return '';
@@ -294,7 +321,7 @@ function getRouterConfig(): RouterConfig | null {
   return {
     apiKey,
     endpoint: ROUTER_ENDPOINT,
-    models: [ROUTER_MODEL],
+    models: [getSelectedAgentModel()],
     fallbackEndpoint: ROUTER_FALLBACK_ENDPOINT,
   };
 }
@@ -304,7 +331,7 @@ function getAgentRouterStatus(): AgentRouterStatus {
     configured: !!getRouterApiKey(),
     endpoint: ROUTER_ENDPOINT,
     fallbackEndpoint: ROUTER_FALLBACK_ENDPOINT,
-    model: ROUTER_MODEL,
+    model: getSelectedAgentModel(),
   };
 }
 
@@ -1044,6 +1071,22 @@ function registerIpc(): void {
   ipcMain.handle('rk:agent:get-config', () => getAgentRouterStatus());
   ipcMain.handle('rk:agent:save-config', (_e, apiKey: string) => saveAgentRouterKey(apiKey));
   ipcMain.handle('rk:agent:test-config', () => testAgentRouter());
+  ipcMain.handle('rk:agent:list-models', async () => {
+    const config = getRouterConfig();
+    if (!config) return { ok: false, message: 'API key belum diatur.', models: [] };
+    return listAvailableModels(config);
+  });
+  ipcMain.handle('rk:agent:select-model', (_e, model: string) => saveSelectedAgentModel(model));
+  ipcMain.handle('rk:agent:diagnose-model', async () => {
+    const selected = getSelectedAgentModel();
+    const config = getRouterConfig() ?? {
+      apiKey: '',
+      endpoint: ROUTER_ENDPOINT,
+      models: [selected],
+      fallbackEndpoint: ROUTER_FALLBACK_ENDPOINT,
+    };
+    return diagnoseModelCapabilities(config, selected);
+  });
   ipcMain.handle('rk:agent:list-skills', () => agentService.listSkills());
   ipcMain.handle('rk:agent:pick-attachments', async () => {
     try {
