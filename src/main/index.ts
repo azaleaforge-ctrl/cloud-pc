@@ -1029,14 +1029,15 @@ function registerIpc(): void {
     else if (state.role === 'member' && memberRoom) memberRoom.setAgentBusy(busy);
   };
   const emitAgentSessionEvent = (event: AgentEvent, sessionId: string): void => {
-    const before = activeAgentSessions.size;
     if (event.type === 'state') {
       if (event.state.status === 'starting' || event.state.status === 'running') activeAgentSessions.add(sessionId);
       else if (event.state.status === 'stopped' || event.state.status === 'error' || event.state.status === 'idle') activeAgentSessions.delete(sessionId);
     } else if (event.type === 'error' || event.type === 'exit') {
       activeAgentSessions.delete(sessionId);
     }
-    if (activeAgentSessions.size !== before) updateQueueAgentBusy();
+    // Re-evaluate room identity on each event as the user may have joined or left a room
+    // while an agent session was still running.
+    updateQueueAgentBusy();
     send('rk:agent:event', { sessionId, event });
   };
   ipcMain.handle('rk:agent:list', () => agentService.listAgents());

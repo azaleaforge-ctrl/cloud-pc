@@ -737,6 +737,14 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
           <span className={wb.root ? 'ready' : 'missing'} />
           {wb.root ? 'Agent bekerja di folder project aktif' : 'Belum ada workspace'}
         </div>
+        <button type="button" className="ai-clear-btn" onClick={() => setSettingsOpen((open) => !open)} title="Pengaturan AI">
+          ⚙ Pengaturan AI
+        </button>
+        {loading ? (
+          <button type="button" className="ai-clear-btn" onClick={() => void stopAgent()} title="Hentikan agent">
+            ■ Hentikan
+          </button>
+        ) : null}
         <button type="button" className="ai-clear-btn" onClick={clearChat} disabled={messages.length === 0 && !loading}>
           <IconTrash size={13} /> Chat baru
         </button>

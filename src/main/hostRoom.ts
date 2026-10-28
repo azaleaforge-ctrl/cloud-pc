@@ -163,7 +163,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   const port = (wsServer.address() as AddressInfo).port;
 
   const listMembers = (): Member[] => [...members.values()];
-  const queueState = () => ({ holder, queue: [...queue], holderLastActivity, holderActivitySource, holderStartedAt, agentBusy: agentBusyHolder === holder });
+  const queueState = () => ({ holder, queue: [...queue], holderLastActivity, holderActivitySource, holderStartedAt, agentBusy: Boolean(holder && agentBusyHolder === holder) });
 
   const broadcast = (msg: WireMessage, exceptId?: string): void => {
     for (const client of clients.values()) {
@@ -186,7 +186,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   };
 
   const sendState = (): void => {
-    broadcast({ t: 'state', members: listMembers(), holder, queue: [...queue], holderLastActivity, holderActivitySource, holderStartedAt, agentBusy: agentBusyHolder === holder, server: serverState });
+    broadcast({ t: 'state', members: listMembers(), holder, queue: [...queue], holderLastActivity, holderActivitySource, holderStartedAt, agentBusy: Boolean(holder && agentBusyHolder === holder), server: serverState });
   };
 
   const scheduleSyncEmit = (): void => {
@@ -784,7 +784,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
           holderLastActivity,
           holderActivitySource,
           holderStartedAt,
-          agentBusy: agentBusyHolder === holder,
+          agentBusy: Boolean(holder && agentBusyHolder === holder),
           hostIp: getLanIp() ?? '127.0.0.1',
           server: serverState,
         });

@@ -2952,3 +2952,49 @@ button.ed-status-item:hover {
   .ai-panel.fullsize .ai-messages { padding-left: 10px; padding-right: 10px; }
   .ai-user-text { max-width: 100%; }
 }
+
+
+/* Editor-style tab for the AI conversation, keeping it inside the editor workspace. */
+.ed-ai-tabbar {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 8px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 8px 0 13px;
+  border-bottom: 1px solid var(--ed-border);
+  background: var(--ed-panel, #141a24);
+  color: var(--ed-text);
+}
+.ed-ai-tab-icon {
+  color: #a7b8ff;
+  font-size: 15px;
+  line-height: 1;
+}
+.ed-ai-tab-title {
+  overflow: hidden;
+  max-width: min(60%, 420px);
+  color: var(--ed-text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ed-ai-tab-flex { flex: 1; }
+.ed-ai-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ed-text-2);
+  cursor: pointer;
+}
+.ed-ai-tab-close:hover { background: var(--ed-hover, rgba(255,255,255,.08)); color: var(--ed-text); }
+/* The active conversation title is now the editor tab, not a second header. */
+.ai-panel.fullsize .ai-panel-header { display: none; }
+.ai-panel.fullsize .ai-agent-toolbar { flex: none; }

@@ -465,6 +465,22 @@ export function EditorShell({ state, active, onError }: Props) {
               </>
             )}
             </div>
+            {agentChatOpen ? (
+              <div className="ed-ai-tabbar" role="tab" aria-selected="true" aria-label="Tab AI Coding Agent">
+                <span className="ed-ai-tab-icon" aria-hidden="true">✳</span>
+                <span className="ed-ai-tab-title">AI Coding Agent</span>
+                <span className="ed-ai-tab-flex" />
+                <button
+                  type="button"
+                  className="ed-ai-tab-close"
+                  aria-label="Kembali ke editor"
+                  title="Kembali ke editor"
+                  onClick={() => setAgentChatOpen(false)}
+                >
+                  <IconX size={13} />
+                </button>
+              </div>
+            ) : null}
             <AgentChat
               wb={{ root: wb.root, activePath: wb.activePath }}
               visible={agentChatOpen}

@@ -953,6 +953,10 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       cli.killed = true;
       cliSessions.delete(sessionId);
       try { cli.pty.kill(); } catch { /* process may have exited */ }
+      // PTY onExit intentionally ignores killed sessions; emit an explicit terminal
+      // state so queue activity tracking cannot leave the room permanently busy.
+      emit(cli, { type: 'state', state: { status: 'stopped', agentId: cli.agent.id } });
+      emit(cli, { type: 'exit', code: -1 });
       if (process.platform === 'win32') {
         try {
           const killer = spawn('taskkill', ['/PID', String(cli.pty.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
