@@ -1,3 +1,25 @@
+# Ruang Kerja v0.4.6
+
+## Fix AI Agent chat setup and 9router connection
+
+### Perbaikan
+- **Perbaikan chat awal:** pengaturan 9router otomatis terbuka jika API key belum dikonfigurasi. Chat dinonaktifkan dengan penjelasan yang jelas sampai konfigurasi tersedia, sehingga permintaan tidak lagi tampak terkirim tanpa jawaban.
+- **Uji koneksi model:** pengaturan AI menyediakan tombol untuk menguji permintaan Chat Completions sungguhan ke model `ps/poolside/laguna-s-2.1(high)`, dengan endpoint utama dan cadangan dicoba berurutan.
+- **Fallback lebih kuat:** endpoint cadangan tetap dicoba ketika endpoint utama mengembalikan respons HTTP yang gagal, termasuk perbedaan dukungan model atau tool.
+- **Perbaikan layout error:** pesan error ditampilkan di area pesan chat, bukan menimpa input. Error otomatis hilang setelah 5 detik.
+- **Pengiriman chat lebih aman:** pesan tidak dikirim ketika API key atau workspace belum siap; status konfigurasi tampil secara eksplisit.
+- **Notifikasi:** error chat, hasil uji koneksi yang gagal, toast, dan error pembaruan tetap bersifat sementara.
+
+### Setup pertama kali
+1. Buka tab **Editor** di dalam ruangan proyek.
+2. Panel AI Agent akan membuka pengaturan 9router bila belum dikonfigurasi.
+3. Masukkan API key 9router yang aktif, lalu pilih **Simpan & uji**.
+4. Pastikan status koneksi berhasil. Setelah itu, kirim pesan uji seperti `Halo, balas OK.`
+
+> Keamanan: API key lama yang pernah terlihat dalam repository publik harus dicabut/dirotasi. Rilis ini tidak menyertakan API key di source atau installer; pengguna harus memasukkan key baru miliknya.
+
+---
+
 # Ruang Kerja v0.4.5
 
 ## AI Coding Agent — agentic workflow, safer 9router setup, and clearer status
