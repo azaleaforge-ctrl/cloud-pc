@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { AgentFileChange, AgentTodo, ChatMessage } from '../../shared/agents';
+import type { AgentCheckpointSummary, AgentFileChange, AgentTodo, ChatMessage } from '../../shared/agents';
 
 const SCHEMA_VERSION = 1;
 const MAX_MESSAGES = 1000;
@@ -93,10 +93,11 @@ export function buildConversationSummary(
   const eligible = messages.filter(message =>
     message.role !== 'system' && !message.streaming && message.ts > previousThroughTs,
   );
-  if (eligible.length <= keepRecent && eligible.reduce((sum, m) => sum + m.content.length, 0) < 80_000) {
-    return { summary: previousSummary, throughTs: previousThroughTs };
-  }
-  const older = eligible.slice(0, Math.max(0, eligible.length - keepRecent));
+  const totalChars = eligible.reduce((sum, message) => sum + message.content.length, 0);
+  const shouldCompact = eligible.length > keepRecent || totalChars > 80_000;
+  if (!shouldCompact) return { summary: previousSummary, throughTs: previousThroughTs };
+  const keepCount = totalChars > 80_000 ? Math.min(keepRecent, 12) : keepRecent;
+  const older = eligible.slice(0, Math.max(0, eligible.length - keepCount));
   if (!older.length) return { summary: previousSummary, throughTs: previousThroughTs };
   const lines = older.map(message => {
     const role = message.role === 'user' ? 'User' : 'Assistant';
@@ -209,6 +210,21 @@ export async function listAgentSessions(userDataDir: string): Promise<AgentSessi
 export async function loadAgentSession(userDataDir: string, id: string): Promise<AgentSessionRecord | null> {
   validateSessionId(id);
   return readRecord(userDataDir, id);
+}
+
+function checkpointSummary(checkpoint: AgentCheckpoint): AgentCheckpointSummary {
+  return {
+    id: checkpoint.id,
+    runId: checkpoint.runId,
+    createdAt: checkpoint.createdAt,
+    projectPath: checkpoint.projectPath,
+    status: checkpoint.status,
+    paths: checkpoint.files.map(item => item.path),
+  };
+}
+export async function listAgentCheckpoints(userDataDir: string, id: string): Promise<AgentCheckpointSummary[]> {
+  const record = await readRecord(userDataDir, id);
+  return record ? [...record.checkpoints].sort((a, b) => b.createdAt - a.createdAt).map(checkpointSummary) : [];
 }
 export async function saveAgentSession(userDataDir: string, input: AgentSessionSnapshot): Promise<AgentSessionSummary> {
   validateSessionId(input.id);
