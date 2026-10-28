@@ -1262,6 +1262,8 @@ function registerIpc(): void {
   });
   ipcMain.handle('rk:agent:approve-tool', (_e, sessionId: string, requestId: string, approved: boolean) =>
     agentService.approveTool(sessionId, requestId, approved));
+  ipcMain.handle('rk:agent:answer-question', (_e, sessionId: string, requestId: string, answer: string) =>
+    agentService.answerQuestion(sessionId, requestId, answer));
   ipcMain.handle('rk:agent:send-input', (_e, sessionId: string, data: string) => agentService.sendInput(sessionId, data));
   ipcMain.handle('rk:agent:resize', (_e, sessionId: string, cols: number, rows: number) => agentService.resizeTerminal(sessionId, cols, rows));
   ipcMain.handle('rk:agent:stop', (_e, sessionId: string) => agentService.stopAgent(sessionId));
