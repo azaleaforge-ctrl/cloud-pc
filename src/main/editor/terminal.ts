@@ -1,9 +1,10 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, relative, resolve } from 'node:path';
 import * as pty from '@lydell/node-pty';
 import type { IPty } from '@lydell/node-pty';
+import { resolveTerminalShell } from './terminalShell';
 import type {
   TerminalCreateOptions,
   TerminalDataEvent,
@@ -31,34 +32,7 @@ const DEFAULT_COLS = 100;
 const DEFAULT_ROWS = 30;
 const MAX_DIMENSION = 2000;
 
-let cachedShell: { file: string; args: string[] } | null = null;
 
-function isOnPath(exe: string): boolean {
-  try {
-    const result = spawnSync('where.exe', [exe], { windowsHide: true, stdio: 'ignore' });
-    return result.status === 0;
-  } catch {
-    return false;
-  }
-}
-
-/** Tentukan shell sekali saja; hasilnya di-cache seumur proses. */
-function resolveShell(): { file: string; args: string[] } {
-  if (cachedShell) return cachedShell;
-  if (process.platform !== 'win32') {
-    cachedShell = { file: process.env.SHELL ?? '/bin/bash', args: [] };
-    return cachedShell;
-  }
-  if (isOnPath('pwsh.exe')) {
-    cachedShell = { file: 'pwsh.exe', args: ['-NoLogo'] };
-  } else if (isOnPath('powershell.exe')) {
-    cachedShell = { file: 'powershell.exe', args: ['-NoLogo'] };
-  } else {
-    const comspec = process.env.ComSpec?.trim();
-    cachedShell = { file: comspec && comspec.length > 0 ? comspec : 'cmd.exe', args: [] };
-  }
-  return cachedShell;
-}
 
 function isInside(root: string, target: string): boolean {
   const rel = relative(root, target);
@@ -134,7 +108,7 @@ export function createTerminalService(opts: {
   return {
     async create(createOpts?: TerminalCreateOptions): Promise<TerminalSessionInfo> {
       if (tearingDown) throw new Error('Terminal sedang ditutup. Coba lagi.');
-      const shell = resolveShell();
+      const shell = resolveTerminalShell();
       const cols = clampDimension(createOpts?.cols, DEFAULT_COLS);
       const rows = clampDimension(createOpts?.rows, DEFAULT_ROWS);
       const cwd = resolveCwd(createOpts?.cwd);
@@ -147,7 +121,7 @@ export function createTerminalService(opts: {
 
       let handle: IPty;
       try {
-        handle = pty.spawn(shell.file, shell.args, {
+        handle = pty.spawn(shell.file, shell.interactiveArgs, {
           name: 'xterm-256color',
           cols,
           rows,
@@ -216,7 +190,7 @@ export function createTerminalService(opts: {
       sessions.clear();
       tearingDown = false;
       // probe shell diulang pada sesi berikutnya (mis. setelah pwsh dipasang)
-      cachedShell = null;
+      // Shell profile resolution is shared with the AI runner and remains stable for this process.
     },
   };
 }
