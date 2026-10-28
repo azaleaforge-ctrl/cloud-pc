@@ -27,7 +27,7 @@ import type {
   TerminalSessionInfo,
   VsxSearchResult,
 } from '../shared/editor';
-import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentSessionData, AgentSessionSaveInput, AgentSessionSummary, ChatMessage, AgentEvent } from '../shared/agents';
+import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, ChatMessage, AgentEvent } from '../shared/agents';
 import { APP_VERSION } from '../shared/types';
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -124,7 +124,7 @@ const api: RkApi = {
   agentDiagnoseModel: (): Promise<AgentModelCapabilityReport> => ipcRenderer.invoke('rk:agent:diagnose-model'),
   agentListSessions: (): Promise<AgentSessionSummary[]> => ipcRenderer.invoke('rk:agent:list-sessions'),
   agentLoadSession: (id: string): Promise<{ ok: boolean; error?: string; session?: AgentSessionData }> => ipcRenderer.invoke('rk:agent:load-session', id),
-  agentSaveSession: (session: AgentSessionSaveInput) => ipcRenderer.invoke('rk:agent:save-session', session),
+  agentSaveSession: (session: AgentSessionSaveInput): Promise<AgentSessionSaveResult> => ipcRenderer.invoke('rk:agent:save-session', session),
   agentDeleteSession: (id: string) => ipcRenderer.invoke('rk:agent:delete-session', id),
   agentListCheckpoints: (sessionId: string): Promise<AgentCheckpointSummary[]> => ipcRenderer.invoke('rk:agent:list-checkpoints', sessionId),
   agentRewindCheckpoint: (sessionId: string, checkpointId: string): Promise<AgentCheckpointActionResult> => ipcRenderer.invoke('rk:agent:rewind-checkpoint', sessionId, checkpointId),
