@@ -15,7 +15,8 @@
     "build:renderer": "vite build",
     "start": "electron .",
     "typecheck": "tsc --noEmit",
-    "dist": "npm run build && electron-builder --win nsis"
+    "dist": "npm run build && electron-builder --win nsis",
+    "test:agent-todo": "node scripts/test-agent-todo.mjs"
   },
   "build": {
     "appId": "com.ruangkerja.app",

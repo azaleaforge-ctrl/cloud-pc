@@ -45,8 +45,39 @@ export interface AgentSkillSelection {
   reason: string;
 }
 
+export type AgentTodoStatus = 'pending' | 'in_progress' | 'completed' | 'blocked';
+export type AgentTodoPriority = 'low' | 'normal' | 'high';
+
+export interface AgentTodo {
+  id: string;
+  title: string;
+  status: AgentTodoStatus;
+  priority: AgentTodoPriority;
+  blockedBy: string[];
+  verification: string;
+  blockedReason?: string;
+  completionEvidence?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AgentToolActivity {
+  id: string;
+  name: string;
+  status: 'running' | 'completed' | 'failed';
+  detail: string;
+  ts: number;
+}
+
+export interface AgentRunResult {
+  outcome: 'completed' | 'blocked' | 'cancelled' | 'failed';
+  message: string;
+  totalToolCalls: number;
+  durationMs: number;
+}
+
 export interface AgentRunState {
-  status: 'idle' | 'starting' | 'running' | 'stopped' | 'error';
+  status: 'idle' | 'starting' | 'running' | 'completed' | 'stopped' | 'cancelled' | 'blocked' | 'error';
   agentId: string;
   error?: string | null;
 }
@@ -71,7 +102,10 @@ export type AgentEvent =
   | { type: 'file-change'; change: AgentFileChange }
   | { type: 'permission-request'; requestId: string; command: string; reason: string }
   | { type: 'permission-result'; requestId: string; approved: boolean }
-  | { type: 'skills'; skills: AgentSkillSelection[] };
+  | { type: 'skills'; skills: AgentSkillSelection[] }
+  | { type: 'todo-update'; todos: AgentTodo[] }
+  | { type: 'tool-status'; activity: AgentToolActivity }
+  | { type: 'run-result'; result: AgentRunResult };
 
 export interface RouterConfig {
   apiKey: string;
