@@ -11,9 +11,10 @@ import type {
   AgentTodo,
   AgentToolActivity,
   AgentTerminalProcess,
+  AgentAttachmentRef,
   ChatMessage,
 } from '../../../shared/agents';
-import { IconSend, Spinner, IconCopy, IconX, IconTrash, IconCheck } from '../icons';
+import { IconSend, IconPlus, Spinner, IconCopy, IconX, IconTrash, IconCheck } from '../icons';
 import './agent-progress.css';
 
 interface Props {
@@ -217,6 +218,16 @@ function MessageBubble({
       <div className="ai-message-author">{isUser ? 'Kamu' : 'Poolside Coding Agent'}</div>
       <div className="ai-message-body">
         {isUser ? <div className="ai-user-text">{msg.content}</div> : <MarkdownContent content={msg.content} />}
+        {isUser && msg.attachments?.length ? (
+          <div className="ai-message-attachments" aria-label="Lampiran pesan">
+            {msg.attachments.map(item => (
+              <span className="ai-attachment-chip" key={item.id} title={item.mimeType}>
+                <span aria-hidden="true">▤</span><span>{item.name}</span>
+                <small>{Math.max(1, Math.round(item.size / 1024))} KB</small>
+              </span>
+            ))}
+          </div>
+        ) : null}
         {!isUser ? (
           <button type="button" className="ai-msg-copy" title="Salin jawaban" onClick={() => onCopy(msg.content)}>
             {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
@@ -497,6 +508,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [terminalProcess, setTerminalProcess] = useState<AgentTerminalProcess | null>(null);
   const [terminalOutput, setTerminalOutput] = useState('');
   const [input, setInput] = useState('');
+  const [pendingAttachments, setPendingAttachments] = useState<AgentAttachmentRef[]>([]);
+  const [selectingAttachments, setSelectingAttachments] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activity, setActivity] = useState('');
@@ -657,9 +670,30 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     window.setTimeout(() => setCopiedMsg(null), 1800);
   }, []);
 
+  const pickAttachments = useCallback(async () => {
+    if (loading || selectingAttachments || !sessionReady || !wb.root) return;
+    setSelectingAttachments(true);
+    setError(null);
+    try {
+      const result = await window.rk.agentPickAttachments();
+      if (!result.ok) throw new Error(result.error ?? 'Gagal memilih lampiran.');
+      if (!result.attachments?.length) return;
+      setPendingAttachments(current => {
+        const next = [...current];
+        for (const item of result.attachments ?? []) if (!next.some(existing => existing.id === item.id)) next.push(item);
+        if (next.length > 10) { setError('Maksimal 10 lampiran per pesan.'); return next.slice(0, 10); }
+        return next;
+      });
+    } catch (error) {
+      setError((error as Error).message || 'Lampiran gagal diproses.');
+    } finally {
+      setSelectingAttachments(false);
+    }
+  }, [loading, selectingAttachments, sessionReady, wb.root]);
+
   const sendMessage = useCallback(async () => {
     const text = input.trim();
-    if (!text || loading || !sessionReady || !activeAgent) return;
+    if ((!text && pendingAttachments.length === 0) || loading || !sessionReady || !activeAgent) return;
     if (!routerStatus?.configured) {
       setSettingsOpen(true);
       setError('Hubungkan 9router terlebih dahulu. Masukkan API key baru yang aktif, lalu tekan Simpan & uji.');
@@ -675,7 +709,12 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setTerminalProcess(null);
     setTerminalOutput('');
     setActivity('Mempersiapkan workspace…');
-    const userMessage: ChatMessage = { id: 'user-' + Date.now(), role: 'user', content: text, ts: Date.now() };
+    const userMessage: ChatMessage = {
+      id: 'user-' + Date.now(), role: 'user',
+      content: text || 'Tolong analisis lampiran yang saya kirim dan rangkum informasi pentingnya.',
+      ts: Date.now(),
+      ...(pendingAttachments.length ? { attachments: pendingAttachments } : {}),
+    };
     const assistantMessage: ChatMessage = { id: 'assistant-' + Date.now(), role: 'assistant', content: '', ts: Date.now(), streaming: true };
     setMessages((previous) => [...previous, userMessage, assistantMessage]);
     setInput('');
@@ -684,13 +723,15 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setPermission(null);
     activeSessionRef.current = 'pending-session';
     try {
-      const compactContext = [...messages.filter((message) => !message.streaming), userMessage]
-        .filter((message) => message.role === 'user' || message.role === 'assistant')
-        .slice(-12);
+      const compactContext = [...messages.filter(message => !message.streaming), userMessage]
+        .filter(message => message.role === 'user' || message.role === 'assistant')
+        .slice(-12)
+        .map(message => message.id === userMessage.id ? message : { ...message, attachments: undefined });
       const result = await window.rk.agentStartChat(activeAgent.id, compactContext, wb.activePath, conversationId);
       if (!result.ok || !result.sessionId) throw new Error(result.error ?? 'Agent gagal dimulai.');
       activeSessionRef.current = result.sessionId;
       setActiveSessionId(result.sessionId);
+      setPendingAttachments([]);
     } catch (err) {
       setError((err as Error).message || 'Gagal memulai agent.');
       setLoading(false);
@@ -699,7 +740,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         index === previous.length - 1 && item.role === 'assistant' ? { ...item, streaming: false } : item,
       ));
     }
-  }, [input, loading, sessionReady, activeAgent, messages, routerStatus?.configured, wb.root, wb.activePath, conversationId]);
+  }, [input, pendingAttachments, loading, sessionReady, activeAgent, messages, routerStatus?.configured, wb.root, wb.activePath, conversationId]);
 
   const stopAgent = useCallback(async () => {
     if (!activeSessionId) return;
@@ -961,7 +1002,24 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
               <span>{wb.activePath ? pathName(wb.activePath) : pathName(wb.root)}</span>
               <span>Enter untuk kirim · Shift+Enter untuk baris baru</span>
             </div>
+            {pendingAttachments.length ? (
+              <div className="ai-pending-attachments" aria-label="Lampiran siap dikirim">
+                {pendingAttachments.map(item => (
+                  <span className="ai-attachment-chip" key={item.id} title={item.mimeType}>
+                    <span aria-hidden="true">▤</span><span>{item.name}</span>
+                    <button type="button" aria-label={'Hapus lampiran ' + item.name} disabled={loading}
+                      onClick={() => setPendingAttachments(items => items.filter(x => x.id !== item.id))}><IconX size={12} /></button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
             <div className="ai-input-row">
+              <button type="button" className="ai-attach-btn" aria-label="Lampirkan file"
+                title="Lampirkan foto, dokumen, atau file teks"
+                disabled={loading || selectingAttachments || !sessionReady || !wb.root}
+                onClick={() => void pickAttachments()}>
+                {selectingAttachments ? <Spinner size={16} /> : <IconPlus size={17} />}
+              </button>
               <textarea
                 ref={inputRef}
                 className="ai-input"
@@ -977,7 +1035,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 type="button"
                 className="ai-send-btn"
                 onClick={() => void sendMessage()}
-                disabled={loading || !input.trim() || !activeAgent || !routerStatus?.configured || !wb.root}
+                disabled={loading || (!input.trim() && pendingAttachments.length === 0) || !activeAgent || !routerStatus?.configured || !wb.root}
                 title="Kirim (Enter)"
               >
                 {loading ? <Spinner size={17} /> : <IconSend size={17} />}
