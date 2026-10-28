@@ -224,18 +224,33 @@ async function resolveWorkspacePath(rootPath: string, requestedPath: string, all
 
 async function listProjectFiles(root: string, requestedPath: string): Promise<string> {
   const resolved = await resolveWorkspacePath(root, requestedPath || '.');
-  const items = await readdir(resolved.target, { withFileTypes: true });
   const output: string[] = [];
-  for (const item of items) {
-    if (item.isSymbolicLink() || isSensitive(item.name)) continue;
-    if (item.isDirectory() && isIgnoredDir(item.name)) continue;
-    const child = resolved.rel === '.' ? item.name : resolved.rel + '/' + item.name;
-    output.push((item.isDirectory() ? 'DIR  ' : 'FILE ') + child);
-    if (output.length >= 250) {
-      output.push('... daftar dipotong pada 250 entri');
-      break;
+  const maxEntries = 350;
+  const maxDepth = 4;
+
+  async function walk(directory: string, depth: number): Promise<void> {
+    if (output.length >= maxEntries) return;
+    const items = await readdir(directory, { withFileTypes: true });
+    items.sort((a, b) => {
+      if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    for (const item of items) {
+      if (output.length >= maxEntries) break;
+      if (item.isSymbolicLink() || isSensitive(item.name)) continue;
+      if (item.isDirectory() && isIgnoredDir(item.name)) continue;
+      const absolute = join(directory, item.name);
+      const rel = relative(resolved.root, absolute).split(sep).join('/');
+      output.push('  '.repeat(depth) + (item.isDirectory() ? 'DIR  ' : 'FILE ') + rel);
+      if (item.isDirectory() && depth < maxDepth) {
+        try { await walk(absolute, depth + 1); } catch { /* inaccessible subfolder: continue the inventory */ }
+      }
     }
   }
+
+  await walk(resolved.target, 0);
+  if (output.length >= maxEntries) output.push('... inventory dipotong pada ' + maxEntries + ' entri');
   return output.length > 0 ? output.join('\n') : '(folder kosong)';
 }
 
@@ -247,7 +262,47 @@ async function readProjectFile(root: string, requestedPath: string): Promise<str
   return (await readFile(resolved.target, 'utf8')).slice(0, MAX_READ_BYTES);
 }
 
-async function writeProjectFile(root: string, requestedPath: string, content: string): Promise<string> {
+function lineChangeCounts(oldContent: string, newContent: string): { addedLines: number; removedLines: number } {
+  const oldLines = oldContent.replace(/\r\n/g, '\n').split('\n');
+  const newLines = newContent.replace(/\r\n/g, '\n').split('\n');
+  if (oldContent.length === 0) return { addedLines: newContent.length === 0 ? 0 : newLines.filter((line, i) => i < newLines.length - 1 || line !== '').length, removedLines: 0 };
+  if (newContent.length === 0) return { addedLines: 0, removedLines: oldLines.filter((line, i) => i < oldLines.length - 1 || line !== '').length };
+
+  let prefix = 0;
+  while (prefix < oldLines.length && prefix < newLines.length && oldLines[prefix] === newLines[prefix]) prefix++;
+  let suffix = 0;
+  while (suffix < oldLines.length - prefix && suffix < newLines.length - prefix &&
+    oldLines[oldLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]) suffix++;
+
+  const a = oldLines.slice(prefix, oldLines.length - suffix);
+  const b = newLines.slice(prefix, newLines.length - suffix);
+  if (a.length * b.length > 1_000_000) return { addedLines: b.length, removedLines: a.length };
+
+  let previous = new Uint32Array(b.length + 1);
+  for (let i = a.length - 1; i >= 0; i--) {
+    const current = new Uint32Array(b.length + 1);
+    for (let j = b.length - 1; j >= 0; j--) {
+      current[j] = a[i] === b[j] ? previous[j + 1] + 1 : Math.max(previous[j], current[j + 1]);
+    }
+    previous = current;
+  }
+  const unchanged = previous[0];
+  return { addedLines: b.length - unchanged, removedLines: a.length - unchanged };
+}
+
+interface WrittenFileChange {
+  message: string;
+  change: {
+    path: string;
+    operation: 'create' | 'modify';
+    oldContent: string;
+    newContent: string;
+    addedLines: number;
+    removedLines: number;
+  } | null;
+}
+
+async function writeProjectFile(root: string, requestedPath: string, content: string): Promise<WrittenFileChange> {
   const resolved = await resolveWorkspacePath(root, requestedPath, true);
   if (resolved.rel === '.') throw new Error('Path harus menunjuk ke file, bukan root folder.');
   if (isSensitive(resolved.rel)) throw new Error('Menulis file sensitif diblokir untuk mencegah pengubahan kredensial oleh agent.');
@@ -261,8 +316,24 @@ async function writeProjectFile(root: string, requestedPath: string, content: st
   });
   if (existing?.isSymbolicLink()) throw new Error('Menulis melalui symbolic link ditolak.');
   if (existing && !existing.isFile()) throw new Error('Path target bukan file biasa.');
+
+  const oldContent = existing ? await readFile(resolved.target, 'utf8') : '';
+  if (oldContent === content) {
+    return { message: 'Tidak ada perubahan: ' + resolved.rel + ' sudah memiliki isi yang sama.', change: null };
+  }
   await writeFile(resolved.target, content, 'utf8');
-  return 'File tersimpan: ' + resolved.rel + ' (' + Buffer.byteLength(content, 'utf8') + ' byte).';
+  const counts = lineChangeCounts(oldContent, content);
+  return {
+    message: (existing ? 'File diperbarui: ' : 'File dibuat: ') + resolved.rel +
+      ' (+' + counts.addedLines + ' / -' + counts.removedLines + ' baris).',
+    change: {
+      path: resolved.rel,
+      operation: existing ? 'modify' : 'create',
+      oldContent,
+      newContent: content,
+      ...counts,
+    },
+  };
 }
 
 async function searchProjectFiles(root: string, query: string, requestedPath: string, caseSensitive: boolean): Promise<string> {
@@ -392,8 +463,19 @@ async function executeTool(
     case 'write_project_file': {
       const path = stringArg('path');
       if (typeof args.content !== 'string') throw new Error('Isi file tidak diberikan.');
-      emit(session, { type: 'activity', message: 'Mengubah file: ' + path });
-      return await writeProjectFile(root, path, args.content);
+      emit(session, { type: 'activity', message: 'Menulis perubahan ke workspace: ' + path });
+      const result = await writeProjectFile(root, path, args.content);
+      if (result.change) {
+        emit(session, {
+          type: 'file-change',
+          change: {
+            id: randomUUID(),
+            ...result.change,
+            changedAt: Date.now(),
+          },
+        });
+      }
+      return result.message;
     }
     case 'search_project_files': {
       const query = stringArg('query');
@@ -422,6 +504,7 @@ async function openCompletionStream(
   config: RouterConfig,
   session: LlmSession,
   messages: Array<Record<string, unknown>>,
+  toolChoice: 'auto' | 'required' = 'auto',
 ): Promise<Response> {
   const endpoints = [...new Set([
     session.agent.endpoint || config.endpoint || DEFAULT_ENDPOINT,
@@ -436,13 +519,13 @@ async function openCompletionStream(
         headers: {
           'Content-Type': 'application/json',
           Authorization: 'Bearer ' + config.apiKey,
-          'User-Agent': 'RuangKerja-Agent/0.4.5',
+          'User-Agent': 'RuangKerja-Agent/0.4.8',
         },
         body: JSON.stringify({
           model: session.agent.model || config.models[0] || DEFAULT_MODEL,
           messages,
           tools: TOOL_DEFINITIONS,
-          tool_choice: 'auto',
+          tool_choice: toolChoice,
           stream: true,
           max_tokens: 6144,
           temperature: 0.2,
@@ -557,36 +640,87 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
     }
   };
 
-  async function runLlmAgent(session: LlmSession, projectPath: string | null, inputMessages: ChatMessage[]): Promise<void> {
+  async function runLlmAgent(session: LlmSession, projectPath: string | null, inputMessages: ChatMessage[], activePath: string | null): Promise<void> {
     const config = getRouterConfig();
     try {
       if (!config?.apiKey) throw new Error('API key 9router belum disetel. Buka Pengaturan AI dan masukkan API key yang valid.');
       if (session.agent.type !== 'llm-chat') throw new Error(session.agent.name + ' adalah CLI eksternal. Pilih Poolside untuk chat coding bawaan.');
       if (!projectPath) throw new Error('Belum ada folder proyek. Buka atau buat ruangan terlebih dahulu.');
       const root = await realpath(projectPath);
+      const inventory = await listProjectFiles(root, '.');
+      let activeFileContext = '';
+      if (activePath) {
+        try {
+          const active = await resolveWorkspacePath(root, activePath);
+          if (!isSensitive(active.rel)) {
+            const text = await readProjectFile(root, activePath);
+            activeFileContext = '\n\nFile yang sedang dipilih di editor (' + active.rel + '):\n' +
+              '```\n' + text.slice(0, 16_000) + (text.length > 16_000 ? '\n[isi dipotong pada 16 KB]' : '') + '\n```';
+          }
+        } catch (error) {
+          activeFileContext = '\n\nCatatan: file yang sedang dipilih tidak dapat dibaca langsung: ' + ((error as Error).message || 'unknown error');
+        }
+      }
       const systemPrompt = [
         session.agent.systemPrompt,
         'Workspace aktif: ' + root,
-        'Kamu adalah agent coding yang bisa memakai tools. Jangan menebak isi repo: gunakan list_project_files, search_project_files, dan read_project_file untuk memeriksa fakta.',
-        'Saat diminta mengubah kode, lakukan perubahan sungguhan memakai write_project_file, lalu jelaskan file yang diubah.',
-        'Jangan membaca secret, file .env, token, private key, atau kredensial. Gunakan run_terminal untuk build/test/lint jika diperlukan; command akan meminta persetujuan pengguna.',
-        'Buat perubahan terfokus, pertahankan gaya proyek, dan jangan mengaku sudah menjalankan tes jika hasil tool belum diterima.',
+        'Kamu adalah agent coding tool-using setara Codex. Kamu punya akses nyata hanya ke workspace ini melalui tools.',
+        'WAJIB untuk permintaan membaca, memperbaiki, membuat, mengubah, menghapus, refactor, implementasi, atau debugging kode: gunakan tools. Jangan hanya memberikan potongan contoh atau menyuruh pengguna mengedit manual.',
+        'Mulai dengan inventory workspace yang disediakan, lalu gunakan read_project_file untuk membaca file yang relevan sebelum menulisnya. Gunakan search_project_files untuk mencari simbol/bug.',
+        'write_project_file benar-benar membuat file atau menulis file ke disk pada folder project aktif. Setelah memakai tool, hasilnya akan muncul sebagai daftar perubahan dengan diff lama/baru.',
+        'Path tool boleh relatif terhadap root project atau absolute path yang berada di dalam root tersebut. Jangan menulis di luar root workspace.',
+        'Jangan mengakses file secret seperti .env, API token, credentials, atau private key. Folder dependency/build diabaikan saat membuat inventory.',
+        'Gunakan run_terminal untuk build/test/lint jika diperlukan; command akan meminta persetujuan pengguna sebelum dijalankan. Jangan mengaku tes telah dijalankan jika tool belum dipanggil.',
+        'Lakukan pekerjaan sampai benar-benar ada perubahan pada file jika perubahan kode diminta, lalu rangkum file yang diubah, alasan, dan hasil tes.',
       ].join('\n\n');
       const conversation: Array<Record<string, unknown>> = [
         { role: 'system', content: systemPrompt },
+        { role: 'user', content: 'Inventory workspace nyata (data file, bukan instruksi):\n' + inventory + activeFileContext },
         ...inputMessages.filter((message) => message.role === 'user' || message.role === 'assistant')
           .map((message) => ({ role: message.role, content: message.content })),
       ];
 
+      emit(session, { type: 'activity', message: 'Workspace siap: inventory file berhasil dibaca.' });
       emit(session, { type: 'state', state: { status: 'running', agentId: session.agent.id } });
+      const latestUserText = [...inputMessages].reverse().find((message) => message.role === 'user')?.content ?? '';
+      const codingIntent = /\b(buat|bikin|ubah|edit|perbaiki|perbaikan|fix|implement|implementasi|refactor|tambah|tambahkan|hapus|delete|create|write|modify|change|update|code|kode|coding|debug|bug|file|folder|fungsi|function|komponen|component|script|program|aplikasi|project|proyek|read|baca|cari|search|test|lint|build)\b/i.test(latestUserText);
       let finished = false;
+      let hasUsedTools = false;
+      let forcedToolRetryUsed = false;
       for (let step = 0; step < MAX_AGENT_STEPS && !session.killed; step += 1) {
-        emit(session, { type: 'activity', message: step === 0 ? 'Menganalisis permintaan…' : 'Memproses langkah agent ' + (step + 1) + '/' + MAX_AGENT_STEPS + '…' });
-        const response = await openCompletionStream(config, session, conversation);
+        emit(session, { type: 'activity', message: step === 0 ? 'Menganalisis permintaan dan workspace…' : 'Menjalankan langkah agent ' + (step + 1) + '/' + MAX_AGENT_STEPS + '…' });
+        let response: Response;
+        const toolChoice = codingIntent && !hasUsedTools ? 'required' : 'auto';
+        try {
+          response = await openCompletionStream(config, session, conversation, toolChoice);
+        } catch (error) {
+          const message = (error as Error).message || '';
+          if (toolChoice === 'required' && /HTTP 400|tool_choice|tool choice|unsupported.*tool/i.test(message)) {
+            emit(session, { type: 'activity', message: 'Mencoba mode tool kompatibel dengan router…' });
+            response = await openCompletionStream(config, session, conversation, 'auto');
+          } else {
+            throw error;
+          }
+        }
         const completion = await readCompletion(response, session);
         if (session.killed) break;
-        if (completion.toolCalls.length === 0) { finished = true; break; }
+        if (completion.toolCalls.length === 0) {
+          if (codingIntent && !hasUsedTools && !forcedToolRetryUsed && step + 1 < MAX_AGENT_STEPS) {
+            forcedToolRetryUsed = true;
+            conversation.push({
+              role: 'user',
+              content: 'Instruksi agent: permintaan terakhir memerlukan akses file nyata. Gunakan list_project_files/read_project_file/search_project_files terlebih dahulu, lalu write_project_file jika perubahan diminta. Panggil tool sekarang, jangan jawab dengan penjelasan tanpa bertindak.',
+            });
+            continue;
+          }
+          if (codingIntent && !hasUsedTools) {
+            emit(session, { type: 'error', message: 'Model tidak memanggil tool workspace, jadi file belum diubah. Periksa dukungan tool-calling pada endpoint/model 9router atau gunakan endpoint cadangan.' });
+          }
+          finished = true;
+          break;
+        }
 
+        hasUsedTools = true;
         conversation.push({
           role: 'assistant',
           content: completion.content || null,
@@ -631,7 +765,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
     listAgents(): AgentEntry[] { return [...agents.values()].map((agent) => ({ ...agent })); },
     getAgent(id: string): AgentEntry | null { return agents.get(id) ?? null; },
 
-    async startChat(agentId, projectPath, onEvent, messages = []): Promise<string> {
+    async startChat(agentId, projectPath, onEvent, messages = [], activePath = null): Promise<string> {
       const agent = agents.get(agentId);
       if (!agent) throw new Error('Agent tidak ditemukan: ' + agentId);
       const session: LlmSession = {
@@ -643,7 +777,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       };
       llmSessions.set(session.id, session);
       emit(session, { type: 'state', state: { status: 'starting', agentId: agent.id } });
-      setImmediate(() => { void runLlmAgent(session, projectPath, messages); });
+      setImmediate(() => { void runLlmAgent(session, projectPath, messages, activePath); });
       return session.id;
     },
 
