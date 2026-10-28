@@ -12,7 +12,6 @@ import type {
   AgentTodo,
   AgentToolActivity,
   AgentTerminalProcess,
-  AgentTerminalOutput,
   AgentAttachmentRef,
   AgentCheckpointSummary,
   AgentModelCatalogResult,
@@ -493,10 +492,12 @@ function TerminalRunPanel({
   entry,
   copied,
   onCopy,
+  outputOverride,
 }: {
   entry: AgentTerminalHistoryEntry;
   copied: boolean;
   onCopy: (entry: AgentTerminalHistoryEntry) => void;
+  outputOverride?: string;
 }) {
   const process = entry.process;
   const statusLabel: Record<AgentTerminalProcess['status'], string> = {
@@ -508,7 +509,7 @@ function TerminalRunPanel({
     cancelled: 'Dibatalkan',
   };
   const elapsed = Math.max(0, Math.round(((process.finishedAt ?? Date.now()) - process.startedAt) / 1000));
-  const output = formatAgentTerminalOutput(entry.outputs);
+  const output = entry.outputs.length ? formatAgentTerminalOutput(entry.outputs) : (outputOverride ?? '');
   return (
     <section className={'ai-terminal-run status-' + process.status} aria-label="Detail proses terminal agent">
       <header className="ai-terminal-run-header">
@@ -537,10 +538,14 @@ function TerminalRunHistory({
   history,
   copiedId,
   onCopy,
+  currentProcess,
+  currentOutput,
 }: {
   history: AgentTerminalHistoryEntry[];
   copiedId: string | null;
   onCopy: (entry: AgentTerminalHistoryEntry) => void;
+  currentProcess: AgentTerminalProcess | null;
+  currentOutput: string;
 }) {
   if (history.length === 0) return null;
   const latest = history[history.length - 1];
@@ -557,7 +562,13 @@ function TerminalRunHistory({
           </div>
         </details>
       ) : null}
-      <TerminalRunPanel key={latest.process.commandId} entry={latest} copied={copiedId === latest.process.commandId} onCopy={onCopy} />
+      <TerminalRunPanel
+        key={latest.process.commandId}
+        entry={latest}
+        copied={copiedId === latest.process.commandId}
+        onCopy={onCopy}
+        outputOverride={currentProcess?.commandId === latest.process.commandId ? currentOutput : undefined}
+      />
     </>
   );
 }
@@ -1637,7 +1648,13 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
 
             {error ? <div className="ai-error ai-run-dock-error" role="alert">{error}</div> : null}
             <div className="ai-run-details-scroll">
-              <TerminalRunHistory history={terminalHistory} copiedId={terminalCopiedId} onCopy={(entry) => void copyTerminalDiagnostics(entry)} />
+              <TerminalRunHistory
+                history={terminalHistory}
+                copiedId={terminalCopiedId}
+                onCopy={(entry) => void copyTerminalDiagnostics(entry)}
+                currentProcess={terminalProcess}
+                currentOutput={terminalOutput}
+              />
               <ToolActivityList activities={toolActivities} />
               {lastRunResult ? <RunResultBanner result={lastRunResult} /> : null}
             </div>
