@@ -108,9 +108,9 @@ export function TerminalPane({
         rightClickSelectsWord: true,
         convertEol: true,
         screenReaderMode: false,
-        // Windows/macOS: enable alt+arrow for shell navigation
         macOptionIsMeta: true,
         disableStdin: false,
+        allowProposedApi: true,
       });
       const fit = new FitAddon();
       const search = new SearchAddon();
@@ -118,6 +118,17 @@ export function TerminalPane({
       term.loadAddon(search);
       term.loadAddon(new WebLinksAddon());
       term.open(host);
+
+      // Trigger fit after a short delay so the host element has been laid out
+      // Properly. This ensures TUI apps get correct grid dimensions.
+      requestAnimationFrame(() => {
+        try {
+          fit.fit();
+          void window.rk.editor.resizeTerminal(session.id, term.cols, term.rows).catch(() => undefined);
+        } catch {
+          // will retry on visibility change
+        }
+      });
 
       // Handle input - send to main process
       const inputSub = term.onData((data) => {

@@ -1445,25 +1445,28 @@ button.ed-status-item:hover {
   background: var(--ed-bg);
 }
 
-/* xterm.js: terminal canvas/surface harus dapat di-scroll dengan mouse wheel
-   tanpa menjadi isu browser. Kita biarkan xterm yang mengelola scrollback. */
+/* xterm.js: Fix I-beam Cursor Issue - cursor default di atas canvas terminal */
+.xterm-screen canvas {
+  cursor: default !important;
+}
+
 .xterm {
-  /* Pastikan terminal mengisi semua ruang yang tersedia */
-  position: absolute;
-  inset: 0;
-  width: 100% !important;
-  height: 100% !important;
+  padding: 8px;
+  height: 100%;
+  width: 100%;
+  background-color: #0b0f17;
 }
 
 .xterm-viewport {
-  /* xterm mengelola scroll internalnya; cegah scroll parent */
-  overflow: hidden;
-  height: 100% !important;
+  /* Mencegah konflik scrollbar bawaan browser */
+  overflow-y: auto !important;
 }
 
-.xterm-screen {
-  /* Surface rendering area */
-  width: 100% !important;
+/* Force default cursor on all terminal canvases, not text I-beam */
+.xterm .xterm-viewport Canvas,
+.xterm .xterm-viewport canvas,
+.xterm-canvas {
+  cursor: default !important;
 }
 
 /* xterm scrollbar agar konsisten dengan tema gelap */
