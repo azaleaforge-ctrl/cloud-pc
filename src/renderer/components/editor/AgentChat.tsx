@@ -12,8 +12,10 @@ import type {
   AgentToolActivity,
   AgentTerminalProcess,
   AgentAttachmentRef,
+  AgentCheckpointSummary,
   AgentModelCatalogResult,
   AgentModelCapabilityReport,
+  AgentSessionSummary,
   ChatMessage,
 } from '../../../shared/agents';
 import { IconSend, IconPlus, Spinner, IconCopy, IconX, IconTrash, IconCheck } from '../icons';
@@ -503,6 +505,15 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>(loadSavedMessages);
   const [conversationId, setConversationId] = useState(makeConversationId);
   const [sessionReady, setSessionReady] = useState(false);
+  const [conversationSummary, setConversationSummary] = useState('');
+  const [summaryThroughTs, setSummaryThroughTs] = useState(0);
+  const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [checkpoints, setCheckpoints] = useState<AgentCheckpointSummary[]>([]);
+  const [checkpointsOpen, setCheckpointsOpen] = useState(false);
+  const [checkpointActionBusy, setCheckpointActionBusy] = useState<string | null>(null);
+  const firstSessionLoadRef = useRef(true);
   const [activeSkills, setActiveSkills] = useState<AgentSkillSelection[]>([]);
   const [todos, setTodos] = useState<AgentTodo[]>([]);
   const [toolActivities, setToolActivities] = useState<AgentToolActivity[]>([]);
@@ -571,22 +582,85 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   useEffect(() => {
     let alive = true;
     setSessionReady(false);
-    void window.rk.agentBeginSession(conversationId).then((result) => {
-      if (!alive) return;
-      if (!result.ok) {
-        setError(result.error ?? 'Gagal membuat sesi AI baru.');
-        setSessionReady(false);
-        return;
+    void (async () => {
+      try {
+        if (firstSessionLoadRef.current) {
+          firstSessionLoadRef.current = false;
+          setLoadingSessions(true);
+          const available = await window.rk.agentListSessions();
+          if (!alive) return;
+          setSessions(available);
+          setLoadingSessions(false);
+          if (available.length > 0) {
+            // Resume most recently used conversation at startup. Other sessions remain in History.
+            setConversationId(available[0].id);
+            return;
+          }
+        }
+        const loaded = await window.rk.agentLoadSession(conversationId);
+        if (!alive) return;
+        if (loaded.ok && loaded.session) {
+          const session = loaded.session;
+          setMessages(session.messages.map(message => ({ ...message, streaming: false })));
+          setActiveAgentId(session.activeAgentId || 'poolside');
+          setConversationSummary(session.summary || '');
+          setSummaryThroughTs(session.summaryThroughTs || 0);
+          setTodos(session.todos || []);
+          setCheckpoints(session.checkpoints || []);
+          setChanges([]);
+          setSelectedChange(null);
+          setActiveSkills([]);
+          setSessionReady(true);
+        } else {
+          const created = await window.rk.agentBeginSession(conversationId);
+          if (!alive) return;
+          if (!created.ok) throw new Error(created.error || 'Gagal membuat sesi baru.');
+          setMessages([]);
+          setConversationSummary('');
+          setSummaryThroughTs(0);
+          setTodos([]);
+          setCheckpoints([]);
+          setChanges([]);
+          setSelectedChange(null);
+          setSessionReady(true);
+        }
+        const refreshed = await window.rk.agentListSessions();
+        if (alive) setSessions(refreshed);
+      } catch (err) {
+        if (alive) {
+          setError('Gagal memuat atau membuat sesi AI: ' + ((err as Error).message || 'kesalahan tidak diketahui'));
+          setSessionReady(false);
+          setLoadingSessions(false);
+        }
       }
-      setSessionReady(true);
-    }).catch((err) => {
-      if (alive) {
-        setError('Gagal menginisialisasi memory sesi: ' + ((err as Error).message || 'error tidak diketahui'));
-        setSessionReady(false);
-      }
-    });
+    })();
     return () => { alive = false; };
   }, [conversationId]);
+
+  useEffect(() => {
+    if (!sessionReady) return;
+    const timer = window.setTimeout(() => {
+      void window.rk.agentSaveSession({
+        id: conversationId,
+        ...(wb.root ? { projectPath: wb.root } : {}),
+        activeAgentId,
+        messages,
+        summary: conversationSummary,
+        summaryThroughTs,
+        todos,
+      }).then(async result => {
+        if (!result.ok) {
+          setError('Gagal menyimpan riwayat sesi: ' + (result.error || 'penyimpanan gagal'));
+          return;
+        }
+        if (result.summary !== undefined) setConversationSummary(current => current === result.summary ? current : result.summary!);
+        if (result.summaryThroughTs !== undefined) setSummaryThroughTs(current => current === result.summaryThroughTs ? current : result.summaryThroughTs!);
+        const refreshed = await window.rk.agentListSessions();
+        setSessions(refreshed);
+      }).catch(err => setError('Gagal menyimpan riwayat sesi: ' + ((err as Error).message || 'penyimpanan gagal')));
+    }, 650);
+    return () => window.clearTimeout(timer);
+  }, [sessionReady, conversationId, wb.root, activeAgentId, messages, conversationSummary, summaryThroughTs, todos]);
 
   useEffect(() => {
     if (!error) return;
