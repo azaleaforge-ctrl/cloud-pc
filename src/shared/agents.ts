@@ -68,6 +68,13 @@ export interface AgentRouterStatus {
   model: string;
 }
 
+export interface AgentRouterTestResult {
+  ok: boolean;
+  message: string;
+  endpoint?: string;
+  model?: string;
+}
+
 export const BUILTIN_AGENTS: AgentEntry[] = [
   {
     id: 'poolside',
