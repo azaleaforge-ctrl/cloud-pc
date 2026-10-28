@@ -159,7 +159,6 @@ export function EditorShell({ state, active, onError }: Props) {
   );
   const [palette, setPalette] = useState<PaletteMode | null>(null);
   const [agentChatOpen, setAgentChatOpen] = useState(false);
-  const [agentMaximized, setAgentMaximized] = useState(false);
 
   // Listen for Ctrl+Shift+L toggle via custom event from StatusBar button
   useEffect(() => {
@@ -479,8 +478,7 @@ export function EditorShell({ state, active, onError }: Props) {
       <AgentChat
         wb={{ root: wb.root, activePath: wb.activePath }}
         visible={agentChatOpen}
-        onToggle={() => setAgentChatOpen((o) => !o)}
-        onMaximize={() => setAgentMaximized((m) => !m)}
+        onToggle={() => setAgentChatOpen(false)}
       />
     </div>
   );
