@@ -10,7 +10,7 @@ const root=fileURLToPath(new URL('..',import.meta.url));
 const dir=await mkdtemp(join(tmpdir(),'rk-agent-attachments-'));
 const require=createRequire(import.meta.url);
 let passed=0,failed=0;
-function test(name,fn){try{fn();passed++;console.log('PASS '+name);}catch(error){failed++;console.error('FAIL '+name+': '+(error instanceof Error?error.message:String(error));}}
+function test(name,fn){try{fn();passed++;console.log('PASS '+name);}catch(error){failed++;console.error('FAIL '+name+': '+(error instanceof Error?error.message:String(error)));}}
 async function make(name,data){const path=join(dir,name);await writeFile(path,data);return path;}
 try{
  const bundle=join(dir,'agentAttachments.cjs');
