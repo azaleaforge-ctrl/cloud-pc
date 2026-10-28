@@ -452,7 +452,7 @@ async function openCompletionStream(
       if (response.ok) return response;
       const body = (await response.text()).slice(0, 500);
       lastError = 'HTTP ' + response.status + (body ? ': ' + body : '');
-      if (response.status === 400 || response.status === 401 || response.status === 403) break;
+      // Try the secondary endpoint even for HTTP errors: routers can differ in model/tool support.
     } catch (error) {
       if (session.controller.signal.aborted || session.killed) throw error;
       lastError = (error as Error).message || 'Koneksi gagal.';
