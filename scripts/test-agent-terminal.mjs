@@ -93,7 +93,7 @@ try {
   });
 
   const cancelHandle = startTerminalCommand(options(
-    nodeCommand('setTimeout(() => {}, 30000)'),
+    terminalCommand('hang'),
     { timeoutMs: 5000 },
   ));
   setTimeout(() => cancelHandle.cancel(), 120);
