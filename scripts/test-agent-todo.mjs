@@ -116,8 +116,28 @@ try {
     completedFirst[2],
   ], 3000);
 
-  test('allows the next dependent task only after its prerequisite is completed', () => {
-    assert.equal(secondActive[1].status, 'in_progress');
+  test('allows the next dependent task to start in the same update that completes its active prerequisite', () => {
+    const atomicTransition = applyAgentTodoUpdate(initial, [
+      {
+        ...initial[0],
+        status: 'completed',
+        completionEvidence: 'Project structure inspected and relevant files identified.',
+      },
+      { ...initial[1], status: 'in_progress' },
+      initial[2],
+    ], 2500);
+
+    assert.equal(atomicTransition[0].status, 'completed');
+    assert.equal(atomicTransition[1].status, 'in_progress');
+    assert.equal(atomicTransition[2].status, 'pending');
+  });
+
+  test('rejects atomic dependent activation when prerequisite completion evidence is insufficient', () => {
+    assert.throws(() => applyAgentTodoUpdate(initial, [
+      { ...initial[0], status: 'completed', completionEvidence: 'done' },
+      { ...initial[1], status: 'in_progress' },
+      initial[2],
+    ], 2500), /bukti verifikasi/i);
   });
 
   test('does not allow existing task IDs to disappear', () => {
