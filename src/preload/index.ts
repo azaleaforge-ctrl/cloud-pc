@@ -27,6 +27,7 @@ import type {
   TerminalSessionInfo,
   VsxSearchResult,
 } from '../shared/editor';
+import type { AgentEntry, ChatMessage, AgentEvent } from '../shared/agents';
 import { APP_VERSION } from '../shared/types';
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -111,6 +112,19 @@ const api: RkApi = {
     const listener = (_e: unknown, payload: ServerLogLine) => cb(payload);
     ipcRenderer.on('rk:server-log', listener);
     return () => ipcRenderer.removeListener('rk:server-log', listener);
+  },
+
+  // --- AI Agent ---
+  agentList: (): Promise<AgentEntry[]> => ipcRenderer.invoke('rk:agent:list'),
+  agentStartChat: (agentId: string, messages?: ChatMessage[]) => ipcRenderer.invoke('rk:agent:start-chat', agentId, messages ?? []),
+  agentStartCli: (agentId: string, cols: number, rows: number) => ipcRenderer.invoke('rk:agent:start-cli', agentId, cols, rows),
+  agentSendInput: (sessionId: string, data: string) => ipcRenderer.invoke('rk:agent:send-input', sessionId, data),
+  agentResize: (sessionId: string, cols: number, rows: number) => ipcRenderer.invoke('rk:agent:resize', sessionId, cols, rows),
+  agentStop: (sessionId: string) => ipcRenderer.invoke('rk:agent:stop', sessionId),
+  onAgentEvent: (cb: (payload: { sessionId: string; event: AgentEvent }) => void) => {
+    const listener = (_e: unknown, payload: { sessionId: string; event: AgentEvent }) => cb(payload);
+    ipcRenderer.on('rk:agent:event', listener);
+    return () => ipcRenderer.removeListener('rk:agent:event', listener);
   },
 };
 

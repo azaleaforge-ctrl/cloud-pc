@@ -17,6 +17,7 @@ import type {
   ServerState,
   UpdateState,
 } from '../shared/types';
+import type { ChatMessage } from '../shared/agents';
 import { APP_VERSION } from '../shared/types';
 import { StateStore } from './store';
 import { detectFramework } from './frameworkDetect';
@@ -29,6 +30,8 @@ import { createWorkspaceService } from './editor/workspace';
 import { createTerminalService } from './editor/terminal';
 import { createExtensionService } from './editor/extensions';
 import { createDebugService } from './editor/debugger';
+import { createAgentService } from './editor/agent';
+import type { RouterConfig } from '../shared/agents';
 import { scanProjectEntries } from './fsScan';
 import { watchProjectFileChanges, type ProjectFileWatch } from './projectFileWatcher';
 import { openEmbeddedIde, closeEmbeddedIde, resizeEmbeddedIde, focusEmbeddedIde } from './nativeHost';
@@ -261,6 +264,21 @@ const editorTerminals = createTerminalService({
 const editorExtensions = createExtensionService(() => join(app.getPath('userData'), 'ide'));
 const editorDebugger = createDebugService({ onEvent: (event) => send('rk:editor:debug-event', event) });
 
+// AI Agent service — 9router config + CLI agent runner
+function getRouterConfig(): RouterConfig | null {
+  const apiKey = process.env.RK_ROUTER_API_KEY ?? 'sk-2d3f91fca9150b32-oteucp-a7c362bf';
+  const endpoint = process.env.RK_ROUTER_ENDPOINT ?? 'https://rbxludp.abc-tunnel.us/v1';
+  const fallbackEndpoint = process.env.RK_ROUTER_FALLBACK ?? 'http://localhost:20128/v1';
+  if (!apiKey || !endpoint) return null;
+  return {
+    apiKey,
+    endpoint,
+    models: ['ps/poolside/laguna-s-2.1(high)'],
+    fallbackEndpoint,
+  };
+}
+const agentService = createAgentService(getRouterConfig);
+
 function startProjectFilesWatcher(root: string): void {
   if (projectFileWatcher && watchedProjectPath === root) return;
   const previous = projectFileWatcher;
@@ -355,6 +373,7 @@ async function shutdownRoom(): Promise<void> {
     await memberRoom.close().catch(() => undefined);
     memberRoom = null;
   }
+  agentService.disposeAll();
   stopAdvertise();
 }
 
@@ -874,6 +893,31 @@ function registerIpc(): void {
   ipcMain.handle('rk:editor:debug-pause', () => editorDebugger.pause());
   ipcMain.handle('rk:editor:debug-step', (_e, kind: 'over' | 'into' | 'out') => editorDebugger.step(kind));
   ipcMain.handle('rk:editor:debug-eval', (_e, expression: string) => editorDebugger.evaluate(expression));
+
+  // --- AI Agent IPC ---
+  ipcMain.handle('rk:agent:list', () => agentService.listAgents());
+  ipcMain.handle('rk:agent:start-chat', async (_e, agentId: string, messages: ChatMessage[] = []) => {
+    const projectPath = store.get().projectPath;
+    const sessionId = await agentService.startChat(agentId, projectPath, (event) => {
+      send('rk:agent:event', { sessionId, event });
+    }, messages);
+    return { ok: true, sessionId };
+  });
+  ipcMain.handle('rk:agent:start-cli', async (_e, agentId: string, cols: number, rows: number) => {
+    const projectPath = store.get().projectPath;
+    if (!projectPath) return { ok: false, error: 'Belum ada folder project.' };
+    try {
+      const sessionId = await agentService.startCli(agentId, projectPath, cols, rows, (event) => {
+        send('rk:agent:event', { sessionId, event });
+      });
+      return { ok: true, sessionId };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  });
+  ipcMain.handle('rk:agent:send-input', (_e, sessionId: string, data: string) => agentService.sendInput(sessionId, data));
+  ipcMain.handle('rk:agent:resize', (_e, sessionId: string, cols: number, rows: number) => agentService.resizeTerminal(sessionId, cols, rows));
+  ipcMain.handle('rk:agent:stop', (_e, sessionId: string) => agentService.stopAgent(sessionId));
 }
 
 async function createWindow(): Promise<void> {

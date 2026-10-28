@@ -1,39 +1,8 @@
-// Pane chat AI agent — mirip VS Code Copilot panel.
-// Simple UI, bisa di-resize ke fullsize / dikecilkan.
+// Pane chat AI agent — mirip VS Code Copilot panel + Claude Code agent mode.
+// Simple UI, bisa di-maximize ke fullsize / diminimize ke pojok kanan bawah.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AgentEntry, ChatMessage } from '../../../shared/agents';
-import { BUILTIN_AGENTS } from '../../../shared/agents';
-import { IconSend, IconX, Spinner, IconChevronDown, IconChevronUp, IconCopy, IconCheck, IconTrash } from '../icons';
-
-const STORAGE_KEY = 'rk.ai.lastAgent';
-const CHAT_HISTORY_KEY = 'rk.ai.chatHistory';
-
-interface MessageBubbleProps {
-  msg: ChatMessage;
-  onCopy: (content: string) => void;
-  copied: boolean;
-}
-
-function MessageBubble({ msg, onCopy, copied }: MessageBubbleProps) {
-  const isUser = msg.role === 'user';
-  const isSystem = msg.role === 'system';
-  if (isSystem) return null;
-  return (
-    <div className={`ai-msg ${isUser ? 'ai-msg-user' : 'ai-msg-assistant'}`}>
-      <div className="ai-msg-content">{msg.content}</div>
-      {!isUser && (
-        <button
-          type="button"
-          className="ai-msg-copy"
-          title="Salin"
-          onClick={() => onCopy(msg.content)}
-        >
-          {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
-        </button>
-      )}
-    </div>
-  );
-}
+import type { AgentEntry, ChatMessage, AgentEvent } from '../../../shared/agents';
+import { IconSend, Spinner, IconChevronDown, IconChevronUp, IconCopy, IconX, IconTrash, IconCheck, IconMaximize, IconMinimize } from '../icons';
 
 interface Props {
   wb: { root: string | null; activePath: string | null };
@@ -42,49 +11,105 @@ interface Props {
   onMaximize: () => void;
 }
 
+interface ChatSession {
+  id: string;
+  agent: AgentEntry;
+  status: 'idle' | 'starting' | 'running' | 'stopped' | 'error';
+}
+
+const STORAGE_KEY = 'rk.ai.lastAgent';
+const HISTORY_KEY = 'rk.ai.chatHistory';
+
+function MessageBubble({ msg, onCopy, copied }: { msg: ChatMessage; onCopy: (content: string) => void; copied: boolean }) {
+  const isUser = msg.role === 'user';
+  if (msg.role === 'system') return null;
+  return (
+    <div className={`ai-msg ${isUser ? 'ai-msg-user' : 'ai-msg-assistant'}`}>
+      <div className="ai-msg-content">{msg.content}</div>
+      {!isUser ? (
+        <button
+          type="button"
+          className="ai-msg-copy"
+          title="Salin"
+          onClick={() => onCopy(msg.content)}
+        >
+          {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export function AgentChat({ wb, visible, onToggle, onMaximize }: Props) {
-  const [agents] = useState<AgentEntry[]>(BUILTIN_AGENTS);
-  const [activeAgentId, setActiveAgentId] = useState<string>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved && BUILTIN_AGENTS.some((a) => a.id === saved)) return saved;
-    } catch { /* ignore */ }
-    return 'claudecode';
-  });
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    try {
-      const saved = localStorage.getItem(CHAT_HISTORY_KEY);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [agents, setAgents] = useState<AgentEntry[]>([]);
+  const [activeAgentId, setActiveAgentId] = useState<string>('poolside');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [sessions, setSessions] = useState<Map<string, ChatSession>>(new Map());
+  const [minimized, setMinimized] = useState(false);
   const [copiedMsg, setCopiedMsg] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Persist active agent
+  // Load agents on mount
+  useEffect(() => {
+    void window.rk.agentList().then((list) => {
+      setAgents(list);
+      // Restore last agent or default
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved && list.some((a) => a.id === saved)) {
+          setActiveAgentId(saved);
+        }
+      } catch { /* ignore */ }
+    }).catch((err) => {
+      setError('Gagal memuat daftar agent: ' + err.message);
+    });
+  }, []);
+
+  // Save active agent
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, activeAgentId); } catch { /* ignore */ }
   }, [activeAgentId]);
 
-  // Persist chat history (trim to last 100 messages)
+  // Subscribe to agent events
   useEffect(() => {
-    try {
-      localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(messages.slice(-100)));
-    } catch { /* ignore */ }
-  }, [messages]);
+    const unsub = window.rk.onAgentEvent(({ event }: { event: AgentEvent }) => {
+      if (event.type === 'output') {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (!last || last.role !== 'assistant') return prev;
+          return [...prev.slice(0, -1), { ...last, content: last.content + event.data }];
+        });
+      } else if (event.type === 'error') {
+        setError(event.message);
+      } else if (event.type === 'state') {
+        setSessions((prev) => {
+          const map = new Map(prev);
+          for (const [id, sess] of map) {
+            if (sess.status !== 'stopped') {
+              map.set(id, { ...sess, status: event.state.status });
+            }
+          }
+          return map;
+        });
+        if (event.state.status === 'running') setLoading(true);
+        if (['stopped', 'error', 'idle'].includes(event.state.status)) setLoading(false);
+      } else if (event.type === 'exit') {
+        setLoading(false);
+      }
+    });
+    return unsub;
+  }, []);
 
-  // Auto-scroll ke bawah
+  // Auto-scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  const activeAgent = agents.find((a) => a.id === activeAgentId) ?? agents[0];
+  const activeAgent = agents.find((a) => a.id === activeAgentId);
 
   const saveCopied = useCallback((content: string) => {
     setCopiedMsg(content);
@@ -94,8 +119,10 @@ export function AgentChat({ wb, visible, onToggle, onMaximize }: Props) {
   const sendMessage = useCallback(async () => {
     const text = input.trim();
     if (!text || loading || !activeAgent) return;
+
     setError(null);
 
+    // Add user message
     const userMsg: ChatMessage = {
       id: `u_${Date.now()}`,
       role: 'user',
@@ -104,8 +131,8 @@ export function AgentChat({ wb, visible, onToggle, onMaximize }: Props) {
     };
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
-    setLoading(true);
 
+    // Add empty assistant message (for streaming)
     const assistantMsg: ChatMessage = {
       id: `a_${Date.now()}`,
       role: 'assistant',
@@ -114,80 +141,39 @@ export function AgentChat({ wb, visible, onToggle, onMaximize }: Props) {
       streaming: true,
     };
     setMessages((prev) => [...prev, assistantMsg]);
+    setLoading(true);
 
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agentId: activeAgent.id,
-          model: activeAgent.model,
-          provider: activeAgent.provider,
-          endpoint: activeAgent.endpoint,
-          messages: [...messages, userMsg].map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-          projectPath: wb.root,
-          activeFile: wb.activePath,
-        }),
-      });
-
-      if (!response.ok) {
-        const err = await response.text();
-        throw new Error(err || `HTTP ${response.status}`);
-      }
-
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      if (!reader) throw new Error('Streaming tidak didukung');
-
-      let accumulated = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        accumulated += decoder.decode(value, { stream: true });
+      const result = await window.rk.agentStartChat(activeAgent.id, [...messages, userMsg]);
+      if (!result.ok) {
+        setError(result.error ?? 'Gagal memulai agent.');
+        // Update last message with error
         setMessages((prev) => {
           const last = prev[prev.length - 1];
           if (!last || last.role !== 'assistant') return prev;
-          return [...prev.slice(0, -1), { ...last, content: accumulated }];
+          return [...prev.slice(0, -1), { ...last, content: `❌ ${result.error ?? 'Gagal'}`, streaming: false }];
         });
+      } else {
+        // Session started; streaming output will come via onAgentEvent
+        setSessions((prev) => new Map(prev).set(result.sessionId!, {
+          id: result.sessionId!,
+          agent: activeAgent,
+          status: 'starting',
+        }));
       }
-      // Final flush
-      setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (!last || last.role !== 'assistant') return prev;
-        return [...prev.slice(0, -1), { ...last, content: accumulated, streaming: false }];
-      });
     } catch (err) {
-      const msg = (err as Error).message;
-      setError(msg);
-      // Update last message with error
-      setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (!last || last.role !== 'assistant') return prev;
-        return [...prev.slice(0, -1), { ...last, content: `❌ ${msg}`, streaming: false }];
-      });
+      setError((err as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [input, loading, activeAgent, messages, wb.root, wb.activePath]);
+  }, [input, loading, activeAgent, messages]);
 
   const clearChat = useCallback(() => {
     setMessages([]);
-    try { localStorage.removeItem(CHAT_HISTORY_KEY); } catch { /* ignore */ }
+    try { localStorage.removeItem(HISTORY_KEY); } catch { /* ignore */ }
   }, []);
 
-  const switchAgent = useCallback((id: string) => {
-    setActiveAgentId(id);
-    // Start new conversation on agent switch
-    setMessages([{
-      id: `s_${Date.now()}`,
-      role: 'system',
-      content: `Switched to ${agents.find((a) => a.id === id)?.name ?? id}. Ask me anything!`,
-      ts: Date.now(),
-    }]);
-  }, [agents]);
+  const toggleMinimize = useCallback(() => setMinimized((m) => !m), []);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -196,23 +182,18 @@ export function AgentChat({ wb, visible, onToggle, onMaximize }: Props) {
     }
   };
 
-  const toggleCollapse = useCallback(() => setPanelCollapsed((v) => !v), []);
-
   if (!visible) return null;
 
   return (
-    <div className="ai-panel">
+    <div className={`ai-panel ${minimized ? 'ai-panel-minimized' : ''}`}>
       <div className="ai-panel-header">
         <div className="ai-panel-title">
-          <span className="ai-agent-icon">{activeAgent?.icon ?? '🤖'}</span>
+          <span className="ai-agent-icon">{activeAgent?.icon ?? '🌊'}</span>
           <span>{activeAgent?.name ?? 'AI Agent'}</span>
         </div>
         <div className="ai-panel-actions">
-          <button type="button" className="ai-icon-btn" title="Pilih Agent" onClick={() => setPanelCollapsed(false)}>
-            <IconChevronDown size={14} />
-          </button>
-          <button type="button" className="ai-icon-btn" title={panelCollapsed ? 'Perbesar' : 'Perkecil'} onClick={toggleCollapse}>
-            {panelCollapsed ? <IconChevronDown size={14} /> : <IconChevronUp size={14} />}
+          <button type="button" className="ai-icon-btn" title="Perkecil" onClick={toggleMinimize}>
+            {minimized ? <IconMaximize size={14} /> : <IconMinimize size={14} />}
           </button>
           <button type="button" className="ai-icon-btn" title="Tutup" onClick={onToggle}>
             <IconX size={14} />
@@ -220,33 +201,35 @@ export function AgentChat({ wb, visible, onToggle, onMaximize }: Props) {
         </div>
       </div>
 
-      {!panelCollapsed && (
+      {!minimized && (
         <>
-          {!activeAgent ? null : (
-            <div className="ai-agent-switcher">
-              {agents.map((agent) => (
-                <button
-                  key={agent.id}
-                  type="button"
-                  className={`ai-agent-btn ${activeAgentId === agent.id ? 'active' : ''}`}
-                  onClick={() => switchAgent(agent.id)}
-                  title={agent.systemPrompt.slice(0, 80)}
-                >
-                  <span className="ai-agent-icon">{agent.icon}</span>
-                  {agent.name}
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="ai-agent-switcher">
+            {agents.map((agent) => (
+              <button
+                key={agent.id}
+                type="button"
+                className={`ai-agent-btn ${activeAgentId === agent.id ? 'active' : ''}`}
+                onClick={() => {
+                  setActiveAgentId(agent.id);
+                  setMessages([]);
+                  setError(null);
+                }}
+                title={agent.systemPrompt.slice(0, 100)}
+              >
+                <span className="ai-agent-icon">{agent.icon}</span>
+                {agent.name}
+              </button>
+            ))}
+          </div>
 
           <div className="ai-messages">
-            {messages.filter((m) => m.role !== 'system').length === 0 ? (
+            {messages.filter((m) => m.role !== 'system').length === 0 && !loading ? (
               <div className="ai-empty">
-                <span className="ai-empty-icon">{activeAgent?.icon ?? '🤖'}</span>
+                <span className="ai-empty-icon">{activeAgent?.icon ?? '🌊'}</span>
                 <p className="ai-empty-title">{activeAgent?.name ?? 'AI Agent'}</p>
                 <p className="ai-empty-sub">
                   Tanya soal kode, proyek ini, atau minta bantuan coding.
-                  Tekan Ctrl+Shift+L untuk fokus.
+                  Tekan Enter untuk kirim, Shift+Enter untuk baris baru.
                 </p>
               </div>
             ) : (
@@ -259,6 +242,14 @@ export function AgentChat({ wb, visible, onToggle, onMaximize }: Props) {
                 />
               ))
             )}
+            {loading && (
+              <div className="ai-msg ai-msg-assistant">
+                <div className="ai-msg-content">
+                  <Spinner size={14} />
+                  <span> Berpikir...</span>
+                </div>
+              </div>
+            )}
             <div ref={bottomRef} />
           </div>
 
@@ -269,7 +260,7 @@ export function AgentChat({ wb, visible, onToggle, onMaximize }: Props) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={`Tanya ke ${activeAgent?.name ?? 'agent'}...`}
+              placeholder={loading ? 'Menunggu agent...' : `Tanya ke ${activeAgent?.name ?? 'agent'}...`}
               rows={2}
               disabled={loading || !activeAgent}
               aria-label="Pesan AI agent"
@@ -287,11 +278,11 @@ export function AgentChat({ wb, visible, onToggle, onMaximize }: Props) {
           </div>
 
           <div className="ai-panel-footer">
-            <button type="button" className="ai-clear-btn" onClick={clearChat}>
+            <button type="button" className="ai-clear-btn" onClick={clearChat} disabled={messages.length === 0}>
               <IconTrash size={12} /> Hapus Chat
             </button>
-            <button type="button" className="ai-icon-btn" title="Pengaturan API" onClick={onMaximize}>
-              <IconChevronUp size={14} />
+            <button type="button" className="ai-icon-btn" title="Penuh" onClick={onMaximize}>
+              <IconMaximize size={14} />
             </button>
           </div>
         </>

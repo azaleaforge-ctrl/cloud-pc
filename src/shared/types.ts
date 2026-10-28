@@ -2,6 +2,7 @@
 // Semua tipe di file ini adalah satu-satunya sumber kebenaran untuk IPC.
 
 import type { EditorApi } from './editor';
+import type { AgentEntry, ChatMessage, AgentEvent, RouterConfig } from './agents';
 
 export type Role = 'none' | 'host' | 'member';
 
@@ -225,6 +226,15 @@ export interface RkApi {
   onState(cb: (state: AppState) => void): () => void;
   onNotify(cb: (payload: NotifyPayload) => void): () => void;
   onServerLog(cb: (payload: ServerLogLine) => void): () => void;
+
+  // --- AI Agent ---
+  agentList(): Promise<AgentEntry[]>;
+  agentStartChat(agentId: string, messages?: ChatMessage[]): Promise<{ ok: boolean; sessionId?: string; error?: string }>;
+  agentStartCli(agentId: string, cols: number, rows: number): Promise<{ ok: boolean; sessionId?: string; error?: string }>;
+  agentSendInput(sessionId: string, data: string): Promise<void>;
+  agentResize(sessionId: string, cols: number, rows: number): Promise<void>;
+  agentStop(sessionId: string): Promise<void>;
+  onAgentEvent(cb: (payload: { sessionId: string; event: AgentEvent }) => void): () => void;
 }
 
 /** Payload mentah protokol WebSocket host <-> member. */

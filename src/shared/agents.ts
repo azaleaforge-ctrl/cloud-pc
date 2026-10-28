@@ -1,29 +1,34 @@
-// Kontrak sistem AI Agent plugin — mirip "oh my opencode slim".
-// Setiap agent adalah plugin terisolasi dengan konfigurasi model + endpoint.
+// Kontrak sistem AI Agent — mirip Claude Code / OpenCode / KiloCode CLI + "oh my opencode slim" plugin system.
+// Agent bisa berupa: (a) CLI agent (claude-code, opencode, kilocode) yang dijalankan di PTY,
+// atau (b) built-in chat agent yang memakai 9router LLM endpoint.
+
+export type AgentType = 'cli' | 'llm-chat';
 
 export interface AgentConfig {
-  /** ID unik agent (mis. 'opencode', 'kilocode', 'claudecode', 'custom') */
+  /** ID unik agent (mis. 'claude', 'opencode', 'kilocode', 'poolside') */
   id: string;
   /** Nama tampilan di UI */
   name: string;
-  /** Ikon/logo agent (emoji atau nama file ikon) */
+  /** Ikon/logo agent */
   icon: string;
-  /** Provider API: 'openai-compatible' | 'anthropic' | 'openai' */
-  provider: 'openai-compatible' | 'anthropic' | 'openai';
-  /** Model default yang dipakai agent ini */
-  model: string;
-  /** Endpoint 9router — pilih salah satu dari konfigurasi */
-  endpoint: string;
+  /** Tipe agent: CLI process vs LLM chat */
+  type: AgentType;
+  /** Provider API untuk tipe 'llm-chat' */
+  provider?: 'openai-compatible';
+  /** Model LLM (mis. 'ps/poolside/laguna-s-2.1(high)') */
+  model?: string;
+  /** Endpoint 9router */
+  endpoint?: string;
+  /** API key 9router */
+  apiKey?: string;
   /** System prompt / instruksi default */
   systemPrompt: string;
-  /** Kapabilitas yang didukung */
+  /** CLI command (untuk type 'cli'): ['claude', '--no-sandbox', '--output-format=stream-json'] */
+  cliCommand?: string[];
+  /** Working directory: project root */
+  cwd?: boolean;
+  /** Kapabilitas */
   capabilities: AgentCapability[];
-  /** Apakah agent ini bisa run (execute perintah di terminal) */
-  canRun: boolean;
-  /** Apakah agent ini bisa edit file */
-  canEdit: boolean;
-  /** Apakah agent ini bisa browsing web */
-  canBrowse: boolean;
 }
 
 export type AgentCapability =
@@ -34,11 +39,11 @@ export type AgentCapability =
   | 'code-explain'
   | 'test-gen';
 
-/** Agent yang terdaftar/diinstal — built-in + custom */
+/** Agent entry yang terdaftar — built-in atau plugin */
 export interface AgentEntry extends AgentConfig {
-  /** 'builtin' | 'custom' | 'plugin' */
-  source: 'builtin' | 'custom' | 'plugin';
-  /** Versi manifest (untuk agent plugin) */
+  /** 'builtin' | 'plugin' */
+  source: 'builtin' | 'plugin';
+  /** Versi plugin (untuk agent plugin) */
   version?: string;
   /** Path manifest jika diinstal sebagai plugin */
   manifestPath?: string;
@@ -55,69 +60,76 @@ export interface ChatMessage {
   streaming?: boolean;
 }
 
-/** Hasil dari satu putaran chat (bisa streaming) */
-export interface ChatResult {
-  ok: boolean;
-  error?: string;
+/** Event dari agent main process ke renderer */
+export type AgentEvent =
+  | { type: 'output'; data: string }
+  | { type: 'error'; message: string }
+  | { type: 'exit'; code: number }
+  | { type: 'state'; state: AgentRunState };
+
+/** State agent yang sedang berjalan */
+export interface AgentRunState {
+  /** 'idle' | 'starting' | 'running' | 'stopped' | 'error' */
+  status: 'idle' | 'starting' | 'running' | 'stopped' | 'error';
+  agentId: string;
+  error?: string | null;
 }
 
-/** Konfigurasi 9router per pengguna */
+/** Konfigurasi 9router */
 export interface RouterConfig {
-  /** API key 9router */
   apiKey: string;
-  /** Endpoint 9router yang dipilih */
   endpoint: string;
-  /** Model yang terdaftar di akun 9router */
   models: string[];
-  /** Endpoint cadangan (localhost) */
   fallbackEndpoint?: string;
 }
 
-/** Daftar agent yang tersedia secara built-in */
+/** Daftar agent built-in */
 export const BUILTIN_AGENTS: AgentEntry[] = [
+  {
+    id: 'poolside',
+    name: 'Poolside',
+    icon: '🌊',
+    type: 'llm-chat',
+    provider: 'openai-compatible',
+    model: 'ps/poolside/laguna-s-2.1(high)',
+    endpoint: 'https://rbxludp.abc-tunnel.us/v1',
+    apiKey: 'sk-2d3f91fca9150b32-oteucp-a7c362bf',
+    systemPrompt:
+      'Kamu adalah Poolside AI, asisten coding ahli. Bantu dengan menulis kode, menjelaskan, mengedit, dan menjalankan tes. Fokus pada produktivitas. Gunakan terminal ketika perlu.',
+    capabilities: ['chat', 'file-edit', 'terminal-run', 'code-explain', 'test-gen'],
+    source: 'builtin',
+  },
+  {
+    id: 'claude',
+    name: 'Claude Code',
+    icon: '🧠',
+    type: 'cli',
+    cliCommand: ['claude'],
+    systemPrompt:
+      'Kamu adalah Claude Code, AI coding assistant senior. Bantu dengan analisis kode, refactoring, penulisan tes, debugging, dan penjelasan kompleks.',
+    capabilities: ['chat', 'file-edit', 'terminal-run', 'code-explain', 'test-gen'],
+    source: 'builtin',
+  },
   {
     id: 'opencode',
     name: 'OpenCode',
     icon: '🤖',
-    provider: 'openai-compatible',
-    model: 'google/gemini-2.0-flash-001',
-    endpoint: 'https://rbxludp.abc-tunnel.us/v1',
+    type: 'cli',
+    cliCommand: ['opencode'],
     systemPrompt:
-      'Kamu adalah OpenCode, asisten AI coding ekspert. Bantu pengguna dengan menulis, membaca, mengedit kode, menjalankan tes, dan debugging. Selalu jelaskan apa yang kamu lakukan. Gunakan terminal dengan bijak. Fokus pada productivity.',
+      'Kamu adalah OpenCode, asisten AI coding ekspert. Bantu dengan menulis, membaca, mengedit kode, menjalankan tes, dan debugging.',
     capabilities: ['chat', 'file-edit', 'terminal-run', 'code-explain'],
-    canRun: true,
-    canEdit: true,
-    canBrowse: false,
     source: 'builtin',
   },
   {
     id: 'kilocode',
     name: 'KiloCode',
     icon: '⚡',
-    provider: 'openai-compatible',
-    model: 'google/gemini-2.0-flash-exp',
-    endpoint: 'https://rbxludp.abc-tunnel.us/v1',
+    type: 'cli',
+    cliCommand: ['kilocode'],
     systemPrompt:
-      'Kamu adalah KiloCode, AI coding assistant yang cepat dan efisien. Fokus pada penyelesaian masalah coding yang cepat. Bantu dengan refactor, debugging, dan penulisan kode. Jalankan tes dan perintah build ketika perlu.',
-    capabilities: ['chat', 'file-edit', 'terminal-run', 'code-explain', 'test-gen'],
-    canRun: true,
-    canEdit: true,
-    canBrowse: false,
-    source: 'builtin',
-  },
-  {
-    id: 'claudecode',
-    name: 'Claude Code',
-    icon: '🧠',
-    provider: 'anthropic',
-    model: 'claude-3-5-sonnet-20241022',
-    endpoint: 'https://rbxludp.abc-tunnel.us/v1',
-    systemPrompt:
-      'Kamu adalah Claude, asisten AI coding senior. Bantu pengguna dengan analisis kode, refactoring, penulisan tes, dan penjelasan kompleks. Berikan penjelasan mendalam dan konteks. Gunakan terminal dan editor file dengan aman.',
-    capabilities: ['chat', 'file-edit', 'terminal-run', 'code-explain', 'test-gen'],
-    canRun: true,
-    canEdit: true,
-    canBrowse: false,
+      'Kamu adalah KiloCode, AI coding assistant yang cepat dan efisien. Fokus pada penyelesaian masalah cepat, refactor, dan debugging.',
+    capabilities: ['chat', 'file-edit', 'terminal-run', 'code-explain'],
     source: 'builtin',
   },
 ];
