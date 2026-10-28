@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import type {
   ActionResult,
@@ -17,7 +17,7 @@ import type {
   ServerState,
   UpdateState,
 } from '../shared/types';
-import type { ChatMessage } from '../shared/agents';
+import type { AgentRouterStatus, ChatMessage } from '../shared/agents';
 import { APP_VERSION } from '../shared/types';
 import { StateStore } from './store';
 import { detectFramework } from './frameworkDetect';
@@ -264,19 +264,68 @@ const editorTerminals = createTerminalService({
 const editorExtensions = createExtensionService(() => join(app.getPath('userData'), 'ide'));
 const editorDebugger = createDebugService({ onEvent: (event) => send('rk:editor:debug-event', event) });
 
-// AI Agent service — 9router config + CLI agent runner
+// AI Agent service — API key disimpan terenkripsi per-user; tidak dibundel ke aplikasi.
+const ROUTER_ENDPOINT = process.env.RK_ROUTER_ENDPOINT ?? 'https://rbxludp.abc-tunnel.us/v1';
+const ROUTER_FALLBACK_ENDPOINT = process.env.RK_ROUTER_FALLBACK ?? 'http://localhost:20128/v1';
+const ROUTER_MODEL = 'ps/poolside/laguna-s-2.1(high)';
+
+function routerKeyPath(): string {
+  return join(app.getPath('userData'), '9router-api-key.enc');
+}
+
+function readStoredRouterKey(): string {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return '';
+    const path = routerKeyPath();
+    if (!existsSync(path)) return '';
+    return safeStorage.decryptString(readFileSync(path));
+  } catch {
+    return '';
+  }
+}
+
+function getRouterApiKey(): string {
+  return (process.env.RK_ROUTER_API_KEY ?? '').trim() || readStoredRouterKey();
+}
+
 function getRouterConfig(): RouterConfig | null {
-  const apiKey = process.env.RK_ROUTER_API_KEY ?? 'sk-2d3f91fca9150b32-oteucp-a7c362bf';
-  const endpoint = process.env.RK_ROUTER_ENDPOINT ?? 'https://rbxludp.abc-tunnel.us/v1';
-  const fallbackEndpoint = process.env.RK_ROUTER_FALLBACK ?? 'http://localhost:20128/v1';
-  if (!apiKey || !endpoint) return null;
+  const apiKey = getRouterApiKey();
+  if (!apiKey) return null;
   return {
     apiKey,
-    endpoint,
-    models: ['ps/poolside/laguna-s-2.1(high)'],
-    fallbackEndpoint,
+    endpoint: ROUTER_ENDPOINT,
+    models: [ROUTER_MODEL],
+    fallbackEndpoint: ROUTER_FALLBACK_ENDPOINT,
   };
 }
+
+function getAgentRouterStatus(): AgentRouterStatus {
+  return {
+    configured: !!getRouterApiKey(),
+    endpoint: ROUTER_ENDPOINT,
+    fallbackEndpoint: ROUTER_FALLBACK_ENDPOINT,
+    model: ROUTER_MODEL,
+  };
+}
+
+function saveAgentRouterKey(apiKey: string): { ok: boolean; error?: string } {
+  const clean = apiKey.trim();
+  if (!clean) return { ok: false, error: 'API key tidak boleh kosong.' };
+  if (process.env.RK_ROUTER_API_KEY) {
+    return { ok: false, error: 'API key diatur melalui environment RK_ROUTER_API_KEY; ubah konfigurasi tersebut untuk menggantinya.' };
+  }
+  if (!safeStorage.isEncryptionAvailable()) {
+    return { ok: false, error: 'Penyimpanan terenkripsi tidak tersedia di perangkat ini. API key tidak disimpan.' };
+  }
+  try {
+    mkdirSync(dirname(routerKeyPath()), { recursive: true });
+    writeFileSync(routerKeyPath(), safeStorage.encryptString(clean));
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: 'Gagal menyimpan API key: ' + (error as Error).message };
+  }
+}
+
 const agentService = createAgentService(getRouterConfig);
 
 function startProjectFilesWatcher(root: string): void {
@@ -896,25 +945,33 @@ function registerIpc(): void {
 
   // --- AI Agent IPC ---
   ipcMain.handle('rk:agent:list', () => agentService.listAgents());
+  ipcMain.handle('rk:agent:get-config', () => getAgentRouterStatus());
+  ipcMain.handle('rk:agent:save-config', (_e, apiKey: string) => saveAgentRouterKey(apiKey));
   ipcMain.handle('rk:agent:start-chat', async (_e, agentId: string, messages: ChatMessage[] = []) => {
     const projectPath = store.get().projectPath;
-    const sessionId = await agentService.startChat(agentId, projectPath, (event) => {
-      send('rk:agent:event', { sessionId, event });
-    }, messages);
-    return { ok: true, sessionId };
+    try {
+      const sessionId = await agentService.startChat(agentId, projectPath, (event, eventSessionId) => {
+        send('rk:agent:event', { sessionId: eventSessionId, event });
+      }, messages);
+      return { ok: true, sessionId };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
   });
   ipcMain.handle('rk:agent:start-cli', async (_e, agentId: string, cols: number, rows: number) => {
     const projectPath = store.get().projectPath;
     if (!projectPath) return { ok: false, error: 'Belum ada folder project.' };
     try {
-      const sessionId = await agentService.startCli(agentId, projectPath, cols, rows, (event) => {
-        send('rk:agent:event', { sessionId, event });
+      const sessionId = await agentService.startCli(agentId, projectPath, cols, rows, (event, eventSessionId) => {
+        send('rk:agent:event', { sessionId: eventSessionId, event });
       });
       return { ok: true, sessionId };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
     }
   });
+  ipcMain.handle('rk:agent:approve-tool', (_e, sessionId: string, requestId: string, approved: boolean) =>
+    agentService.approveTool(sessionId, requestId, approved));
   ipcMain.handle('rk:agent:send-input', (_e, sessionId: string, data: string) => agentService.sendInput(sessionId, data));
   ipcMain.handle('rk:agent:resize', (_e, sessionId: string, cols: number, rows: number) => agentService.resizeTerminal(sessionId, cols, rows));
   ipcMain.handle('rk:agent:stop', (_e, sessionId: string) => agentService.stopAgent(sessionId));
