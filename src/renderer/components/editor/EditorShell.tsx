@@ -7,7 +7,7 @@ import { MonacoPane } from './MonacoPane';
 import { ActivityBar } from './ActivityBar';
 import { ExplorerPane } from './ExplorerPane';
 import { SearchPane } from './SearchPane';
-import { ExtensionsPane } from './ExtensionsPane';
+import { SkillsPane } from './SkillsPane';
 import { TabBar } from './TabBar';
 import { StatusBar } from './StatusBar';
 import { PanelHost } from './PanelHost';
@@ -295,7 +295,7 @@ export function EditorShell({ state, active, onError }: Props) {
         { id: 'stopDebug', label: 'Debug: Hentikan Debugging', run: () => void wb.stopDebug() },
         { id: 'pickTheme', label: 'Preferensi: Ganti Tema Warna', run: () => setPalette('themes') },
         { id: 'refreshExplorer', label: 'Explorer: Segarkan', run: () => wb.refreshDir() },
-        { id: 'installExt', label: 'Ekstensi: Cari & Pasang Ekstensi', run: () => { setSideView('extensions'); setSideOpen(true); } },
+        { id: 'showSkills', label: 'Skills: Lihat skill AI', run: () => { setSideView('skills'); setSideOpen(true); } },
         { id: 'collapseFolders', label: 'Explorer: Tutup Semua Folder', run: collapseAll },
       ];
     }
@@ -368,7 +368,7 @@ export function EditorShell({ state, active, onError }: Props) {
                   <ExplorerPane wb={wb} reportActivity={reportActivity} onError={onError} />
                 )}
                 {sideView === 'search' && <SearchPane wb={wb} reportActivity={reportActivity} />}
-                {sideView === 'extensions' && <ExtensionsPane wb={wb} />}
+                {sideView === 'skills' && <SkillsPane />}
               </aside>
               <Resizer
                 orientation="vertical"

@@ -18,7 +18,8 @@
     "dist": "npm run build && electron-builder --win nsis",
     "test:agent-todo": "node scripts/test-agent-todo.mjs",
     "test:agent-terminal": "node scripts/test-agent-terminal.mjs",
-    "test:agent-runtime": "npm run test:agent-todo && npm run test:agent-terminal"
+    "test:agent-attachments": "node scripts/test-agent-attachments.mjs",
+    "test:agent-runtime": "npm run test:agent-todo && npm run test:agent-terminal && npm run test:agent-attachments"
   },
   "build": {
     "appId": "com.ruangkerja.app",

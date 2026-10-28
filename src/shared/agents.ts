@@ -31,12 +31,21 @@ export interface AgentEntry extends AgentConfig {
   manifestPath?: string;
 }
 
+export interface AgentAttachmentRef {
+  /** Opaque main-process memory reference; never a path or raw file data. */
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+}
+export interface AgentSkillInfo extends AgentSkillSelection { source: string; }
 export interface ChatMessage {
   id: string;
   role: 'system' | 'user' | 'assistant';
   content: string;
   ts: number;
   streaming?: boolean;
+  attachments?: AgentAttachmentRef[];
 }
 
 export interface AgentSkillSelection {

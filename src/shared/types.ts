@@ -2,7 +2,7 @@
 // Semua tipe di file ini adalah satu-satunya sumber kebenaran untuk IPC.
 
 import type { EditorApi } from './editor';
-import type { AgentEntry, AgentRouterStatus, AgentRouterTestResult, ChatMessage, AgentEvent } from './agents';
+import type { AgentAttachmentRef, AgentEntry, AgentRouterStatus, AgentRouterTestResult, AgentSkillInfo, ChatMessage, AgentEvent } from './agents';
 
 export type Role = 'none' | 'host' | 'member';
 
@@ -235,6 +235,8 @@ export interface RkApi {
   agentGetConfig(): Promise<AgentRouterStatus>;
   agentSaveConfig(apiKey: string): Promise<ActionResult>;
   agentTestConfig(): Promise<AgentRouterTestResult>;
+  agentListSkills(): Promise<AgentSkillInfo[]>;
+  agentPickAttachments(): Promise<{ ok: boolean; attachments?: AgentAttachmentRef[]; error?: string }>;
   agentApproveTool(sessionId: string, requestId: string, approved: boolean): Promise<void>;
   /** Create an isolated AI chat and erase memory from the previous conversation. */
   agentBeginSession(conversationId: string): Promise<ActionResult>;
