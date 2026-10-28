@@ -650,6 +650,37 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const activeSessionRef = useRef<string | null>(null);
   const cancelRequestedRef = useRef(false);
 
+  // Keyboard controls mirror a terminal-style agent question: arrows select, Enter confirms.
+  useEffect(() => {
+    if (!visible || !agentQuestion || submittingQuestion) return;
+    const onQuestionKeyDown = (event: KeyboardEvent) => {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const inCustomAnswer = target?.id === 'ai-question-custom-answer';
+      if (inCustomAnswer && event.key !== 'Escape') {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          void answerAgentQuestion();
+        }
+        return;
+      }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        setCustomQuestionAnswer('');
+        setSelectedQuestionOption((current) => {
+          const count = agentQuestion.options.length;
+          if (count === 0) return null;
+          if (current === null) return event.key === 'ArrowDown' ? 1 : count;
+          return event.key === 'ArrowDown' ? (current % count) + 1 : ((current - 2 + count) % count) + 1;
+        });
+      } else if (event.key === 'Enter' && selectedQuestionOption !== null) {
+        event.preventDefault();
+        void answerAgentQuestion();
+      }
+    };
+    window.addEventListener('keydown', onQuestionKeyDown);
+    return () => window.removeEventListener('keydown', onQuestionKeyDown);
+  }, [visible, agentQuestion, submittingQuestion, selectedQuestionOption, answerAgentQuestion]);
+
   const refreshRouterStatus = useCallback(async () => {
     try {
       const status = await window.rk.agentGetConfig();
