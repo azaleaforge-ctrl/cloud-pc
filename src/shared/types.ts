@@ -2,7 +2,7 @@
 // Semua tipe di file ini adalah satu-satunya sumber kebenaran untuk IPC.
 
 import type { EditorApi } from './editor';
-import type { AgentAttachmentRef, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentRouterStatus, AgentRouterTestResult, AgentSkillInfo, ChatMessage, AgentEvent } from './agents';
+import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentRouterStatus, AgentRouterTestResult, AgentSessionData, AgentSessionSaveInput, AgentSessionSummary, AgentSkillInfo, ChatMessage, AgentEvent } from './agents';
 
 export type Role = 'none' | 'host' | 'member';
 
@@ -238,10 +238,17 @@ export interface RkApi {
   agentListModels(): Promise<AgentModelCatalogResult>;
   agentSelectModel(model: string): Promise<ActionResult>;
   agentDiagnoseModel(): Promise<AgentModelCapabilityReport>;
+  agentListSessions(): Promise<AgentSessionSummary[]>;
+  agentLoadSession(id: string): Promise<{ ok: boolean; error?: string; session?: AgentSessionData }>;
+  agentSaveSession(session: AgentSessionSaveInput): Promise<ActionResult>;
+  agentDeleteSession(id: string): Promise<ActionResult>;
+  agentListCheckpoints(sessionId: string): Promise<AgentCheckpointSummary[]>;
+  agentRewindCheckpoint(sessionId: string, checkpointId: string): Promise<AgentCheckpointActionResult>;
+  agentRedoCheckpoint(sessionId: string, checkpointId: string): Promise<AgentCheckpointActionResult>;
   agentListSkills(): Promise<AgentSkillInfo[]>;
   agentPickAttachments(): Promise<{ ok: boolean; attachments?: AgentAttachmentRef[]; error?: string }>;
   agentApproveTool(sessionId: string, requestId: string, approved: boolean): Promise<void>;
-  /** Create an isolated AI chat and erase memory from the previous conversation. */
+  /** Create or activate a conversation without erasing other session memory. */
   agentBeginSession(conversationId: string): Promise<ActionResult>;
   agentStartChat(agentId: string, messages?: ChatMessage[], activePath?: string | null, conversationId?: string): Promise<{ ok: boolean; sessionId?: string; error?: string }>;
   agentStartCli(agentId: string, cols: number, rows: number): Promise<{ ok: boolean; sessionId?: string; error?: string }>;
