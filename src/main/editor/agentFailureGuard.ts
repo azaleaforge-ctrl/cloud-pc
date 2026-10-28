@@ -23,6 +23,8 @@ export function repeatedFailureSignature(toolName: string, result: string): stri
       category = 'todo-completed-before-active';
     } else if (/bukti (?:verifikasi|penyelesaian)|completionEvidence/i.test(result)) {
       category = 'todo-completion-evidence';
+    } else if (/Task belum bisa completed|membutuhkan build\/test\/lint\/typecheck/i.test(result)) {
+      category = 'todo-terminal-verification-required';
     } else if (/prasyarat|dependensi|blockedBy/i.test(result)) {
       category = 'todo-dependency-transition';
     } else if (/task baru tidak boleh langsung completed/i.test(result)) {
