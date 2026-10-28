@@ -864,7 +864,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     if (!activeSessionId) return;
     try { await window.rk.agentStop(activeSessionId); }
     catch (err) { setError('Gagal menghentikan agent: ' + (err as Error).message); }
-  }, [activeSessionId, wb.root]);
+  }, [activeSessionId]);
 
   const testRouterConnection = useCallback(async (): Promise<AgentRouterTestResult | null> => {
     setTestingConnection(true);
