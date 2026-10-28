@@ -23,8 +23,9 @@ export interface DevServerOptions {
 
 const URL_RE = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::(\d+))?/i;
 const LOCAL_PORT_RE = /localhost:(\d+)/i;
+const PHP_SERVER_RE = /127\.0\.0\.1:(\d+)/i;
 const ANSI_RE = /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d/#&.:=?%@~_]+)*)?\u0007)|(?:(?:\d{1,4}(?:[;:]\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
-const PROBE_AFTER_MS = 2_500;
+const PROBE_AFTER_MS = 2_000;
 const PROBE_RETRY_MS = 1_000;
 const PROBE_MAX_MS = 45_000;
 const STOP_TIMEOUT_MS = 5_000;
@@ -32,7 +33,7 @@ const KILL_TIMEOUT_MS = 2_000;
 const PROXY_CLOSE_TIMEOUT_MS = 1_000;
 const PORT_SCAN_RANGE = 20;
 const START_TIMEOUT_MS = 90_000;
-const PHP_PROBE_ATTEMPTS = 20; // Laravel/PHP butuh lebih lama untuk boot
+const PHP_PROBE_ATTEMPTS = 25; // Laravel/PHP butuh lebih lama untuk boot
 const PHP_PROBE_DELAY_MS = 1_000;
 
 /**
@@ -65,6 +66,10 @@ const FATAL_PATTERNS: RegExp[] = [
   /Composer dependencies not installed/i,
   /vendor\/autoload\.php.*not found/i,
   /No application encryption key has been specified/i,
+  /Class .* does not exist/i,
+  /Target class .* does not exist/i,
+  /Production environment detected/i,
+  /APP_ENV=production/i,
 ];
 
 function stripAnsi(line: string): string {
@@ -85,10 +90,15 @@ function urlFromLine(line: string): number | null {
     const port = Number(local[1]);
     return Number.isFinite(port) ? port : null;
   }
+  const php = PHP_SERVER_RE.exec(line);
+  if (php) {
+    const port = Number(php[1]);
+    return Number.isFinite(port) ? port : null;
+  }
   return null;
 }
 
-function checkHttpResponse(port: number, host = '127.0.0.1', timeoutMs = 1_500): Promise<boolean> {
+function checkHttpResponse(port: number, host = '127.0.0.1', timeoutMs = 1_500, path = '/'): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     let settled = false;
     const finish = (result: boolean): void => {
@@ -99,7 +109,7 @@ function checkHttpResponse(port: number, host = '127.0.0.1', timeoutMs = 1_500):
     const request = http.get({
       hostname: host,
       port,
-      path: '/',
+      path,
       timeout: timeoutMs,
       headers: { 'User-Agent': 'Ruang-Kerja-HealthCheck', Connection: 'close' },
     }, (response) => {
@@ -112,9 +122,11 @@ function checkHttpResponse(port: number, host = '127.0.0.1', timeoutMs = 1_500):
   });
 }
 
-async function waitForHttp(port: number, host = '127.0.0.1', attempts = 8, delayMs = 500): Promise<boolean> {
+async function waitForHttp(port: number, host = '127.0.0.1', attempts = 8, delayMs = 500, paths: string[] = ['/']): Promise<boolean> {
   for (let attempt = 0; attempt < attempts; attempt++) {
-    if (await checkHttpResponse(port, host, 1_500)) return true;
+    for (const path of paths) {
+      if (await checkHttpResponse(port, host, 1_500, path)) return true;
+    }
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
   return false;
@@ -422,7 +434,8 @@ export async function startDevServer(opts: DevServerOptions): Promise<DevServerH
         const isPhp = framework.id === 'laravel' || framework.id === 'symfony' || framework.packageManager === 'composer';
         const probeAttempts = isPhp ? PHP_PROBE_ATTEMPTS : 8;
         const probeDelayMs = isPhp ? PHP_PROBE_DELAY_MS : 500;
-        const ready = await waitForHttp(port, '127.0.0.1', probeAttempts, probeDelayMs);
+        const probePaths = isPhp ? ['/', '/index.php', '/api', '/login'] : ['/'];
+        const ready = await waitForHttp(port, '127.0.0.1', probeAttempts, probeDelayMs, probePaths);
         if (!ready) {
           failAndKill('Server mencetak alamat, tetapi belum memberi respons HTTP. Periksa dependensi dan log framework.');
           return;

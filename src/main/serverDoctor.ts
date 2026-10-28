@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { FrameworkInfo } from '../shared/types';
 
@@ -133,6 +133,33 @@ export async function checkServerRuntime(framework: FrameworkInfo, cwd: string):
           };
         }
         if (!existsSync(join(cwd, 'vendor', 'autoload.php'))) return missingVendor();
+        // Periksa app key
+        const envFile = join(cwd, '.env');
+        if (existsSync(envFile)) {
+          const envContent = readFileSync(envFile, 'utf8');
+          const hasAppKey = /APP_KEY=\s*['"]?base64:/.test(envContent) || /APP_KEY=/.test(envContent);
+          if (!hasAppKey) {
+            return {
+              ok: false,
+              error: 'APP_KEY belum di-set di file .env.',
+              hint: 'Jalankan `php artisan key:generate` di folder project, lalu coba lagi.',
+            };
+          }
+        } else {
+          return {
+            ok: false,
+            error: 'File .env tidak ditemukan.',
+            hint: 'Buat file .env dari .env.example dan jalankan `php artisan key:generate`.',
+          };
+        }
+        // Periksa file bootstrap/cache
+        if (!existsSync(join(cwd, 'bootstrap', 'app.php')) && !existsSync(join(cwd, 'bootstrap', 'app'))) {
+          return {
+            ok: false,
+            error: 'Struktur folder Laravel tidak lengkap (bootstrap/app.php hilang).',
+            hint: 'Pastikan folder project adalah root Laravel yang lengkap.',
+          };
+        }
       } else if (existsSync(join(cwd, 'composer.json')) && !existsSync(join(cwd, 'vendor', 'autoload.php'))) {
         return missingVendor();
       }

@@ -43,20 +43,31 @@ function QueueNotice({ state }: { state: AppState }) {
   const seconds = remaining === null ? null : Math.ceil(remaining / 1000);
   const decision = notice.mode === 'decision';
   const deferred = notice.mode === 'deferred';
+  const conflict = notice.mode === 'conflict';
 
   const approve = () => { void window.rk.approveQueue(notice.requesterId); };
   const defer = () => { void window.rk.deferQueue(notice.requesterId); };
 
   return (
-    <div className={'queue-notice ' + (decision ? 'decision' : 'bar') + (deferred ? ' deferred' : '')}>
+    <div className={'queue-notice ' + (conflict ? 'conflict' : decision ? 'decision' : 'bar') + (deferred ? ' deferred' : '')}>
       <div className="queue-notice-main">
-        <strong>{decision ? 'Giliran berikutnya menunggu' : deferred ? 'Permintaan giliran ditunda' : 'Ada anggota yang sedang antre'}</strong>
+        <strong>
+          {conflict
+            ? 'Ada yang meminta giliran'
+            : decision
+              ? 'Giliran berikutnya menunggu'
+              : deferred
+                ? 'Permintaan giliran ditunda'
+                : 'Ada anggota yang sedang antre'}
+        </strong>
         <span>
-          {decision
-            ? notice.requesterName + ' ingin bekerja berikutnya.'
-            : deferred
-              ? 'Akan diminta kembali dalam ' + Math.floor((seconds ?? 0) / 60) + ':' + String((seconds ?? 0) % 60).padStart(2, '0')
-              : notice.requesterName + ' sedang menunggu giliran.'}
+          {conflict
+            ? notice.requesterName + ' meminta giliran saat kamu sedang bekerja. Selesaikan atau lepaskan giliranmu.'
+            : decision
+              ? notice.requesterName + ' ingin bekerja berikutnya.'
+              : deferred
+                ? 'Akan diminta kembali dalam ' + Math.floor((seconds ?? 0) / 60) + ':' + String((seconds ?? 0) % 60).padStart(2, '0')
+                : notice.requesterName + ' sedang menunggu giliran.'}
         </span>
       </div>
       {decision ? (

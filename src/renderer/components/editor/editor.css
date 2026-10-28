@@ -1376,3 +1376,124 @@ button.ed-status-item:hover {
   color: var(--ed-text-3);
   font-size: 12.5px;
 }
+
+/* ---------- Terminal (xterm.js) ---------- */
+
+.rk-term {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  color: var(--ed-text);
+  font-family: var(--ed-mono);
+}
+
+.rk-term-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--ed-border);
+  background: var(--ed-bg-raise);
+}
+
+.rk-term-toolbar .icon-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ed-text-3);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  transition: background 0.12s, color 0.12s;
+}
+
+.rk-term-toolbar .icon-btn:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--ed-text);
+}
+
+.rk-term-toolbar .icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.rk-term-toolbar select {
+  flex: 1;
+  min-width: 0;
+  background: var(--ed-bg-inset);
+  color: var(--ed-text-2);
+  border: 1px solid var(--ed-border);
+  border-radius: 7px;
+  padding: 3px 6px;
+  font: 600 11px/1.4 var(--font, system-ui);
+  outline: none;
+}
+
+.rk-term-toolbar select:focus {
+  border-color: rgba(45, 212, 191, 0.4);
+}
+
+.rk-term-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--ed-bg);
+}
+
+/* xterm.js: terminal canvas/surface harus dapat di-scroll dengan mouse wheel
+   tanpa menjadi isu browser. Kita biarkan xterm yang mengelola scrollback. */
+.xterm {
+  /* Pastikan terminal mengisi semua ruang yang tersedia */
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.xterm-viewport {
+  /* xterm mengelola scroll internalnya; cegah scroll parent */
+  overflow: hidden;
+  height: 100% !important;
+}
+
+.xterm-screen {
+  /* Surface rendering area */
+  width: 100% !important;
+}
+
+/* xterm scrollbar agar konsisten dengan tema gelap */
+.xterm-scrollbar {
+  background: rgba(148, 163, 184, 0.07);
+}
+
+.xterm-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.26);
+  border-radius: 4px;
+}
+
+.xterm-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.4);
+}
+
+.xterm-scrollbar-track {
+  background: transparent;
+}
+
+.xterm-cursor {
+  /* Blink + block cursor yang jelas */
+  opacity: 1;
+}
+
+.xterm-cursor-blink {
+  animation: xterm-cursor-blink 1s step-end infinite;
+}
+
+@keyframes xterm-cursor-blink {
+  0%, 70% { opacity: 1; }
+  71%, 100% { opacity: 0; }
+}

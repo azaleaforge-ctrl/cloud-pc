@@ -215,7 +215,7 @@ const initialState: AppState = {
   hostAddress: null,
   projectPath: null,
   members: [],
-  queue: { holder: null, queue: [], holderLastActivity: null, holderActivitySource: null },
+  queue: { holder: null, queue: [], holderLastActivity: null, holderActivitySource: null, holderStartedAt: null },
   framework: null,
   server: { status: 'idle', url: null, port: null, logs: [] },
   ides: [],
@@ -322,7 +322,7 @@ function resetRoomState(): void {
     hostAddress: null,
     projectPath: null,
     members: [],
-    queue: { holder: null, queue: [], holderLastActivity: null, holderActivitySource: null },
+    queue: { holder: null, queue: [], holderLastActivity: null, holderActivitySource: null, holderStartedAt: null },
     framework: null,
     server: { status: 'idle', url: null, port: null, logs: [] },
     sync: { status: 'off', files: 0, lastSync: null },
@@ -396,7 +396,7 @@ async function handleCreateRoom(input: CreateRoomInput): Promise<ActionResult> {
       projectPath: folder,
       framework,
       members: [{ id: settings.selfId, name: memberName, isHost: true }],
-      queue: { holder: settings.selfId, queue: [], holderLastActivity: Date.now(), holderActivitySource: 'room-start' },
+      queue: { holder: settings.selfId, queue: [], holderLastActivity: Date.now(), holderActivitySource: 'room-start', holderStartedAt: Date.now() },
       lanAddress: getLanIp(),
     });
     startProjectFilesWatcher(folder);
@@ -476,6 +476,8 @@ function handleTakeTurn(): ActionResult {
   if (queue.length > 0 && queue[0] !== state.selfId) {
     return { ok: false, error: 'Masih ada antrian lain di depanmu.' };
   }
+  // Host yang belum jadi holder: biarkan hostRoom.takeTurn yang handle (host selalu bisa ambil giliran jika kosong)
+  // Member: jika holder null, ambil giliran langsung; jika ada holder lain, push ke queue
   if (hostRoom) return hostRoom.takeTurn();
   if (memberRoom) return memberRoom.takeTurn();
   return { ok: false, error: 'Sesi ruangan tidak aktif.' };
@@ -732,6 +734,14 @@ function registerIpc(): void {
   });
   ipcMain.handle('rk:take-turn', () => handleTakeTurn());
   ipcMain.handle('rk:release-turn', () => handleReleaseTurn());
+  ipcMain.handle('rk:request-turn', () => {
+    const state = store.get();
+    if (state.role === 'none') return { ok: false, error: 'Belum masuk ruangan.' };
+    if (state.role === 'host') return hostRoom ? hostRoom.takeTurn() : { ok: false, error: 'Sesi ruangan tidak aktif.' };
+    // Member: send request-turn ke host
+    if (memberRoom) return memberRoom.requestTurn();
+    return { ok: false, error: 'Sesi ruangan tidak aktif.' };
+  });
   ipcMain.handle('rk:scan-ides', () => scanIdesAndUpdate());
   ipcMain.handle('rk:open-ide', async (_e, ideId: string) => {
     const state = store.get();

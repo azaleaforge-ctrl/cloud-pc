@@ -27,6 +27,7 @@ export interface MemberRoomOptions {
 export interface MemberRoom {
   takeTurn(): ActionResult;
   releaseTurn(): ActionResult;
+  requestTurn(): ActionResult;
   approveQueue(requesterId: string): ActionResult;
   deferQueue(requesterId: string): ActionResult;
   reportActivity(source: string): ActionResult;
@@ -56,6 +57,7 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
   let server: ServerState = { status: 'idle', url: null, port: null, logs: [] };
   let holderLastActivity: number | null = null;
   let holderActivitySource: string | null = null;
+  let holderStartedAt: number | null = null;
 
   let closed = false;
   let welcomed = false;
@@ -70,7 +72,7 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
   const pending = new Map<string, ReturnType<typeof setTimeout>>();
 
   const emitQueue = (): void => {
-    opts.emit({ members, queue: { holder, queue: [...queue], holderLastActivity, holderActivitySource }, server });
+    opts.emit({ members, queue: { holder, queue: [...queue], holderLastActivity, holderActivitySource, holderStartedAt }, server });
   };
 
   const scheduleSyncEmit = (): void => {
@@ -301,6 +303,7 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
         queue = msg.queue ?? [];
         holderLastActivity = msg.holderLastActivity ?? null;
         holderActivitySource = msg.holderActivitySource ?? null;
+        holderStartedAt = msg.holderStartedAt ?? null;
         server = msg.server ?? server;
         emitQueue();
         break;
@@ -312,6 +315,7 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
         queue = msg.queue ?? [];
         holderLastActivity = msg.holderLastActivity ?? null;
         holderActivitySource = msg.holderActivitySource ?? null;
+        holderStartedAt = msg.holderStartedAt ?? null;
         server = msg.server ?? server;
         emitQueue();
         if (previousHolder !== holder) {
@@ -339,6 +343,42 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
       case 'notify':
         opts.notify({ kind: msg.kind, message: msg.message });
         break;
+      case 'turn-taken': {
+        if (msg.holder === selfId) {
+          opts.notify({ kind: 'turn', message: 'Giliranmu sekarang - silakan mulai bekerja' });
+        } else {
+          opts.notify({ kind: 'info', message: `${msg.name ?? 'Anggota'} mulai bekerja` });
+        }
+        break;
+      }
+      case 'turn-released': {
+        if (msg.holder === selfId) {
+          opts.notify({ kind: 'turn', message: 'Kamu dapat giliran bekerja' });
+        }
+        break;
+      }
+      case 'turn-conflict': {
+        // Notifikasi conflict - siapa pun bisa lihat ini.
+        opts.notify({
+          kind: 'warn',
+          message: `${msg.requesterName} meminta giliran sementara ${msg.holderName} sedang bekerja.`,
+        });
+        break;
+      }
+      case 'queue-notice-conflict': {
+        // Holder menerima notifikasi conflict - tampilkan di UI
+        opts.emit({
+          queueNotice: {
+            mode: 'conflict',
+            requesterId: msg.requesterId,
+            requesterName: msg.requesterName,
+            holderName: msg.holderName,
+            expiresAt: null,
+            deferredUntil: null,
+          },
+        });
+        break;
+      }
       case 'queue-prompt':
         if (msg.mode === 'bar') {
           opts.emit({
@@ -461,6 +501,11 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
     takeTurn: (): ActionResult => {
       if (closed || !isOpen(socket)) return { ok: false, error: LOST_MESSAGE };
       sendWire(socket, { t: 'take' });
+      return { ok: true };
+    },
+    requestTurn: (): ActionResult => {
+      if (closed || !isOpen(socket)) return { ok: false, error: LOST_MESSAGE };
+      sendWire(socket, { t: 'request-turn', requesterId: selfId, requesterName: opts.memberName });
       return { ok: true };
     },
     releaseTurn: (): ActionResult => {

@@ -395,6 +395,16 @@ export function IconChevronLeft(p: IconProps) {
   );
 }
 
+export function IconUserCheck(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M16 21H9a3 3 0 0 1-3-3v-1a4 4 0 0 1 4-4h4" />
+      <path d="M13 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
+      <path d="M18 15l2 2 3-3" />
+    </Svg>
+  );
+}
+
 export function IconChevronRight(p: IconProps) {
   return (
     <Svg {...p}>

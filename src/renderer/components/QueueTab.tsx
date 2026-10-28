@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { AppState } from '../../shared/types';
-import { IconHourglass, IconInfo, IconZap } from './icons';
+import { IconHourglass, IconInfo, IconZap, IconUserCheck } from './icons';
 import { Badge } from './ui';
 
 export function QueueTab({
@@ -17,13 +17,21 @@ export function QueueTab({
 
   const holderName = holder?.name ?? '—';
   const isIdle = !state.queue.holder;
+  const startedAt = state.queue.holderStartedAt;
+  const [nowTick, setNowTick] = useState(Date.now());
 
-  // Hitung countdown idle (untuk UI, sekadar referensi visual)
-  const [, setTick] = useState(0);
+  // Hitung durasi bekerja + countdown idle (untuk UI, sekadar referensi visual)
   useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
+
+  const formatDuration = (ms: number): string => {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return `${m}m ${s}s`;
+  };
 
   // Listener error dari queue (tidak dipakai lagi tapi tetap di API)
   void onError;
@@ -33,7 +41,7 @@ export function QueueTab({
       <div className="tab-heading">
         <div>
           <h2>Antrian Giliran</h2>
-          <p>Giliran dikerjakan otomatis. Mulailah mengedit berkas untuk dapat giliran.</p>
+          <p>Sistem antrian real-time: otomatis saat mulai bekerja, manual request, atau idle timeout.</p>
         </div>
       </div>
 
@@ -54,18 +62,38 @@ export function QueueTab({
                 : `${holderName} sedang bekerja`}
           </div>
           <div className="turn-hero-sub">
-            {holding
-              ? 'Giliran akan otomatis dilepas setelah 2 menit tidak ada perubahan berkas.'
-              : isIdle
-                ? myPos >= 0
-                  ? `Kamu antre di posisi ${myPos + 1}. Mulai edit untuk dapat giliran.`
-                  : 'Ruang kerja kosong. Mulai edit berkas untuk dapat giliran otomatis.'
-                : myPos >= 0
-                  ? `Kamu antre di posisi ${myPos + 1}. Tunggu giliranmu.`
-                  : 'Pegang giliran saat ruang kosong dengan mulai mengedit.'}
+            {startedAt && !isIdle
+              ? `${nameOf(state.queue.holder!)} bekerja selama ${formatDuration(nowTick - startedAt)}`
+              : holding
+                ? 'Giliran akan otomatis dilepas setelah 2 menit tidak ada perubahan berkas.'
+                : isIdle
+                  ? myPos >= 0
+                    ? `Kamu antre di posisi ${myPos + 1}. Mulai edit untuk dapat giliran.`
+                    : 'Ruang kerja kosong. Mulai edit berkas untuk dapat giliran otomatis.'
+                  : myPos >= 0
+                    ? `Kamu antre di posisi ${myPos + 1}. Tunggu giliranmu.`
+                    : 'Pegang giliran saat ruang kosong dengan mulai mengedit.'}
           </div>
         </div>
       </section>
+
+      {!isIdle && !holding && (
+        <div className="turn-request-bar">
+          <button
+            type="button"
+            className="btn btn-warning btn-sm"
+            onClick={async () => {
+              const res = await window.rk.requestTurn();
+              if (!res.ok) onError(res.error ?? 'Gagal meminta giliran.');
+            }}
+          >
+            <IconUserCheck size={14} /> Meminta Giliran
+          </button>
+          <span className="turn-request-hint">
+            Minta giliran ke {holderName}. {holderName} akan menerima notifikasi.
+          </span>
+        </div>
+      )}
 
       {holding && (
         <section className="card" aria-label="Idle timer">
@@ -79,6 +107,16 @@ export function QueueTab({
             Giliran akan otomatis dilepas jika tidak ada perubahan selama 2 menit.
             Setelah melepas, rekan berikutnya langsung dapat giliran.
           </p>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={async () => {
+              const res = await window.rk.releaseTurn();
+              if (!res.ok) onError(res.error ?? 'Gagal melepas giliran.');
+            }}
+          >
+            Lepas Giliran Sekarang
+          </button>
         </section>
       )}
 
@@ -94,15 +132,49 @@ export function QueueTab({
             {holderName} sedang bekerja. Kamu antre di posisi {myPos >= 0 ? myPos + 1 : '-'} dan akan
             mendapatkan giliran otomatis saat {holderName} selesai.
           </p>
+          {myPos >= 0 ? null : (
+            <p className="card-sub">
+              Kamu tidak ada di antrian. Klik "Meminta Giliran" di atas untuk masuk ke antrian.
+            </p>
+          )}
         </section>
       )}
+
+      <section className="card" aria-label="Daftar anggota sedang bekerja">
+        <div className="card-head">
+          <span className="icon-chip">
+            <IconZap size={16} />
+          </span>
+          <h3 className="card-title">Sedang Bekerja</h3>
+        </div>
+        {!isIdle ? (
+          <div className="queue-list">
+            <div className={`queue-row${state.queue.holder === state.selfId ? ' self' : ''}`}>
+              <span className="queue-pos">#</span>
+              <span className={`avatar${state.queue.holder === state.selfId ? ' avatar-host' : ''}`}>
+                {holderName.charAt(0).toUpperCase()}
+              </span>
+              <span className="member-name">{holderName}</span>
+              {state.queue.holder === state.selfId ? <span className="member-you">(kamu)</span> : null}
+              <span className="member-end">
+                <Badge tone={state.queue.holder === state.selfId ? 'amber' : 'teal'}>Bekerja</Badge>
+              </span>
+              {startedAt ? (
+                <span className="queue-time">{formatDuration(nowTick - startedAt)}</span>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <p className="card-sub">Tidak ada yang sedang bekerja.</p>
+        )}
+      </section>
 
       <section className="card" aria-label="Daftar antrean">
         <div className="card-head">
           <span className="icon-chip">
             <IconHourglass size={16} />
           </span>
-          <h3 className="card-title">Antrean ({state.queue.queue.length})</h3>
+          <h3 className="card-title">Antrean Menunggu ({state.queue.queue.length})</h3>
         </div>
         {state.queue.queue.length === 0 ? (
           <p className="card-sub">Belum ada yang antre.</p>
@@ -111,13 +183,11 @@ export function QueueTab({
             {state.queue.queue.map((id, i) => (
               <div key={id} className={`queue-row${id === state.selfId ? ' self' : ''}`}>
                 <span className="queue-pos">{i + 1}</span>
-                <span className={`avatar${id === state.queue.holder ? ' avatar-host' : ''}`}>
-                  {nameOf(id).charAt(0).toUpperCase()}
-                </span>
+                <span className="avatar">{nameOf(id).charAt(0).toUpperCase()}</span>
                 <span className="member-name">{nameOf(id)}</span>
                 {id === state.selfId ? <span className="member-you">(kamu)</span> : null}
                 <span className="member-end">
-                  {id === state.selfId ? <Badge tone="amber">Giliranmu</Badge> : null}
+                  {id === state.selfId ? <Badge tone="amber">Giliranmu</Badge> : <Badge tone="slate">Menunggu</Badge>}
                 </span>
               </div>
             ))}
@@ -128,9 +198,9 @@ export function QueueTab({
       <div className="rules-card">
         <IconInfo size={17} />
         <span>
-          <b>Aturan otomatis:</b> giliran diberikan otomatis saat kamu mulai mengedit berkas.
-          Setelah 2 menit tidak ada perubahan, giliran dilepas otomatis dan rekan berikutnya
-          dilanjutkan.
+          <b>Aturan otomatis:</b> giliran diberikan otomatis saat kamu mulai mengedit berkas,
+          menggunakan terminal, atau AI agent terdeteksi. Setelah 2 menit tidak ada aktivitas,
+          giliran dilepas otomatis dan rekan berikutnya dilanjutkan.
         </span>
       </div>
     </div>

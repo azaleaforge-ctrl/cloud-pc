@@ -77,6 +77,7 @@ const api: RkApi = {
   setMemberName: (name: string) => ipcRenderer.invoke('rk:set-member-name', name),
   takeTurn: () => ipcRenderer.invoke('rk:take-turn'),
   releaseTurn: () => ipcRenderer.invoke('rk:release-turn'),
+  requestTurn: () => ipcRenderer.invoke('rk:request-turn'),
   scanIdes: (): Promise<IdeInfo[]> => ipcRenderer.invoke('rk:scan-ides'),
   openIde: (ideId: string) => ipcRenderer.invoke('rk:open-ide', ideId),
   closeIde: () => ipcRenderer.invoke('rk:close-ide'),

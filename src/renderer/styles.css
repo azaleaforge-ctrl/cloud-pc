@@ -1612,6 +1612,7 @@ button {
   box-shadow: 0 20px 56px -18px rgba(251,191,36,.28);
 }
 .queue-notice.deferred { border-color: rgba(129,140,248,.4); }
+.queue-notice.conflict { border-color: rgba(251,113,133,.5); box-shadow:0 20px 56px -18px rgba(251,113,133,.28); }
 .queue-notice-main { display:flex; flex-direction:column; gap:4px; min-width:0; }
 .queue-notice-main strong { font-size:12.5px; }
 .queue-notice-main span { color:var(--text-2); font-size:12px; line-height:1.45; }

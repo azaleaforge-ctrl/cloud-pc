@@ -19,9 +19,11 @@ export interface QueueState {
   queue: string[];
   holderLastActivity: number | null;
   holderActivitySource: string | null;
+  /** Waktu (epoch ms) saat holder mulai bekerja — untuk menampilkan durasi di UI. */
+  holderStartedAt: number | null;
 }
 
-export type QueueNoticeMode = 'bar' | 'decision' | 'deferred';
+export type QueueNoticeMode = 'bar' | 'decision' | 'deferred' | 'conflict';
 
 export interface QueueNotice {
   mode: QueueNoticeMode;
@@ -202,6 +204,8 @@ export interface RkApi {
   setMemberName(name: string): Promise<void>;
   takeTurn(): Promise<ActionResult>;
   releaseTurn(): Promise<ActionResult>;
+  /** Request turn from current holder (member only). */
+  requestTurn(): Promise<ActionResult>;
   scanIdes(): Promise<IdeInfo[]>;
   openIde(ideId: string): Promise<ActionResult>;
   closeIde(): Promise<ActionResult>;
@@ -226,21 +230,24 @@ export interface RkApi {
 /** Payload mentah protokol WebSocket host <-> member. */
 export type WireMessage =
   | { t: 'hello'; name: string; clientId: string }
-  | { t: 'welcome'; selfId: string; code: string; roomName: string; hostName: string; members: Member[]; holder: string | null; queue: string[]; holderLastActivity: number | null; holderActivitySource: string | null; hostIp: string; server: ServerState }
-  | { t: 'state'; members: Member[]; holder: string | null; queue: string[]; holderLastActivity: number | null; holderActivitySource: string | null; server: ServerState }
+  | { t: 'welcome'; selfId: string; code: string; roomName: string; hostName: string; members: Member[]; holder: string | null; queue: string[]; holderLastActivity: number | null; holderActivitySource: string | null; holderStartedAt: number | null; hostIp: string; server: ServerState }
+  | { t: 'state'; members: Member[]; holder: string | null; queue: string[]; holderLastActivity: number | null; holderActivitySource: string | null; holderStartedAt: number | null; server: ServerState }
   | { t: 'tree-begin'; total: number }
   | { t: 'file'; path: string; b64: string; mtime: number }
   | { t: 'tree-end' }
   | { t: 'fs'; op: 'add' | 'change' | 'unlink'; path: string; b64?: string; mtime?: number; from?: string }
   | { t: 'error'; message: string }
   | { t: 'notify'; kind: NotifyPayload['kind']; message: string }
-  | { t: 'turn-taken'; holder: string; name: string }
+  | { t: 'turn-taken'; holder: string; name: string; startedAt: number }
   | { t: 'turn-released'; holder: string | null; name?: string }
   | { t: 'queue-prompt'; requesterId: string; requesterName: string; holderName: string; expiresAt: number | null; mode: 'bar' | 'decision' }
   | { t: 'queue-deferred'; requesterId: string; requesterName: string; holderName: string; until: number }
   | { t: 'queue-approve'; requesterId: string }
   | { t: 'queue-defer'; requesterId: string }
   | { t: 'activity'; source: string }
+  | { t: 'request-turn'; requesterId: string; requesterName: string }
+  | { t: 'turn-conflict'; holderId: string; holderName: string; requesterId: string; requesterName: string }
+  | { t: 'queue-notice-conflict'; requesterId: string; requesterName: string; holderName: string }
   | { t: 'ping' }
   | { t: 'pong' };
 

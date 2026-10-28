@@ -44,8 +44,9 @@ interface ManagedTerminal {
   search: SearchAddon;
   host: HTMLDivElement;
   inputSub: IDisposable;
-  dataSub: IDisposable;
   keySub: IDisposable;
+  mouseSub: IDisposable;
+  wheelSub: IDisposable;
 }
 
 export function TerminalPane({
@@ -79,7 +80,8 @@ export function TerminalPane({
     for (const [id, entry] of Array.from(managed.entries())) {
       if (alive.has(id)) continue;
       entry.inputSub.dispose();
-      entry.dataSub.dispose();
+      entry.mouseSub.dispose();
+      entry.wheelSub.dispose();
       entry.keySub.dispose();
       entry.term.dispose();
       entry.host.remove();
@@ -99,12 +101,16 @@ export function TerminalPane({
         fontSize: 12.5,
         lineHeight: 1.25,
         cursorBlink: true,
+        cursorStyle: 'block',
         scrollback: 10000,
         allowTransparency: false,
         theme: XTERM_THEME,
         rightClickSelectsWord: true,
         convertEol: true,
         screenReaderMode: false,
+        // Windows/macOS: enable alt+arrow for shell navigation
+        macOptionIsMeta: true,
+        disableStdin: false,
       });
       const fit = new FitAddon();
       const search = new SearchAddon();
@@ -112,12 +118,12 @@ export function TerminalPane({
       term.loadAddon(search);
       term.loadAddon(new WebLinksAddon());
       term.open(host);
-      
+
       // Handle input - send to main process
       const inputSub = term.onData((data) => {
         void window.rk.editor.writeTerminal(session.id, data).catch(() => undefined);
       });
-      
+
       // Handle key events for search and other shortcuts
       const keySub = term.onKey((event) => {
         if (event.key === 'f' && (event.domEvent.ctrlKey || event.domEvent.metaKey)) {
@@ -127,7 +133,23 @@ export function TerminalPane({
         }
       });
 
-      managed.set(session.id, { term, fit, search, host, inputSub, dataSub: { dispose: () => {} }, keySub });
+      // Prevent wheel from bubbling past the xterm host element.
+      // xterm handles its own scrollback internally.
+      const wheelHandler = (event: WheelEvent) => {
+        event.stopPropagation();
+      };
+      host.addEventListener('wheel', wheelHandler, { passive: false, capture: true });
+      const wheelSub = { dispose: () => host.removeEventListener('wheel', wheelHandler, { capture: true }) };
+
+      // Click on host focuses terminal
+      const clickHandler = (e: MouseEvent) => {
+        e.preventDefault();
+        term.focus();
+      };
+      host.addEventListener('mousedown', clickHandler);
+      const mouseSub = { dispose: () => host.removeEventListener('mousedown', clickHandler) };
+
+      managed.set(session.id, { term, fit, search, host, inputSub, keySub, mouseSub, wheelSub });
     }
   }, [sessions]);
 
@@ -193,7 +215,8 @@ export function TerminalPane({
   useEffect(() => () => {
     for (const entry of sessionsRef.current.values()) {
       entry.inputSub.dispose();
-      entry.dataSub.dispose();
+      entry.mouseSub.dispose();
+      entry.wheelSub.dispose();
       entry.keySub.dispose();
       entry.term.dispose();
     }
@@ -363,6 +386,17 @@ export function TerminalPane({
           if (!id) return;
           event.preventDefault();
           setMenu({ x: event.clientX, y: event.clientY, id });
+        }}
+        onMouseDown={(event) => {
+          // Pastikan klik pada container terminal memfokuskan xterm, bukan
+          // mengorbankan event ke React (yang menyebabkan kursor berpindah).
+          event.preventDefault();
+          const entry = activeId ? sessionsRef.current.get(activeId) : null;
+          if (entry) entry.term.focus();
+        }}
+        onWheel={(event) => {
+          // Cegah scroll parent (webview) — biarkan xterm kelola scrollback.
+          event.preventDefault();
         }}
       >
         {sessions.length === 0 ? (

@@ -32,6 +32,7 @@ export interface HostRoom {
   readonly port: number;
   takeTurn(): ActionResult;
   releaseTurn(): ActionResult;
+  requestTurn(requesterId: string, requesterName: string): ActionResult;
   approveQueue(requesterId: string): ActionResult;
   deferQueue(requesterId: string): ActionResult;
   reportActivity(memberId: string, source: string): void;
@@ -81,6 +82,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   let repromptTimer: ReturnType<typeof setTimeout> | null = null;
   let holderLastActivity: number | null = holder ? Date.now() : null;
   let holderActivitySource: string | null = holder ? 'room-start' : null;
+  let holderStartedAt: number | null = holder ? Date.now() : null;
   let pendingPrompt: { requesterId: string; requesterName: string; expiresAt: number } | null = null;
   const snoozedUntil = new Map<string, number>();
 
@@ -155,7 +157,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   const port = (wsServer.address() as AddressInfo).port;
 
   const listMembers = (): Member[] => [...members.values()];
-  const queueState = () => ({ holder, queue: [...queue], holderLastActivity, holderActivitySource });
+  const queueState = () => ({ holder, queue: [...queue], holderLastActivity, holderActivitySource, holderStartedAt });
 
   const broadcast = (msg: WireMessage, exceptId?: string): void => {
     for (const client of clients.values()) {
@@ -178,7 +180,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   };
 
   const sendState = (): void => {
-    broadcast({ t: 'state', members: listMembers(), holder, queue: [...queue], holderLastActivity, holderActivitySource, server: serverState });
+    broadcast({ t: 'state', members: listMembers(), holder, queue: [...queue], holderLastActivity, holderActivitySource, holderStartedAt, server: serverState });
   };
 
   const scheduleSyncEmit = (): void => {
@@ -263,9 +265,12 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
 
     if (holder === null) {
       holder = byId;
+      holderStartedAt = Date.now();
+      holderLastActivity = holderStartedAt;
+      holderActivitySource = 'turn';
       updateStatuses();
       resetIdleTimer('turn');
-      broadcast({ t: 'turn-taken', holder: byId, name: member.name });
+      broadcast({ t: 'turn-taken', holder: byId, name: member.name, startedAt: holderStartedAt });
       broadcast({ t: 'notify', kind: 'info', message: `${member.name} mulai bekerja` });
       if (byId !== opts.hostId) opts.notify({ kind: 'info', message: `${member.name} mulai bekerja` });
       announceHolder(byId);
@@ -298,8 +303,12 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     if (holder === null) {
       // Auto-assign: tidak ada yang pegang → ini dapat giliran
       holder = byId;
-      resetIdleTimer();
-      broadcast({ t: 'turn-taken', holder: byId, name: member.name });
+      holderStartedAt = Date.now();
+      holderLastActivity = holderStartedAt;
+      holderActivitySource = 'fs-change';
+      updateStatuses();
+      resetIdleTimer('file');
+      broadcast({ t: 'turn-taken', holder: byId, name: member.name, startedAt: holderStartedAt });
       broadcast({ t: 'notify', kind: 'info', message: `${member.name} mulai bekerja (otomatis)` });
       if (byId !== opts.hostId) opts.notify({ kind: 'info', message: 'Kamu dapat giliran bekerja' });
       announceHolder(byId);
@@ -315,6 +324,51 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     return false;
   };
 
+  /** Member yang sedang bekerja bisa menerima request giliran dari member lain. */
+  const requestTurn = (requesterId: string, requesterName: string): ActionResult => {
+    if (holder === null) {
+      // Tidak ada yang pegang giliran — request ini setara dengan takeTurn.
+      const member = members.get(requesterId);
+      if (!member) return { ok: false, error: 'Anggota tidak dikenal.' };
+      holder = requesterId;
+      holderStartedAt = Date.now();
+      holderLastActivity = holderStartedAt;
+      holderActivitySource = 'request-approved';
+      updateStatuses();
+      resetIdleTimer('request-approved');
+      broadcast({ t: 'turn-taken', holder: requesterId, name: member.name, startedAt: holderStartedAt });
+      broadcast({ t: 'notify', kind: 'info', message: `${member.name} mulai bekerja` });
+      announceHolder(requesterId);
+      applyHolderChange();
+      return { ok: true };
+    }
+    // Holder sedang bekerja — kirim notifikasi ke holder dan semua orang.
+    const holderName = members.get(holder)?.name ?? 'Anggota';
+    const conflictMsg = `${requesterName} meminta giliran saat ${holderName} sedang bekerja`;
+    // Notify holder specifically & show conflict notice bar
+    if (holder !== opts.hostId) {
+      const holderClient = clients.get(holder);
+      if (holderClient) {
+        sendWire(holderClient.ws, { t: 'turn-conflict', holderId: holder, holderName, requesterId, requesterName });
+        sendWire(holderClient.ws, { t: 'notify', kind: 'warn', message: `${requesterName} meminta giliran. Kamu masih bekerja — selesaikan atau lepaskan giliranmu.` });
+        sendWire(holderClient.ws, { t: 'queue-notice-conflict', requesterId, requesterName, holderName });
+      }
+    } else {
+      opts.notify({ kind: 'warn', message: `${requesterName} meminta giliran. Kamu masih bekerja.` });
+      opts.emit({ queueNotice: { mode: 'conflict', requesterId, requesterName, holderName, expiresAt: null, deferredUntil: null } });
+    }
+    // Notify everyone about the conflict
+    broadcast({ t: 'notify', kind: 'info', message: conflictMsg });
+    // If requester not in queue, add them
+    if (!queue.includes(requesterId)) {
+      queue.push(requesterId);
+      updateStatuses();
+      broadcast({ t: 'turn-conflict', holderId: holder, holderName, requesterId, requesterName });
+    }
+    applyHolderChange();
+    return { ok: true };
+  };
+
   const internalReleaseTurn = (byId: string, idle = false): ActionResult => {
     if (holder !== byId) return { ok: false, error: 'Kamu tidak sedang memegang giliran.' };
     const member = members.get(byId);
@@ -328,6 +382,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
       holder = queue.shift() ?? null;
       holderLastActivity = holder ? Date.now() : null;
       holderActivitySource = holder ? 'idle-auto' : null;
+      holderStartedAt = holder ? Date.now() : null;
       updateStatuses();
       broadcast({ t: 'turn-released', holder, name });
       broadcast({ t: 'notify', kind: 'warn', message: `${name} idle selama 2 menit - giliran dilepas otomatis.` });
@@ -336,6 +391,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
         const nextName = members.get(holder)?.name ?? 'Anggota';
         announceHolder(holder);
         if (holder !== opts.hostId) opts.notify({ kind: 'turn', message: `${nextName} sekarang mendapat giliran.` });
+        broadcast({ t: 'turn-taken', holder, name: nextName, startedAt: holderStartedAt! });
         resetIdleTimer('queue-auto');
       }
       applyHolderChange();
@@ -366,6 +422,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = null;
     holder = null;
+    holderStartedAt = null;
     holderLastActivity = null;
     holderActivitySource = null;
     updateStatuses();
@@ -385,7 +442,8 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     queue.splice(idx, 1);
     clearPrompt();
     holder = requesterId;
-    holderLastActivity = Date.now();
+    holderStartedAt = Date.now();
+    holderLastActivity = holderStartedAt;
     holderActivitySource = 'approved';
     updateStatuses();
     if (previousHolder === opts.hostId) opts.emit({ queueNotice: null });
@@ -467,6 +525,14 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   const publishLocalChange = async (event: 'add' | 'change' | 'unlink', relPath: string): Promise<void> => {
     if (closed) return;
     if (consumeSuppressed(relPath)) return;
+
+    // Auto-assign giliran jika belum ada holder (host atau member).
+    if (holder === null) {
+      // Host sendiri yang membuat file pertama → dapat giliran otomatis.
+      autoAssignFromFs(opts.hostId);
+      if (holder === null) return; // auto-assign gagal (mis. member sudah keluar)
+    }
+
     if (holder !== opts.hostId) return;
 
     resetIdleTimer();
@@ -569,7 +635,16 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
       idleTimer && clearTimeout(idleTimer);
       idleTimer = null;
       holder = queue.shift() ?? null;
-      if (holder) resetIdleTimer();
+      if (holder) {
+        holderStartedAt = Date.now();
+        holderLastActivity = holderStartedAt;
+        resetIdleTimer('disconnect');
+        broadcast({ t: 'turn-taken', holder, name: members.get(holder)?.name ?? 'Anggota', startedAt: holderStartedAt });
+      } else {
+        holderStartedAt = null;
+        holderLastActivity = null;
+        holderActivitySource = null;
+      }
     }
 
     const message = `${client.name} terputus, giliran dilepas`;
@@ -579,7 +654,6 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
       clearPrompt();
       if (holder) {
         announceHolder(holder);
-        resetIdleTimer('disconnect');
       }
     }
     applyHolderChange();
@@ -642,6 +716,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
           queue: [...queue],
           holderLastActivity,
           holderActivitySource,
+          holderStartedAt,
           hostIp: getLanIp() ?? '127.0.0.1',
           server: serverState,
         });
@@ -673,6 +748,13 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
         case 'activity':
           reportActivity(client.id, typeof msg.source === 'string' ? msg.source : 'ui');
           break;
+        case 'request-turn': {
+          const member = members.get(client.id);
+          const requesterName = member?.name ?? client.name;
+          const result = requestTurn(client.id, requesterName);
+          if (!result.ok) sendWire(ws, { t: 'error', message: result.error ?? 'Gagal meminta giliran.' });
+          break;
+        }
         case 'queue-approve': {
           const result = approveQueue(msg.requesterId);
           if (!result.ok) sendWire(ws, { t: 'error', message: result.error ?? 'Gagal menyetujui antrian.' });
@@ -803,6 +885,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     port,
     takeTurn: () => internalTakeTurn(opts.hostId),
     releaseTurn: () => internalReleaseTurn(opts.hostId),
+    requestTurn: (requesterId: string, requesterName: string) => requestTurn(requesterId, requesterName),
     approveQueue: (requesterId: string) => approveQueue(requesterId),
     deferQueue: (requesterId: string) => deferQueue(requesterId),
     reportActivity: (memberId: string, source: string) => reportActivity(memberId, source),
