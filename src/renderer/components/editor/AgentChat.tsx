@@ -929,11 +929,87 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     catch (err) { setError('Gagal mengirim keputusan terminal: ' + (err as Error).message); }
   }, [permission]);
 
+  const deleteStoredSession = useCallback(async (id: string) => {
+    const entry = sessions.find(item => item.id === id);
+    if (!window.confirm('Hapus riwayat percakapan "' + (entry?.title || id) + '" dari perangkat ini? Tindakan ini tidak dapat dibatalkan.')) return;
+    try {
+      const result = await window.rk.agentDeleteSession(id);
+      if (!result.ok) throw new Error(result.error || 'Sesi gagal dihapus.');
+      const refreshed = await window.rk.agentListSessions();
+      setSessions(refreshed);
+      if (id === conversationId) {
+        setSessionReady(false);
+        setMessages([]);
+        setConversationSummary('');
+        setSummaryThroughTs(0);
+        setTodos([]);
+        setCheckpoints([]);
+        setChanges([]);
+        setSelectedChange(null);
+        setActiveSkills([]);
+        setConversationId(makeConversationId());
+      }
+    } catch (error) {
+      setError((error as Error).message || 'Gagal menghapus sesi.');
+    }
+  }, [sessions, conversationId]);
+
+  const runCheckpointAction = useCallback(async (checkpointId: string, action: 'rewind' | 'redo') => {
+    if (loading || checkpointActionBusy) return;
+    setCheckpointActionBusy(checkpointId);
+    setError(null);
+    try {
+      const result = action === 'rewind'
+        ? await window.rk.agentRewindCheckpoint(conversationId, checkpointId)
+        : await window.rk.agentRedoCheckpoint(conversationId, checkpointId);
+      if (!result.ok) throw new Error(result.message);
+      setActivity(result.message);
+      const [nextCheckpoints, nextSessions] = await Promise.all([
+        window.rk.agentListCheckpoints(conversationId),
+        window.rk.agentListSessions(),
+      ]);
+      setCheckpoints(nextCheckpoints);
+      setSessions(nextSessions);
+    } catch (error) {
+      setError((error as Error).message || 'Operasi checkpoint gagal.');
+    } finally {
+      setCheckpointActionBusy(null);
+    }
+  }, [loading, checkpointActionBusy, conversationId]);
+
+  useEffect(() => {
+    if (!historyOpen) return;
+    let alive = true;
+    setLoadingSessions(true);
+    void window.rk.agentListSessions().then(list => {
+      if (alive) setSessions(list);
+    }).catch(error => {
+      if (alive) setError((error as Error).message || 'Gagal memuat riwayat sesi.');
+    }).finally(() => {
+      if (alive) setLoadingSessions(false);
+    });
+    return () => { alive = false; };
+  }, [historyOpen]);
+
+  useEffect(() => {
+    if (!checkpointsOpen) return;
+    let alive = true;
+    void window.rk.agentListCheckpoints(conversationId).then(items => {
+      if (alive) setCheckpoints(items);
+    }).catch(error => {
+      if (alive) setError((error as Error).message || 'Gagal memuat checkpoint.');
+    });
+    return () => { alive = false; };
+  }, [checkpointsOpen, conversationId]);
+
   const clearChat = useCallback(() => {
     if (activeSessionId) void window.rk.agentStop(activeSessionId);
     activeSessionRef.current = 'pending-session';
     setActiveSessionId(null);
     setMessages([]);
+    setConversationSummary('');
+    setSummaryThroughTs(0);
+    setCheckpoints([]);
     setTodos([]);
     setToolActivities([]);
     setLastRunResult(null);
