@@ -36,7 +36,7 @@ export function ActivityBar({ sideView, sideOpen, panelView, panelOpen, onSideVi
   const sideItems: Array<{ id: SideView; label: string; icon: React.ReactNode }> = [
     { id: 'explorer', label: 'Explorer', icon: <IconFolder size={21} /> },
     { id: 'search', label: 'Cari', icon: <IconSearch size={21} /> },
-    { id: 'extensions', label: 'Ekstensi', icon: <IconBlocks size={21} /> },
+    { id: 'skills', label: 'Skills', icon: <IconBlocks size={21} /> },
   ];
 
   return (
