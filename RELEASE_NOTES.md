@@ -1,31 +1,27 @@
-# Ruang Kerja v0.4.4
+# Ruang Kerja v0.4.5
 
-## AI Agent System — Claude Code / OpenCode / KiloCode style + 9router + Poolside LLM
+## AI Coding Agent — agentic workflow, safer 9router setup, and clearer status
 
-### Fitur Baru:
-1. **AI Agent System built-in** — Sistem agent AI yang mirip Claude Code / OpenCode / KiloCode CLI. Setiap agent adalah plugin yang terisolasi dengan konfigurasi model, provider, endpoint, dan kemampuan (capabilities). Mirip "oh my opencode slim".
-   - **Poolside** (🌊): LLM chat agent menggunakan model `ps/poolside/laguna-s-2.1(high)` via 9router. Support streaming chat, file read/write, terminal execution.
-   - **Claude Code** (🧠): CLI agent — spawn claude command di PTY, alirkan I/O ke renderer.
-   - **OpenCode** (🤖): CLI agent — spawn opencode command di PTY.
-   - **KiloCode** (⚡): CLI agent — spawn kilocode command di PTY.
-2. **9router integrasi** — Semua permintaan LLM dilalui 9router untuk routing ke model AI.
-   - Endpoint utama: `https://rbxludp.abc-tunnel.us/v1`
-   - Endpoint cadangan: `http://localhost:20128/v1`
-   - API key: `sk-2d3f91fca9150b32-oteucp-a7c362bf`
-3. **Chat panel floating** — Panel chat AI di pojok kanan bawah editor (mirip VS Code Copilot panel).
-   - Bisa di-toggle lewat Ctrl+Shift+L atau klik tombol 🤖 di header/status bar.
-   - Bisa di-minimize ke ikon kecil atau dipakai fullsize.
-   - Agent switcher: pilih antar Poolside, Claude Code, OpenCode, KiloCode.
+### Perubahan utama
+- **Agentic coding, bukan chat biasa:** Poolside menggunakan model `ps/poolside/laguna-s-2.1(high)` melalui API 9router yang kompatibel dengan OpenAI.
+- **Tool kerja proyek:** agent dapat menelusuri struktur proyek, membaca file, mencari teks, serta membuat atau mengubah file di workspace aktif.
+- **Kontrol terminal:** setiap command terminal menampilkan alasan dan menunggu keputusan pengguna. Command yang belum disetujui tidak dijalankan.
+- **Streaming yang lebih tangguh:** pembacaan SSE menangani chunk yang terpotong, sesi agent memiliki ID yang benar sejak awal, dan error koneksi lebih jelas.
+- **9router fallback:** endpoint utama `https://rbxludp.abc-tunnel.us/v1`; endpoint lokal cadangan `http://localhost:20128/v1`.
+- **API key tidak dibundel:** masukkan API key 9router melalui pengaturan pada panel AI. Aplikasi menyimpan key terenkripsi menggunakan penyimpanan aman sistem operasi bila tersedia. Key tidak ditulis ke file project.
+- **Status kerja agent:** panel menampilkan aktivitas saat membaca, mencari, mengubah file, atau menunggu izin terminal. Agent bisa dihentikan dari panel.
+- **Pesan error dan notifikasi:** toast aplikasi, error chat agent, dan notifikasi error pembaruan otomatis otomatis menghilang setelah 5 detik.
+- **Riwayat versi:** Detail Version membatasi daftar pada tiga rilis terbaru: versi sekarang dan dua versi sebelumnya.
+- **CLI agent lokal:** pilihan Claude Code, OpenCode, dan KiloCode tetap tercantum; ketersediaannya bergantung pada CLI yang terpasang di perangkat.
 
-### Arsitektur:
-- `src/shared/agents.ts` — tipetype agent: AgentConfig, AgentEntry, ChatMessage, AgentEvent, RouterConfig. Daftar agent built-in dengan model `ps/poolside/laguna-s-2.1(high)`.
-- `src/main/editor/agent.ts` — agent runner service. CLI agents dijalankan di PTY (@lydell/node-pty), LLM agents via streaming SSE ke 9router endpoint.
-- `src/renderer/components/editor/AgentChat.tsx` — UI panel chat floating (header, agent switcher, message list, input area).
-- `src/renderer/components/editor/StatusBar.tsx` — tombol 🤖 AI Agent di status bar.
-- `src/renderer/components/Shell.tsx` — logo bot 🤖 di header kanan (hanya di editor tab).
-- `src/renderer/components/icons.tsx` — IconBot, IconSend, IconMaximize, IconMinimize.
-- `src/preload/index.ts` — IPC bridge: agentList, agentStartChat, agentStartCli, agentSendInput, agentResize, agentStop, onAgentEvent.
-- `src/main/index.ts` — registrasi IPC + lifecycle agent service.
+### Cara mengaktifkan AI
+1. Buka ruangan proyek dan masuk ke tab Editor.
+2. Buka panel AI Agent menggunakan tombol bot atau pintasan yang tersedia.
+3. Buka pengaturan ⚙, masukkan API key 9router yang masih aktif, lalu pilih **Simpan**.
+4. Kirim permintaan coding. Agent membaca konteks proyek dan menggunakan tool saat diperlukan.
+5. Tinjau command yang diminta dan pilih **Izinkan sekali** atau **Tolak** sebelum command terminal berjalan.
+
+> Catatan keamanan: jangan gunakan kembali API key yang pernah ditulis di source atau riwayat publik. Cabut key lama dan buat key baru sebelum menggunakan rilis ini.
 
 ---
 
