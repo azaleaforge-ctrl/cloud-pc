@@ -125,7 +125,7 @@ function isBlockStart(lines: string[], index: number): boolean {
   const line = lines[index] ?? '';
   return /^\s*\`\`\`/.test(line) || /^#{1,6}\s+/.test(line) ||
     /^\s*(?:[-*_]\s*){3,}$/.test(line) || /^\s*\/{3,}\s*$/.test(line) || /^\s*>/.test(line) ||
-    /^\s*[-*+]\s+/.test(line) || /^\s*\d+[.)]\s+/.test(line) ||
+    /^\s*[-*+]\s+/.test(line) || /^\s*(?:\d+|[a-zA-Z]|[ivxlcdmIVXLCDM]{2,})[.)]\s+/.test(line) ||
     (line.trim().startsWith('|') && index + 1 < lines.length && isTableSeparator(lines[index + 1]));
 }
 
