@@ -56,8 +56,9 @@ function assertAcyclic(todos: AgentTodo[]): void {
  * Validates and applies a complete Todo List submission from the model.
  *
  * Existing IDs must be preserved. The function prevents dependency cycles,
- * concurrent in-progress tasks, premature completion, and activation before
- * prerequisites were completed in a previous update.
+ * concurrent in-progress tasks, and premature completion. A dependent task can
+ * activate atomically when its currently active prerequisite is completed with
+ * evidence in the same validated update.
  */
 export function applyAgentTodoUpdate(
   current: AgentTodo[],
@@ -159,8 +160,17 @@ export function applyAgentTodoUpdate(
 
     if (todo.status === 'in_progress' && existing?.status !== 'in_progress') {
       for (const dependencyId of todo.blockedBy) {
-        if (currentById.get(dependencyId)?.status !== 'completed') {
-          throw new Error('Task ' + todo.title + ' belum boleh dimulai karena prasyarat ' + dependencyId + ' belum completed pada pembaruan sebelumnya.');
+        const previousDependency = currentById.get(dependencyId);
+        const updatedDependency = nextById.get(dependencyId);
+        const completedAtomically =
+          previousDependency?.status === 'in_progress' &&
+          updatedDependency?.status === 'completed';
+
+        if (previousDependency?.status !== 'completed' && !completedAtomically) {
+          throw new Error(
+            'Task ' + todo.title + ' belum boleh dimulai karena prasyarat ' + dependencyId +
+            ' belum completed. Selesaikan dan verifikasi prasyarat terlebih dahulu; task dependen harus tetap pending.',
+          );
         }
       }
     }
