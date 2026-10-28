@@ -344,6 +344,7 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
         opts.notify({ kind: msg.kind, message: msg.message });
         break;
       case 'turn-taken': {
+        holderStartedAt = msg.startedAt ?? holderStartedAt;
         if (msg.holder === selfId) {
           opts.notify({ kind: 'turn', message: 'Giliranmu sekarang - silakan mulai bekerja' });
         } else {
@@ -352,6 +353,7 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
         break;
       }
       case 'turn-released': {
+        holderStartedAt = null;
         if (msg.holder === selfId) {
           opts.notify({ kind: 'turn', message: 'Kamu dapat giliran bekerja' });
         }
