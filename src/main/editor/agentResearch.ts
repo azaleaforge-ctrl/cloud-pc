@@ -97,7 +97,7 @@ async function readLimitedBody(response: Response, maxBytes: number): Promise<st
   return new TextDecoder('utf-8', { fatal: false }).decode(Buffer.concat(chunks.map(chunk => Buffer.from(chunk))));
 }
 
-async function fetchPublicHttps(initialUrl: string, maxBytes: number): Promise<{ response: Response; finalUrl: string; body: string }> {
+async function fetchPublicHttps(initialUrl: string, maxBytes: number, signal?: AbortSignal): Promise<{ response: Response; finalUrl: string; body: string }> {
   let url = normalizeHttpsUrl(initialUrl);
   for (let redirect = 0; redirect <= 3; redirect++) {
     await validatePublicHost(url);
@@ -105,7 +105,7 @@ async function fetchPublicHttps(initialUrl: string, maxBytes: number): Promise<{
       method: 'GET',
       redirect: 'manual',
       headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,text/plain,application/json,application/xml,text/markdown;q=0.9,*/*;q=0.1' },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)]) : AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get('location');
@@ -222,8 +222,8 @@ export function buildRegistryUrl(ecosystem: PackageEcosystem, packageName: strin
   }
 }
 
-async function fetchJson(url: string, maxBytes = REGISTRY_BODY_LIMIT): Promise<{ data: Record<string, any>; finalUrl: string }> {
-  const result = await fetchPublicHttps(url, maxBytes);
+async function fetchJson(url: string, maxBytes = REGISTRY_BODY_LIMIT, signal?: AbortSignal): Promise<{ data: Record<string, any>; finalUrl: string }> {
+  const result = await fetchPublicHttps(url, maxBytes, signal);
   const contentType = result.response.headers.get('content-type') ?? '';
   if (!/json/i.test(contentType)) throw new Error('Registry tidak mengembalikan JSON. Periksa nama package dan coba lagi.');
   let data: Record<string, any>;
@@ -232,14 +232,14 @@ async function fetchJson(url: string, maxBytes = REGISTRY_BODY_LIMIT): Promise<{
   return { data, finalUrl: result.finalUrl };
 }
 
-export async function checkPackageVersion(ecosystem: PackageEcosystem, packageName: string): Promise<string> {
+export async function checkPackageVersion(ecosystem: PackageEcosystem, packageName: string, signal?: AbortSignal): Promise<string> {
   const normalized = normalizePackageName(ecosystem, packageName);
   const key = ecosystem + ':' + normalized;
   const now = Date.now();
   const cached = resultCache.get(key);
   if (cached && cached.expiresAt > now) return cached.output + '\nCache lokal: hasil registry diambil pada waktu yang tertera; cache berlaku maksimal 2 menit.';
   const url = buildRegistryUrl(ecosystem, normalized);
-  const { data, finalUrl } = await fetchJson(url);
+  const { data, finalUrl } = await fetchJson(url, REGISTRY_BODY_LIMIT, signal);
   let version = '';
   let publishedAt = '';
   let description = '';
@@ -300,7 +300,7 @@ export async function checkPackageVersion(ecosystem: PackageEcosystem, packageNa
   return output;
 }
 
-export async function searchWeb(query: string, maxResults = 5): Promise<string> {
+export async function searchWeb(query: string, maxResults = 5, signal?: AbortSignal): Promise<string> {
   const cleanQuery = query.trim();
   if (cleanQuery.length < 2 || cleanQuery.length > 500) throw new Error('Query pencarian harus berisi 2–500 karakter.');
   const count = Math.max(1, Math.min(8, Number.isInteger(maxResults) ? maxResults : 5));
@@ -308,7 +308,7 @@ export async function searchWeb(query: string, maxResults = 5): Promise<string> 
   const cached = resultCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.output + '\nCache lokal: pencarian diambil pada waktu yang tertera; cache berlaku maksimal 2 menit.';
   const endpoint = 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(cleanQuery);
-  const result = await fetchPublicHttps(endpoint, SEARCH_BODY_LIMIT);
+  const result = await fetchPublicHttps(endpoint, SEARCH_BODY_LIMIT, signal);
   if (!/text\/html/i.test(result.response.headers.get('content-type') ?? '')) throw new Error('Penyedia pencarian tidak mengembalikan halaman HTML yang diharapkan.');
   const items = extractSearchResults(result.body, count);
   if (!items.length) {
@@ -326,9 +326,9 @@ export async function searchWeb(query: string, maxResults = 5): Promise<string> 
   return output;
 }
 
-export async function readWebPage(input: string): Promise<string> {
+export async function readWebPage(input: string, signal?: AbortSignal): Promise<string> {
   const url = normalizeHttpsUrl(input);
-  const result = await fetchPublicHttps(url.toString(), PAGE_BODY_LIMIT);
+  const result = await fetchPublicHttps(url.toString(), PAGE_BODY_LIMIT, signal);
   const contentType = result.response.headers.get('content-type') ?? '';
   if (!/^(text\/html|application\/xhtml\+xml|text\/plain|text\/markdown|application\/json|application\/xml|text\/xml)/i.test(contentType)) {
     throw new Error('Jenis konten halaman tidak didukung (' + (contentType || 'unknown') + '). Halaman PDF, biner, atau media tidak dibaca oleh tool ini.');
