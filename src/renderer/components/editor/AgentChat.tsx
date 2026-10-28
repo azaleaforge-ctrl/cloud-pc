@@ -669,7 +669,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       }).catch(err => setError('Gagal menyimpan riwayat sesi: ' + ((err as Error).message || 'penyimpanan gagal')));
     }, 650);
     return () => window.clearTimeout(timer);
-  }, [sessionReady, conversationId, wb.root, activeAgentId, messages, conversationSummary, summaryThroughTs, todos]);
+  }, [sessionReady, conversationId, wb.root, sessionProjectPath, activeAgentId, messages, conversationSummary, summaryThroughTs, todos]);
 
   useEffect(() => {
     if (!error) return;
@@ -1062,7 +1062,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     try { localStorage.removeItem(HISTORY_KEY); } catch { /* ignore */ }
     // A new ID creates a separate session; the prior chat and memory remain available in History.
     setConversationId(makeConversationId());
-  }, [activeSessionId]);
+  }, [activeSessionId, wb.root]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -1254,7 +1254,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                       {checkpointActionBusy === checkpoint.id ? 'Memulihkan…' : 'Rewind'}
                     </button>
                   ) : (
-                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || checkpointActionBusy === checkpoint.id}
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || !sessionProjectPath || !sameWorkspacePath(sessionProjectPath, wb.root) || checkpointActionBusy === checkpoint.id}
                       onClick={() => void runCheckpointAction(checkpoint.id, 'redo')}>
                       {checkpointActionBusy === checkpoint.id ? 'Menerapkan…' : 'Redo'}
                     </button>
