@@ -9,10 +9,10 @@ export interface ToastItem {
 }
 
 const DURATION_MS: Record<NotifyPayload['kind'], number> = {
-  info: 4500,
-  warn: 5500,
-  error: 6500,
-  turn: 8000,
+  info: 5000,
+  warn: 5000,
+  error: 5000,
+  turn: 5000,
 };
 
 const ICONS: Record<NotifyPayload['kind'], typeof IconInfo> = {
