@@ -191,6 +191,15 @@ export function AgentChat({ wb, visible, onToggle, onMaximize }: Props) {
   const sendMessage = useCallback(async () => {
     const text = input.trim();
     if (!text || loading || !activeAgent) return;
+    if (!routerStatus?.configured) {
+      setSettingsOpen(true);
+      setError('Hubungkan 9router terlebih dahulu. Masukkan API key baru yang aktif, lalu tekan Simpan.');
+      return;
+    }
+    if (!wb.root) {
+      setError('Workspace proyek belum tersedia. Buka ruangan proyek terlebih dahulu.');
+      return;
+    }
     setError(null);
     setActivity('Menghubungkan ke agent…');
     const userMsg: ChatMessage = { id: 'u_' + Date.now(), role: 'user', content: text, ts: Date.now() };
@@ -217,7 +226,7 @@ export function AgentChat({ wb, visible, onToggle, onMaximize }: Props) {
           : item,
       ));
     }
-  }, [input, loading, activeAgent, messages]);
+  }, [input, loading, activeAgent, messages, routerStatus?.configured, wb.root]);
 
   const stopAgent = useCallback(async () => {
     if (!activeSessionId) return;
@@ -342,12 +351,28 @@ export function AgentChat({ wb, visible, onToggle, onMaximize }: Props) {
                   autoComplete="new-password"
                   value={apiKey}
                   onChange={(event) => setApiKey(event.target.value)}
-                  placeholder={routerStatus?.configured ? 'API key sudah tersimpan; isi untuk mengganti' : 'Masukkan API key 9router'}
+                  onKeyDown={(event) => { if (event.key === 'Enter') void saveRouterKey(); }}
+                  placeholder={routerStatus?.configured ? 'API key tersimpan; isi untuk mengganti' : 'Tempel API key 9router yang baru'}
                 />
                 <button type="button" className="ai-settings-save" onClick={() => void saveRouterKey()} disabled={!apiKey.trim() || savingKey}>
-                  {savingKey ? 'Menyimpan…' : 'Simpan'}
+                  {savingKey ? 'Menyimpan…' : 'Simpan & uji'}
                 </button>
               </div>
+              <div className="ai-settings-connection-row">
+                <span className={'ai-settings-state ' + (routerStatus?.configured ? 'configured' : 'missing')}>
+                  {routerStatus?.configured ? 'API key tersimpan' : 'API key belum diatur'}
+                </span>
+                <button type="button" className="ai-settings-test" onClick={() => void testRouterConnection()} disabled={!routerStatus?.configured || testingConnection || savingKey}>
+                  {testingConnection ? 'Menguji model…' : 'Uji koneksi model'}
+                </button>
+              </div>
+              {testResult ? (
+                <div className={'ai-test-result ' + (testResult.ok ? 'success' : 'failure')} role={testResult.ok ? 'status' : 'alert'}>
+                  <strong>{testResult.ok ? 'Koneksi berhasil' : 'Koneksi gagal'}</strong>
+                  <span>{testResult.message}</span>
+                  {testResult.ok ? <small>{testResult.endpoint} · {testResult.model}</small> : null}
+                </div>
+              ) : null}
               <div className="ai-settings-meta">
                 <div><span>Model</span><code>{routerStatus?.model ?? 'ps/poolside/laguna-s-2.1(high)'}</code></div>
                 <div><span>Utama</span><code>{routerStatus?.endpoint ?? 'https://rbxludp.abc-tunnel.us/v1'}</code></div>
