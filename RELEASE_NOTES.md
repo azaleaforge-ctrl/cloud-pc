@@ -1,3 +1,41 @@
+# Ruang Kerja v1.0.4
+
+## Agentic Coding AI — stabilitas terminal, kontrol kerja, dan diagnostik yang dapat diperiksa
+
+Ruang Kerja v1.0.4 memusatkan perbaikan pada keandalan alur kerja Agentic Coding AI. Perubahan dibagi menjadi empat tahap: fondasi terminal dan keselamatan eksekusi, tata letak UI agent, diagnostik proses terminal, serta regression checks dan metadata rilis.
+
+### 1. Terminal dan kontrol eksekusi
+- Menyamakan konfigurasi shell yang digunakan oleh agent dan runtime terminal.
+- Pada Windows, PowerShell diprioritaskan dengan fallback ke CMD bila shell utama tidak tersedia.
+- Status keluar proses diteruskan dengan benar agar command sukses dan gagal tidak tertukar.
+- Permintaan pembatalan saat sesi sedang diinisialisasi tetap dicatat; Escape dapat membatalkan run saat fokus berada di composer chat.
+- Menambahkan guard untuk Todo yang tidak valid dan kegagalan berulang tanpa progres, tanpa menonaktifkan validasi dependensi atau batas keselamatan.
+
+### 2. Tata letak Agentic Coding UI
+- Panel kanan untuk Todo dan perubahan workspace ditampilkan berdampingan dengan chat, dengan area scroll independen agar daftar panjang tidak mengharuskan pengguna menggulir seluruh chat.
+- Perubahan workspace terbaru ditampilkan lebih dahulu.
+- Persetujuan terminal dan status run diposisikan dekat composer, bukan terkubur sebagai pesan lama dalam timeline.
+- Status error tetap terlihat sampai pengguna dapat membaca dan menindaklanjutinya.
+- Pertanyaan terstruktur AI mendukung pilihan yang disarankan dan input Custom. Alasan rekomendasi ditampilkan terpisah; pilihan tidak dikirim otomatis tanpa keputusan pengguna.
+
+### 3. Riwayat proses terminal dan diagnostik
+- Menyimpan hingga 20 proses terminal pada satu run agent, termasuk command, status, waktu mulai/selesai, durasi, timeout, exit code, pesan error, shell, dan direktori kerja.
+- Menyimpan stdout dan stderr beserta waktunya dengan batas ukuran dan jumlah event agar penggunaan memori terkendali.
+- Riwayat command sebelumnya tetap dapat diperiksa setelah command berikutnya dimulai.
+- Tombol **Salin detail diagnostik** menyalin metadata proses serta output yang tersedia untuk memudahkan pelaporan error.
+- Regression tests memeriksa batas riwayat/output, pemeliharaan output saat status berubah, metadata diagnostik, dan metadata shell/direktori kerja.
+
+### 4. Validasi dan batasan
+- CI menjalankan rangkaian regression test Agent Runtime, pemeriksaan TypeScript, dan build aplikasi pada Windows.
+- Tes otomatis tidak membuktikan bahwa setiap model/provider mendukung tool-calling atau bahwa seluruh situs web selalu dapat diakses.
+- Sebelum menyatakan rilis tervalidasi penuh, lakukan pengujian manual pada installer Windows: beberapa command berturut-turut, command sukses/gagal/timeout/cancel, salin diagnostik, pilihan rekomendasi + Custom, Escape saat composer fokus, serta layout Todo/perubahan workspace.
+- Rilis ini tidak mengklaim seluruh masalah eksternal model, jaringan, atau provider telah dihilangkan.
+
+### Detail Version di dalam aplikasi
+**Detail Version tetap tersedia dan wajib menampilkan deskripsi perubahan untuk setiap versi.** Buka versi pada bilah status bawah untuk melihat riwayat rilis. Daftar menampilkan maksimal tiga rilis terbaru yang sudah dipublikasikan: versi terbaru di atas, lalu dua versi sebelumnya. Setiap entri memuat nomor versi, deskripsi perubahan/fitur/perbaikan, dan tautan sumber rilis bila tersedia. Gunakan **Muat Ulang Versi** untuk mengambil data terbaru dari GitHub. Jika API GitHub sedang membatasi permintaan atau gagal, aplikasi menggunakan mekanisme fallback/cache yang tersedia dan menampilkan status yang jelas; jangan mengarang deskripsi untuk versi yang tidak memiliki release notes.
+
+---
+
 # Ruang Kerja v1.0.3
 
 ## Perbaikan keandalan Agentic Coding AI
