@@ -379,6 +379,7 @@ export function EditorShell({ state, active, onError }: Props) {
           )}
 
           <div className="ed-main">
+            <div className={\`ed-editor-content\${agentChatOpen ? ' is-hidden' : ''}\`}>
             {wb.error && (
               <div className="ed-error-banner" role="alert">
                 <IconError size={14} />
@@ -463,6 +464,12 @@ export function EditorShell({ state, active, onError }: Props) {
                 </div>
               </>
             )}
+            </div>
+            <AgentChat
+              wb={{ root: wb.root, activePath: wb.activePath }}
+              visible={agentChatOpen}
+              onToggle={() => setAgentChatOpen(false)}
+            />
           </div>
         </div>
 
@@ -474,11 +481,6 @@ export function EditorShell({ state, active, onError }: Props) {
         placeholder={palettePlaceholder}
         items={paletteItems}
         onClose={() => setPalette(null)}
-      />
-      <AgentChat
-        wb={{ root: wb.root, activePath: wb.activePath }}
-        visible={agentChatOpen}
-        onToggle={() => setAgentChatOpen(false)}
       />
     </div>
   );

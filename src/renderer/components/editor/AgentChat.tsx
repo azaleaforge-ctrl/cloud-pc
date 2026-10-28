@@ -6,6 +6,7 @@ import type {
   AgentFileChange,
   AgentRouterStatus,
   AgentRouterTestResult,
+  AgentSkillSelection,
   ChatMessage,
 } from '../../../shared/agents';
 import { IconSend, Spinner, IconCopy, IconX, IconTrash, IconCheck } from '../icons';
@@ -40,19 +41,13 @@ function pathName(path: string | null): string {
 }
 
 function loadSavedMessages(): ChatMessage[] {
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    if (!raw) return [];
-    const value = JSON.parse(raw);
-    if (!Array.isArray(value)) return [];
-    return value.filter((item) =>
-      item && typeof item.id === 'string' &&
-      (item.role === 'user' || item.role === 'assistant') &&
-      typeof item.content === 'string',
-    ).slice(-80);
-  } catch {
-    return [];
-  }
+  // Chat history is intentionally ephemeral and does not persist across app/chat sessions.
+  try { localStorage.removeItem(HISTORY_KEY); } catch { /* storage can be unavailable */ }
+  return [];
+}
+
+function makeConversationId(): string {
+  return 'chat-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
 }
 
 function inlineMarkdown(source: string, keyPrefix: string): ReactNode[] {
@@ -386,6 +381,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [agents, setAgents] = useState<AgentEntry[]>([]);
   const [activeAgentId, setActiveAgentId] = useState('poolside');
   const [messages, setMessages] = useState<ChatMessage[]>(loadSavedMessages);
+  const [conversationId, setConversationId] = useState(makeConversationId);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [activeSkills, setActiveSkills] = useState<AgentSkillSelection[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -403,6 +401,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [selectedChange, setSelectedChange] = useState<AgentFileChange | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const activeSessionRef = useRef<string | null>(null);
 
   const refreshRouterStatus = useCallback(async () => {
     try {
@@ -436,8 +435,24 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   }, [activeAgentId]);
 
   useEffect(() => {
-    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(messages.slice(-80))); } catch { /* ignore */ }
-  }, [messages]);
+    let alive = true;
+    setSessionReady(false);
+    void window.rk.agentBeginSession(conversationId).then((result) => {
+      if (!alive) return;
+      if (!result.ok) {
+        setError(result.error ?? 'Gagal membuat sesi AI baru.');
+        setSessionReady(false);
+        return;
+      }
+      setSessionReady(true);
+    }).catch((err) => {
+      if (alive) {
+        setError('Gagal menginisialisasi memory sesi: ' + ((err as Error).message || 'error tidak diketahui'));
+        setSessionReady(false);
+      }
+    });
+    return () => { alive = false; };
+  }, [conversationId]);
 
   useEffect(() => {
     if (!error) return;
@@ -447,7 +462,10 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
 
   useEffect(() => {
     const unsubscribe = window.rk.onAgentEvent(({ sessionId, event }: { sessionId: string; event: AgentEvent }) => {
-      if (event.type === 'output') {
+      if (activeSessionRef.current && activeSessionRef.current !== sessionId) return;
+      if (event.type === 'skills') {
+        setActiveSkills(event.skills);
+      } else if (event.type === 'output') {
         setMessages((previous) => {
           const index = previous.map((item) => item.role).lastIndexOf('assistant');
           if (index < 0) return previous;
@@ -512,7 +530,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
 
   const sendMessage = useCallback(async () => {
     const text = input.trim();
-    if (!text || loading || !activeAgent) return;
+    if (!text || loading || !sessionReady || !activeAgent) return;
     if (!routerStatus?.configured) {
       setSettingsOpen(true);
       setError('Hubungkan 9router terlebih dahulu. Masukkan API key baru yang aktif, lalu tekan Simpan & uji.');
@@ -531,9 +549,14 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setLoading(true);
     setActiveSessionId(null);
     setPermission(null);
+    activeSessionRef.current = 'pending-session';
     try {
-      const result = await window.rk.agentStartChat(activeAgent.id, [...messages, userMessage], wb.activePath);
+      const compactContext = [...messages.filter((message) => !message.streaming), userMessage]
+        .filter((message) => message.role === 'user' || message.role === 'assistant')
+        .slice(-12);
+      const result = await window.rk.agentStartChat(activeAgent.id, compactContext, wb.activePath, conversationId);
       if (!result.ok || !result.sessionId) throw new Error(result.error ?? 'Agent gagal dimulai.');
+      activeSessionRef.current = result.sessionId;
       setActiveSessionId(result.sessionId);
     } catch (err) {
       setError((err as Error).message || 'Gagal memulai agent.');
@@ -543,7 +566,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         index === previous.length - 1 && item.role === 'assistant' ? { ...item, streaming: false } : item,
       ));
     }
-  }, [input, loading, activeAgent, messages, routerStatus?.configured, wb.root, wb.activePath]);
+  }, [input, loading, sessionReady, activeAgent, messages, routerStatus?.configured, wb.root, wb.activePath, conversationId]);
 
   const stopAgent = useCallback(async () => {
     if (!activeSessionId) return;
@@ -607,6 +630,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
 
   const clearChat = useCallback(() => {
     if (activeSessionId) void window.rk.agentStop(activeSessionId);
+    activeSessionRef.current = 'pending-session';
+    setActiveSessionId(null);
     setMessages([]);
     setError(null);
     setActivity('');
@@ -614,7 +639,10 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setLoading(false);
     setChanges([]);
     setSelectedChange(null);
+    setActiveSkills([]);
     try { localStorage.removeItem(HISTORY_KEY); } catch { /* ignore */ }
+    // A new ID erases the prior session-memory directory in the main process.
+    setConversationId(makeConversationId());
   }, [activeSessionId]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -714,6 +742,15 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         </button>
       </div>
 
+      {activeSkills.length > 0 ? (
+        <div className="ai-active-skills" aria-label="Skills aktif untuk tugas ini">
+          <span className="ai-active-skills-label">Skills aktif</span>
+          {activeSkills.map((skill) => (
+            <span className="ai-active-skill" key={skill.id} title={skill.reason}>{skill.name}</span>
+          ))}
+        </div>
+      ) : null}
+
       {!routerStatus?.configured ? (
         <section className="ai-setup-needed">
           <div className="ai-setup-icon">⚙</div>
@@ -781,9 +818,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={loading ? 'Agent sedang bekerja…' : !routerStatus?.configured ? 'Atur API key 9router pada pengaturan…' : !wb.root ? 'Buka workspace proyek terlebih dahulu…' : 'Minta agent membaca, membuat, atau mengubah kode…'}
+                placeholder={loading ? 'Agent sedang bekerja…' : !sessionReady ? 'Menyiapkan sesi AI baru…' : !routerStatus?.configured ? 'Atur API key 9router pada pengaturan…' : !wb.root ? 'Buka workspace proyek terlebih dahulu…' : 'Minta agent membaca, membuat, atau mengubah kode…'}
                 rows={3}
-                disabled={loading || !activeAgent || !routerStatus?.configured || !wb.root}
+                disabled={loading || !sessionReady || !activeAgent || !routerStatus?.configured || !wb.root}
                 aria-label="Pesan AI coding agent"
               />
               <button

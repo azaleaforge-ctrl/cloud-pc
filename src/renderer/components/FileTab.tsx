@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AppState, ProjectFile } from '../../shared/types';
-import { IconFile, IconFolder } from './icons';
+import { IconFolder } from './icons';
+import { FileTypeIcon } from './FileTypeIcon';
 
 const SIZE_UNITS = ['B', 'KB', 'MB', 'GB'];
 function formatSize(bytes: number): string {
@@ -95,7 +96,7 @@ function FileTreeNode({ node }: { node: TreeNode }) {
     if (!f) return null;
     return (
       <div className="tree-file" title={f.path}>
-        <IconFile size={13} />
+        <FileTypeIcon path={f.path} size="normal" />
         <span className="tree-file-name" title={f.path}>
           {f.path.split('/').pop()}
         </span>

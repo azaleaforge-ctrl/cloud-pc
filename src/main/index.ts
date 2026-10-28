@@ -1019,13 +1019,24 @@ function registerIpc(): void {
   ipcMain.handle('rk:agent:get-config', () => getAgentRouterStatus());
   ipcMain.handle('rk:agent:save-config', (_e, apiKey: string) => saveAgentRouterKey(apiKey));
   ipcMain.handle('rk:agent:test-config', () => testAgentRouter());
-  ipcMain.handle('rk:agent:start-chat', async (_e, agentId: string, messages: ChatMessage[] = [], activePath: string | null = null) => {
+  ipcMain.handle('rk:agent:begin-session', async (_e, conversationId: string) => {
+    try {
+      await agentService.beginConversation(conversationId);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message || 'Gagal membuat sesi AI.' };
+    }
+  });
+  ipcMain.handle('rk:agent:start-chat', async (_e, agentId: string, messages: ChatMessage[] = [], activePath: string | null = null, conversationId: string = '') => {
     const projectPath = store.get().projectPath;
     try {
       if (!projectPath) return { ok: false, error: 'Belum ada folder project aktif di ruangan.' };
+      if (store.get().role !== 'none' && store.get().queue.holder !== settings.selfId) {
+        return { ok: false, error: 'AI Coding Agent hanya bisa mulai saat kamu memegang giliran kerja. Masuk antrian terlebih dahulu.' };
+      }
       const sessionId = await agentService.startChat(agentId, projectPath, (event, eventSessionId) => {
         send('rk:agent:event', { sessionId: eventSessionId, event });
-      }, messages, activePath);
+      }, messages, activePath, conversationId);
       return { ok: true, sessionId };
     } catch (err) {
       return { ok: false, error: (err as Error).message };

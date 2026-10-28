@@ -2160,17 +2160,29 @@ button.ed-status-item:hover {
 .ai-agent-activity { overflow-wrap: anywhere; }
 
 
-/* ---------- v0.4.8: full-size Codex-style agent workbench ---------- */
+/* ---------- v1.0 workbench: AI chat inside the center editor pane ---------- */
 .ed-root {
   position: relative;
   overflow: hidden;
 }
+.ed-editor-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.ed-editor-content.is-hidden { display: none; }
 .ai-panel.fullsize {
-  position: absolute;
-  inset: 0;
-  z-index: 500;
-  width: auto;
-  height: auto;
+  position: relative;
+  inset: auto;
+  z-index: 1;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
   max-width: none;
   max-height: none;
   min-width: 0;
@@ -2339,7 +2351,7 @@ button.ed-status-item:hover {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 22px clamp(18px, 4vw, 64px) 28px;
+  padding: 22px clamp(18px, 3vw, 42px) 24px;
   gap: 21px;
   background: #0b101a;
   overscroll-behavior: contain;
@@ -2350,7 +2362,7 @@ button.ed-status-item:hover {
   flex-direction: column;
   gap: 6px;
   width: 100%;
-  max-width: 980px;
+  max-width: 1320px;
   margin: 0 auto;
 }
 .ai-message-author {
@@ -2368,20 +2380,22 @@ button.ed-status-item:hover {
   overflow-wrap: anywhere;
 }
 .ai-message-user {
-  max-width: 980px;
+  max-width: 1320px;
   align-items: flex-end;
 }
 .ai-message-user .ai-message-author {
   align-self: flex-end;
 }
 .ai-user-text {
-  max-width: min(85%, 800px);
+  width: fit-content;
+  max-width: min(96%, 1180px);
   padding: 10px 13px;
   border: 1px solid rgba(45, 212, 191, .18);
   border-radius: 12px 12px 3px 12px;
   background: rgba(45, 212, 191, .1);
   color: #d9fffa;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .ai-message-assistant .ai-message-body {
   padding-right: 34px;
@@ -2500,7 +2514,7 @@ button.ed-status-item:hover {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  max-width: 980px;
+  max-width: 1320px;
   width: 100%;
   margin: 0 auto;
   padding: 11px 13px;
@@ -2533,7 +2547,8 @@ button.ed-status-item:hover {
   display: flex;
   gap: 10px;
   align-items: flex-end;
-  max-width: 980px;
+  width: 100%;
+  max-width: 1320px;
   margin: 0 auto;
   padding: 10px;
   border: 1px solid var(--ed-border-strong);
@@ -2587,7 +2602,7 @@ button.ed-status-item:hover {
 .ai-starter-prompts button:disabled { opacity: .35; cursor: default; }
 .ai-panel.fullsize .ai-error {
   align-self: stretch;
-  max-width: 980px;
+  max-width: 1320px;
   margin: 0 auto;
   font-size: 11.5px;
 }
@@ -2597,7 +2612,7 @@ button.ed-status-item:hover {
 }
 .ai-workspace-sidepanel-placeholder { display: none; }
 .ai-agent-sidepanel {
-  display: flex;
+  display: none;
   flex: none;
   flex-direction: column;
   gap: 12px;
@@ -2852,7 +2867,7 @@ button.ed-status-item:hover {
 .ai-diff-row.change .new { box-shadow: inset 3px 0 rgba(74,222,128,.85); }
 .ai-diff-row.same { background: rgba(148,163,184,.012); }
 .ai-panel.fullsize .ai-permission-card {
-  max-width: 980px;
+  max-width: 1320px;
   width: 100%;
   margin: 0 auto;
 }
@@ -2884,4 +2899,56 @@ button.ed-status-item:hover {
   .ai-diff-side code { padding: 2px 4px; }
   .ai-diff-total .ai-diff-added,
   .ai-diff-total .ai-diff-removed { font-size: 9px; }
+}
+
+
+/* Active skills and recognizable file-type badges. */
+.ai-active-skills {
+  display: flex;
+  align-items: center;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-height: 30px;
+  padding: 5px 14px;
+  border-bottom: 1px solid var(--ed-border);
+  background: #0b111b;
+}
+.ai-active-skills-label { margin-right: 3px; color: var(--ed-text-3); font-size: 10px; }
+.ai-active-skill {
+  max-width: 230px;
+  overflow: hidden;
+  padding: 3px 7px;
+  border: 1px solid rgba(45,212,191,.17);
+  border-radius: 999px;
+  background: rgba(45,212,191,.055);
+  color: #a9ddd7;
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rk-file-type-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  overflow: hidden;
+  border-radius: 3px;
+  font: 800 7px/1 var(--ed-mono, Consolas, monospace);
+  letter-spacing: -.035em;
+  user-select: none;
+}
+.rk-file-type-icon-small { width: 16px; height: 16px; font-size: 7px; }
+.rk-file-type-icon-tab { width: 15px; height: 15px; font-size: 6.5px; margin-right: 6px; }
+.rk-file-type-icon-normal { width: 16px; height: 16px; font-size: 7px; margin-right: 2px; }
+.ed-tree-icon .rk-file-type-icon { width: 15px; height: 15px; }
+.ed-tab { gap: 0; }
+.ed-tab-name { min-width: 0; }
+@media (max-width: 650px) {
+  .ai-active-skills { padding-left: 8px; padding-right: 8px; }
+  .ai-active-skill { max-width: 140px; }
+  .ai-panel.fullsize .ai-messages { padding-left: 10px; padding-right: 10px; }
+  .ai-user-text { max-width: 100%; }
 }

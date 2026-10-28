@@ -234,7 +234,9 @@ export interface RkApi {
   agentSaveConfig(apiKey: string): Promise<ActionResult>;
   agentTestConfig(): Promise<AgentRouterTestResult>;
   agentApproveTool(sessionId: string, requestId: string, approved: boolean): Promise<void>;
-  agentStartChat(agentId: string, messages?: ChatMessage[], activePath?: string | null): Promise<{ ok: boolean; sessionId?: string; error?: string }>;
+  /** Create an isolated AI chat and erase memory from the previous conversation. */
+  agentBeginSession(conversationId: string): Promise<ActionResult>;
+  agentStartChat(agentId: string, messages?: ChatMessage[], activePath?: string | null, conversationId?: string): Promise<{ ok: boolean; sessionId?: string; error?: string }>;
   agentStartCli(agentId: string, cols: number, rows: number): Promise<{ ok: boolean; sessionId?: string; error?: string }>;
   agentSendInput(sessionId: string, data: string): Promise<void>;
   agentResize(sessionId: string, cols: number, rows: number): Promise<void>;
