@@ -202,19 +202,30 @@ function MarkdownContent({ content }: { content: string }) {
     }
 
     const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
-    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
-    if (unordered || ordered) {
+    const ordered = line.match(/^\s*(\d+|[a-zA-Z]|[ivxlcdmIVXLCDM]{2,})[.)]\s+(.+)$/);
+    const task = line.match(/^\s*[-*+]\s+\[([ xX])\]\s+(.+)$/);
+    if (unordered || ordered || task) {
       const orderedList = !!ordered;
-      const items: string[] = [];
+      const items: Array<{ text: string; checked?: boolean }> = [];
+      const firstMarker = ordered?.[1] ?? '';
       while (index < lines.length) {
         const current = lines[index];
-        const match = orderedList ? current.match(/^\s*\d+[.)]\s+(.+)$/) : current.match(/^\s*[-*+]\s+(.+)$/);
-        if (!match) break;
-        items.push(match[1]);
+        const currentTask = current.match(/^\s*[-*+]\s+\[([ xX])\]\s+(.+)$/);
+        const currentOrdered = current.match(/^\s*(\d+|[a-zA-Z]|[ivxlcdmIVXLCDM]{2,})[.)]\s+(.+)$/);
+        const currentUnordered = current.match(/^\s*[-*+]\s+(.+)$/);
+        if (task ? !currentTask : orderedList ? !currentOrdered : (!currentUnordered || !!currentTask)) break;
+        if (currentTask) items.push({ text: currentTask[2], checked: /x/i.test(currentTask[1]) });
+        else if (currentOrdered) items.push({ text: currentOrdered[2] });
+        else if (currentUnordered) items.push({ text: currentUnordered[1] });
         index++;
       }
-      const list = items.map((item, i) => <li key={i}>{inlineMarkdown(item, 'list-' + key + '-' + i)}</li>);
-      blocks.push(orderedList ? <ol key={'md-' + key++}>{list}</ol> : <ul key={'md-' + key++}>{list}</ul>);
+      const list = items.map((item, i) => <li key={i}>{item.checked !== undefined ? <><span className="ai-markdown-task-mark" aria-label={item.checked ? 'Selesai' : 'Belum selesai'}>{item.checked ? '☑' : '☐'}</span> {inlineMarkdown(item.text, 'list-' + key + '-' + i)}</> : inlineMarkdown(item.text, 'list-' + key + '-' + i)}</li>);
+      const listKey = 'md-' + key++;
+      if (orderedList) {
+        const markerType = /^\d+$/.test(firstMarker) ? '1' : /^[A-Z]$/.test(firstMarker) ? 'A' : /^[a-z]$/.test(firstMarker) ? 'a' : /^[IVXLCDM]+$/.test(firstMarker) ? 'I' : 'i';
+        blocks.push(<ol className="ai-markdown-ordered-list" type={markerType} start={/^\d+$/.test(firstMarker) ? Number(firstMarker) : undefined} key={listKey}>{list}</ol>);
+      } else if (task) blocks.push(<ul className="ai-markdown-task-list" key={listKey}>{list}</ul>);
+      else blocks.push(<ul className="ai-markdown-unordered-list" key={listKey}>{list}</ul>);
       continue;
     }
 
