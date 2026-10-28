@@ -100,7 +100,7 @@ try {
     if (shell.family === 'powershell') {
       assert.ok(invocation.args.includes('-Command'));
       assert.match(invocation.args.at(-1), /FromBase64String/);
-      assert.doesNotMatch(invocation.args.at(-1), /EXIT_CODE:\\s*\\$\\?/i);
+      assert.doesNotMatch(invocation.args.at(-1), /EXIT_CODE:\s*\$\?/i);
     } else {
       assert.equal(invocation.args.at(-1), terminalCommand('streams', shell));
     }
@@ -137,7 +137,7 @@ try {
   });
 
   const cancelHandle = startTerminalCommand(options(
-    terminalCommand('hang'),
+    terminalCommand('hang', shell),
     { timeoutMs: 5000 },
   ));
   setTimeout(() => cancelHandle.cancel(), 120);
