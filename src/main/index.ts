@@ -17,7 +17,7 @@ import type {
   ServerState,
   UpdateState,
 } from '../shared/types';
-import type { AgentRouterStatus, AgentRouterTestResult, ChatMessage } from '../shared/agents';
+import type { AgentEvent, AgentRouterStatus, AgentRouterTestResult, ChatMessage } from '../shared/agents';
 import { APP_VERSION } from '../shared/types';
 import { StateStore } from './store';
 import { detectFramework } from './frameworkDetect';
@@ -1015,28 +1015,68 @@ function registerIpc(): void {
   ipcMain.handle('rk:editor:debug-eval', (_e, expression: string) => editorDebugger.evaluate(expression));
 
   // --- AI Agent IPC ---
+  const activeAgentSessions = new Set<string>();
+  let lastQueueAgentBusy: boolean | null = null;
+  let lastQueueRoomKey = '';
+  const updateQueueAgentBusy = (): void => {
+    const state = store.get();
+    const roomKey = state.role + ':' + (state.code ?? '');
+    const busy = activeAgentSessions.size > 0;
+    if (lastQueueAgentBusy === busy && lastQueueRoomKey === roomKey) return;
+    lastQueueAgentBusy = busy;
+    lastQueueRoomKey = roomKey;
+    if (state.role === 'host' && hostRoom) hostRoom.setAgentBusy(settings.selfId, busy);
+    else if (state.role === 'member' && memberRoom) memberRoom.setAgentBusy(busy);
+  };
+  const emitAgentSessionEvent = (event: AgentEvent, sessionId: string): void => {
+    if (event.type === 'state') {
+      if (event.state.status === 'starting' || event.state.status === 'running') activeAgentSessions.add(sessionId);
+      else if (event.state.status === 'stopped' || event.state.status === 'error' || event.state.status === 'idle') activeAgentSessions.delete(sessionId);
+    } else if (event.type === 'error' || event.type === 'exit') {
+      activeAgentSessions.delete(sessionId);
+    }
+    // Re-evaluate room identity on each event as the user may have joined or left a room
+    // while an agent session was still running.
+    updateQueueAgentBusy();
+    send('rk:agent:event', { sessionId, event });
+  };
   ipcMain.handle('rk:agent:list', () => agentService.listAgents());
   ipcMain.handle('rk:agent:get-config', () => getAgentRouterStatus());
   ipcMain.handle('rk:agent:save-config', (_e, apiKey: string) => saveAgentRouterKey(apiKey));
   ipcMain.handle('rk:agent:test-config', () => testAgentRouter());
-  ipcMain.handle('rk:agent:start-chat', async (_e, agentId: string, messages: ChatMessage[] = [], activePath: string | null = null) => {
+  ipcMain.handle('rk:agent:begin-session', async (_e, conversationId: string) => {
+    try {
+      await agentService.beginConversation(conversationId);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message || 'Gagal membuat sesi AI.' };
+    }
+  });
+  ipcMain.handle('rk:agent:start-chat', async (_e, agentId: string, messages: ChatMessage[] = [], activePath: string | null = null, conversationId: string = '') => {
     const projectPath = store.get().projectPath;
     try {
       if (!projectPath) return { ok: false, error: 'Belum ada folder project aktif di ruangan.' };
+      if (store.get().role !== 'none' && store.get().queue.holder !== settings.selfId) {
+        return { ok: false, error: 'AI Coding Agent hanya bisa mulai saat kamu memegang giliran kerja. Masuk antrian terlebih dahulu.' };
+      }
       const sessionId = await agentService.startChat(agentId, projectPath, (event, eventSessionId) => {
-        send('rk:agent:event', { sessionId: eventSessionId, event });
-      }, messages, activePath);
+        emitAgentSessionEvent(event, eventSessionId);
+      }, messages, activePath, conversationId);
       return { ok: true, sessionId };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
     }
   });
   ipcMain.handle('rk:agent:start-cli', async (_e, agentId: string, cols: number, rows: number) => {
-    const projectPath = store.get().projectPath;
+    const state = store.get();
+    const projectPath = state.projectPath;
     if (!projectPath) return { ok: false, error: 'Belum ada folder project.' };
+    if (state.role !== 'none' && state.queue.holder !== settings.selfId) {
+      return { ok: false, error: 'Agent CLI hanya bisa dimulai saat kamu memegang giliran kerja.' };
+    }
     try {
       const sessionId = await agentService.startCli(agentId, projectPath, cols, rows, (event, eventSessionId) => {
-        send('rk:agent:event', { sessionId: eventSessionId, event });
+        emitAgentSessionEvent(event, eventSessionId);
       });
       return { ok: true, sessionId };
     } catch (err) {

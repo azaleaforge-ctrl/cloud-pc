@@ -39,6 +39,12 @@ export interface ChatMessage {
   streaming?: boolean;
 }
 
+export interface AgentSkillSelection {
+  id: string;
+  name: string;
+  reason: string;
+}
+
 export interface AgentRunState {
   status: 'idle' | 'starting' | 'running' | 'stopped' | 'error';
   agentId: string;
@@ -64,7 +70,8 @@ export type AgentEvent =
   | { type: 'activity'; message: string }
   | { type: 'file-change'; change: AgentFileChange }
   | { type: 'permission-request'; requestId: string; command: string; reason: string }
-  | { type: 'permission-result'; requestId: string; approved: boolean };
+  | { type: 'permission-result'; requestId: string; approved: boolean }
+  | { type: 'skills'; skills: AgentSkillSelection[] };
 
 export interface RouterConfig {
   apiKey: string;

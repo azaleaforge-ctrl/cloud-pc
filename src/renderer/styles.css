@@ -2355,3 +2355,23 @@ button {
     transition-duration: 0.01ms !important;
   }
 }
+
+
+/* File-type badges also appear in the top-level project file browser. */
+.rk-file-type-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  overflow: hidden;
+  margin-right: 3px;
+  border-radius: 3px;
+  font: 800 7px/1 Consolas, monospace;
+  letter-spacing: -.035em;
+  user-select: none;
+}
+.rk-file-type-icon-small { width: 16px; height: 16px; font-size: 7px; }
+.rk-file-type-icon-tab { width: 15px; height: 15px; font-size: 6.5px; }
+.rk-file-type-icon-normal { width: 16px; height: 16px; font-size: 7px; }

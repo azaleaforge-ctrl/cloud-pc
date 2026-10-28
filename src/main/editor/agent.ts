@@ -4,19 +4,22 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
-import { lstat, mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
+import { app } from 'electron';
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import * as pty from '@lydell/node-pty';
 import type { IPty } from '@lydell/node-pty';
-import type { AgentEntry, AgentEvent, ChatMessage, RouterConfig } from '../../shared/agents';
+import type { AgentEntry, AgentEvent, AgentSkillSelection, ChatMessage, RouterConfig } from '../../shared/agents';
+import { installBuiltinSkills, loadAgentSkillInstructions, selectAgentSkills } from './skills';
 
 type EmitAgentEvent = (event: AgentEvent, sessionId: string) => void;
 
 export interface AgentService {
   listAgents(): AgentEntry[];
   getAgent(id: string): AgentEntry | null;
-  startChat(agentId: string, projectPath: string | null, onEvent: EmitAgentEvent, messages?: ChatMessage[], activePath?: string | null): Promise<string>;
+  beginConversation(conversationId: string): Promise<void>;
+  startChat(agentId: string, projectPath: string | null, onEvent: EmitAgentEvent, messages?: ChatMessage[], activePath?: string | null, conversationId?: string): Promise<string>;
   startCli(agentId: string, projectPath: string, cols: number, rows: number, onEvent: EmitAgentEvent): Promise<string>;
   sendInput(sessionId: string, data: string): Promise<void>;
   resizeTerminal(sessionId: string, cols: number, rows: number): Promise<void>;
@@ -38,6 +41,9 @@ interface LlmSession {
   controller: AbortController;
   onEvent: EmitAgentEvent;
   killed: boolean;
+  conversationId: string;
+  memoryPath: string;
+  isConversationCurrent: () => boolean;
 }
 interface ToolCall { id: string; name: string; arguments: string }
 interface ToolDefinition {
@@ -55,6 +61,8 @@ const DEFAULT_MODEL = 'ps/poolside/laguna-s-2.1(high)';
 const MAX_AGENT_STEPS = 8;
 const MAX_READ_BYTES = 1024 * 1024;
 const MAX_TOOL_OUTPUT = 18_000;
+const MAX_SESSION_MEMORY_CHARS = 8_000;
+const SESSION_MEMORY_START = '# AI Session Memory\n\nThis file contains short-lived notes for the current chat only. Never store credentials or secrets here.\n';
 const COMMAND_TIMEOUT_MS = 120_000;
 const IGNORED_DIRS = new Set([
   '.git', 'node_modules', 'dist', 'build', 'out', '.next', '.turbo',
@@ -109,6 +117,27 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
           case_sensitive: { type: 'boolean' },
         },
         required: ['query'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_session_memory',
+      description: 'Baca catatan ringkas yang hanya berlaku untuk percakapan AI saat ini. Catatan akan dihapus saat pengguna memulai Chat Baru.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'write_session_memory',
+      description: 'Perbarui catatan ringkas untuk turn berikutnya di percakapan yang sama. Tulis ulang agar tetap pendek; hanya fakta/keputusan yang sudah diverifikasi. Jangan menyimpan rahasia.',
+      parameters: {
+        type: 'object',
+        properties: { content: { type: 'string', description: 'Catatan Markdown maksimal 8000 karakter tentang keputusan, task status, file yang benar-benar berubah, dan informasi yang perlu diingat.' } },
+        required: ['content'],
         additionalProperties: false,
       },
     },
@@ -225,8 +254,8 @@ async function resolveWorkspacePath(rootPath: string, requestedPath: string, all
 async function listProjectFiles(root: string, requestedPath: string): Promise<string> {
   const resolved = await resolveWorkspacePath(root, requestedPath || '.');
   const output: string[] = [];
-  const maxEntries = 350;
-  const maxDepth = 4;
+  const maxEntries = 180;
+  const maxDepth = 3;
 
   async function walk(directory: string, depth: number): Promise<void> {
     if (output.length >= maxEntries) return;
@@ -482,6 +511,36 @@ async function executeTool(
       emit(session, { type: 'activity', message: 'Mencari: ' + query });
       return await searchProjectFiles(root, query, stringArg('path', '.'), args.case_sensitive === true);
     }
+    case 'read_session_memory': {
+      if (!session.isConversationCurrent()) return 'Sesi sudah diganti. Jangan membaca atau menulis memory sesi lama.';
+      try {
+        return (await readFile(session.memoryPath, 'utf8')).slice(0, MAX_SESSION_MEMORY_CHARS) || '(memory sesi masih kosong)';
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '(memory sesi masih kosong)';
+        return 'Memory sesi tidak dapat dibaca: ' + ((error as Error).message || 'error tidak diketahui');
+      }
+    }
+    case 'write_session_memory': {
+      const value = stringArg('content');
+      if (!session.isConversationCurrent()) return 'Memory tidak disimpan: percakapan ini sudah tidak aktif.';
+      if (value.length > MAX_SESSION_MEMORY_CHARS) throw new Error('Memory sesi terlalu panjang. Ringkas menjadi maksimal 8000 karakter.');
+      const credentialPattern = /(?:sk-[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|AKIA[0-9A-Z]{16})/;
+      if (credentialPattern.test(value)) throw new Error('Memory ditolak karena tampak mengandung credential/token. Hapus rahasia lalu coba lagi.');
+      await mkdir(dirname(session.memoryPath), { recursive: true });
+      const tempPath = session.memoryPath + '.tmp-' + randomUUID();
+      await writeFile(tempPath, value, 'utf8');
+      if (!session.isConversationCurrent()) {
+        await rm(tempPath, { force: true });
+        return 'Memory tidak disimpan: percakapan sudah diganti saat penulisan berlangsung.';
+      }
+      try {
+        await rename(tempPath, session.memoryPath);
+      } catch (error) {
+        await rm(tempPath, { force: true }).catch(() => undefined);
+        throw error;
+      }
+      return 'Memory sesi diperbarui (' + value.length + ' karakter).';
+    }
     case 'run_terminal': {
       const command = stringArg('command').trim();
       const reason = stringArg('reason', 'Agent meminta menjalankan command.');
@@ -629,7 +688,26 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
   const cliSessions = new Map<string, CliSession>();
   const llmSessions = new Map<string, LlmSession>();
   const pendingApprovals = new Map<string, PendingApproval>();
+  const userDataDir = app.getPath('userData');
+  const memorySessionsDir = join(userDataDir, 'ai-memory', 'sessions');
+  let activeConversationId: string | null = null;
+  let memoryResetChain: Promise<void> = Promise.resolve();
   let tearingDown = false;
+
+  const isCurrentConversation = (id: string): boolean => activeConversationId === id;
+  const conversationMemoryPath = (id: string): string => join(memorySessionsDir, id + '.md');
+
+  async function beginConversation(conversationId: string): Promise<void> {
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(conversationId)) throw new Error('ID percakapan tidak valid.');
+    activeConversationId = conversationId;
+    memoryResetChain = memoryResetChain.catch(() => undefined).then(async () => {
+      await rm(memorySessionsDir, { recursive: true, force: true });
+      if (activeConversationId !== conversationId) return;
+      await mkdir(memorySessionsDir, { recursive: true });
+      await writeFile(conversationMemoryPath(conversationId), SESSION_MEMORY_START, 'utf8');
+    });
+    await memoryResetChain;
+  }
 
   const settlePending = (sessionId: string, approved: boolean): void => {
     for (const [key, item] of pendingApprovals) {
@@ -648,6 +726,14 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       if (!projectPath) throw new Error('Belum ada folder proyek. Buka atau buat ruangan terlebih dahulu.');
       const root = await realpath(projectPath);
       const inventory = await listProjectFiles(root, '.');
+      const latestUserText = [...inputMessages].reverse().find((message) => message.role === 'user')?.content ?? '';
+      await installBuiltinSkills(userDataDir);
+      const skillSelections = selectAgentSkills(latestUserText, activePath, inventory);
+      const skillInstructions = await loadAgentSkillInstructions(userDataDir, skillSelections);
+      const sessionMemory = session.isConversationCurrent()
+        ? await readFile(session.memoryPath, 'utf8').catch(() => '')
+        : '';
+      emit(session, { type: 'skills', skills: skillSelections });
       let activeFileContext = '';
       if (activePath) {
         try {
@@ -655,7 +741,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
           if (!isSensitive(active.rel)) {
             const text = await readProjectFile(root, activePath);
             activeFileContext = '\n\nFile yang sedang dipilih di editor (' + active.rel + '):\n' +
-              '```\n' + text.slice(0, 16_000) + (text.length > 16_000 ? '\n[isi dipotong pada 16 KB]' : '') + '\n```';
+              '```\n' + text.slice(0, 8_000) + (text.length > 8_000 ? '\n[isi dipotong pada 8 KB; baca bagian lain dengan tool bila diperlukan]' : '') + '\n```';
           }
         } catch (error) {
           activeFileContext = '\n\nCatatan: file yang sedang dipilih tidak dapat dibaca langsung: ' + ((error as Error).message || 'unknown error');
@@ -664,14 +750,20 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       const systemPrompt = [
         session.agent.systemPrompt,
         'Workspace aktif: ' + root,
-        'Kamu adalah agent coding tool-using setara Codex. Kamu punya akses nyata hanya ke workspace ini melalui tools.',
+        'Kamu adalah agent coding yang menggunakan tools. Kamu punya akses nyata hanya ke workspace ini melalui tools.',
+        'Utamakan fakta dari file yang benar-benar dibaca. Jangan mengarang nama fungsi, schema, endpoint, package, konfigurasi, hasil tes, atau status pekerjaan.',
+        'Untuk efisiensi token, jangan mengulang inventory penuh atau membaca banyak file tanpa alasan. Cari lalu baca file paling relevan. Gunakan tool search sebelum membuka file secara luas.',
+        'Riwayat percakapan yang dikirim mungkin hanya berisi beberapa turn terbaru. Gunakan session memory ringkas untuk keputusan dan progres terverifikasi dari turn sebelumnya.',
+        'Session memory saat ini (hanya berlaku di percakapan ini; bukan backup source code):\n' + (sessionMemory || '(belum ada catatan yang tersimpan)'),
+        'Jika ada keputusan, batasan, progres lintas-turn, atau perubahan bermakna yang perlu diingat untuk turn berikutnya, perbarui dengan write_session_memory. Ringkas, tulis ulang bukan append, maksimal sekitar 3 KB bila memungkinkan. Jangan simpan secret/credential. Chat Baru menghapus memory ini.',
         'WAJIB untuk permintaan membaca, memperbaiki, membuat, mengubah, menghapus, refactor, implementasi, atau debugging kode: gunakan tools. Jangan hanya memberikan potongan contoh atau menyuruh pengguna mengedit manual.',
-        'Mulai dengan inventory workspace yang disediakan, lalu gunakan read_project_file untuk membaca file yang relevan sebelum menulisnya. Gunakan search_project_files untuk mencari simbol/bug.',
+        'Mulai dengan inventory workspace yang disediakan, lalu gunakan read_project_file untuk membaca file relevan sebelum menulisnya. Gunakan search_project_files untuk mencari simbol/bug.',
         'write_project_file benar-benar membuat file atau menulis file ke disk pada folder project aktif. Setelah memakai tool, hasilnya akan muncul sebagai daftar perubahan dengan diff lama/baru.',
-        'Path tool boleh relatif terhadap root project atau absolute path yang berada di dalam root tersebut. Jangan menulis di luar root workspace.',
-        'Jangan mengakses file secret seperti .env, API token, credentials, atau private key. Folder dependency/build diabaikan saat membuat inventory.',
-        'Gunakan run_terminal untuk build/test/lint jika diperlukan; command akan meminta persetujuan pengguna sebelum dijalankan. Jangan mengaku tes telah dijalankan jika tool belum dipanggil.',
+        'Path tool harus relatif ke root proyek atau absolute path di dalam root tersebut. Jangan menulis di luar root workspace.',
+        'Jangan mengakses file secret seperti .env, API token, credentials, atau private key. Folder dependency/build diabaikan dari inventory.',
+        'Gunakan run_terminal untuk build/test/lint jika diperlukan; command meminta persetujuan pengguna sebelum dijalankan. Jangan mengaku tes telah dijalankan jika tool belum dipanggil.',
         'Lakukan pekerjaan sampai benar-benar ada perubahan pada file jika perubahan kode diminta, lalu rangkum file yang diubah, alasan, dan hasil tes.',
+        'Skills aktif untuk tugas ini:\n' + (skillInstructions || '(tidak ada skill khusus selain aturan inti agent)'),
       ].join('\n\n');
       const conversation: Array<Record<string, unknown>> = [
         { role: 'system', content: systemPrompt },
@@ -682,7 +774,6 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
 
       emit(session, { type: 'activity', message: 'Workspace siap: inventory file berhasil dibaca.' });
       emit(session, { type: 'state', state: { status: 'running', agentId: session.agent.id } });
-      const latestUserText = [...inputMessages].reverse().find((message) => message.role === 'user')?.content ?? '';
       const codingIntent = /\b(buat|bikin|ubah|edit|perbaiki|perbaikan|fix|implement|implementasi|refactor|tambah|tambahkan|hapus|delete|create|write|modify|change|update|code|kode|coding|debug|bug|file|folder|fungsi|function|komponen|component|script|program|aplikasi|project|proyek|read|baca|cari|search|test|lint|build)\b/i.test(latestUserText);
       let finished = false;
       let hasUsedTools = false;
@@ -765,15 +856,27 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
     listAgents(): AgentEntry[] { return [...agents.values()].map((agent) => ({ ...agent })); },
     getAgent(id: string): AgentEntry | null { return agents.get(id) ?? null; },
 
-    async startChat(agentId, projectPath, onEvent, messages = [], activePath = null): Promise<string> {
+    async beginConversation(conversationId): Promise<void> {
+      await beginConversation(conversationId);
+    },
+
+    async startChat(agentId, projectPath, onEvent, messages = [], activePath = null, conversationId): Promise<string> {
       const agent = agents.get(agentId);
       if (!agent) throw new Error('Agent tidak ditemukan: ' + agentId);
+      const selectedConversation = conversationId || activeConversationId;
+      if (!selectedConversation || !isCurrentConversation(selectedConversation)) {
+        throw new Error('Sesi chat belum siap atau sudah diganti. Buat sesi baru sebelum melanjutkan.');
+      }
+      await memoryResetChain;
       const session: LlmSession = {
         id: 'llm_' + randomUUID(),
         agent,
         controller: new AbortController(),
         onEvent,
         killed: false,
+        conversationId: selectedConversation,
+        memoryPath: conversationMemoryPath(selectedConversation),
+        isConversationCurrent: () => isCurrentConversation(selectedConversation),
       };
       llmSessions.set(session.id, session);
       emit(session, { type: 'state', state: { status: 'starting', agentId: agent.id } });
@@ -850,6 +953,10 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       cli.killed = true;
       cliSessions.delete(sessionId);
       try { cli.pty.kill(); } catch { /* process may have exited */ }
+      // PTY onExit intentionally ignores killed sessions; emit an explicit terminal
+      // state so queue activity tracking cannot leave the room permanently busy.
+      emit(cli, { type: 'state', state: { status: 'stopped', agentId: cli.agent.id } });
+      emit(cli, { type: 'exit', code: -1 });
       if (process.platform === 'win32') {
         try {
           const killer = spawn('taskkill', ['/PID', String(cli.pty.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });

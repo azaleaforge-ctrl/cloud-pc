@@ -11,6 +11,7 @@ export function QueueTab({
   onError: (message: string) => void;
 }) {
   const holding = state.queue.holder === state.selfId;
+  const agentBusy = state.queue.agentBusy === true;
   const holder = state.members.find((m) => m.id === state.queue.holder) ?? null;
   const myPos = state.queue.queue.indexOf(state.selfId);
   const nameOf = (id: string) => state.members.find((m) => m.id === id)?.name ?? 'Anggota';
@@ -56,16 +57,18 @@ export function QueueTab({
         <div>
           <div className="turn-hero-title">
             {holding
-              ? 'Giliranmu - sedang bekerja'
+              ? agentBusy ? 'AI Coding Agent sedang bekerja' : 'Giliranmu - sedang bekerja'
               : isIdle
                 ? 'Ruang kerja kosong'
-                : `${holderName} sedang bekerja`}
+                : agentBusy ? `${holderName} menjalankan AI Coding Agent` : `${holderName} sedang bekerja`}
           </div>
           <div className="turn-hero-sub">
-            {startedAt && !isIdle
-              ? `${nameOf(state.queue.holder!)} bekerja selama ${formatDuration(nowTick - startedAt)}`
-              : holding
-                ? 'Giliran akan otomatis dilepas setelah 2 menit tidak ada perubahan berkas.'
+            {agentBusy && !isIdle
+              ? 'Giliran tetap terkunci selama AI menyelesaikan tugas. Antrian akan meminta keputusan setelah agent selesai.'
+              : startedAt && !isIdle
+                ? `${nameOf(state.queue.holder!)} bekerja selama ${formatDuration(nowTick - startedAt)}`
+                : holding
+                  ? 'Giliran akan otomatis dilepas setelah 2 menit tidak ada aktivitas.'
                 : isIdle
                   ? myPos >= 0
                     ? `Kamu antre di posisi ${myPos + 1}. Mulai edit untuk dapat giliran.`
@@ -101,21 +104,24 @@ export function QueueTab({
             <span className="icon-chip">
               <IconHourglass size={16} />
             </span>
-            <h3 className="card-title">Idle Auto-Release</h3>
+            <h3 className="card-title">{agentBusy ? 'AI Coding Agent aktif' : 'Idle Auto-Release'}</h3>
           </div>
           <p className="card-sub">
-            Giliran akan otomatis dilepas jika tidak ada perubahan selama 2 menit.
-            Setelah melepas, rekan berikutnya langsung dapat giliran.
+            {agentBusy
+              ? 'Timer idle ditangguhkan selama AI mengerjakan tugas. Giliran tetap milikmu sampai agent selesai atau kamu menghentikannya.'
+              : 'Giliran akan otomatis dilepas setelah 2 menit tidak ada aktivitas. Setelah dilepas, rekan berikutnya bisa mendapat giliran.'}
           </p>
           <button
             type="button"
             className="btn btn-ghost btn-sm"
+            disabled={agentBusy}
+            title={agentBusy ? 'Hentikan AI Coding Agent terlebih dahulu.' : 'Lepas giliran sekarang'}
             onClick={async () => {
               const res = await window.rk.releaseTurn();
               if (!res.ok) onError(res.error ?? 'Gagal melepas giliran.');
             }}
           >
-            Lepas Giliran Sekarang
+            {agentBusy ? 'AI sedang bekerja…' : 'Lepas Giliran Sekarang'}
           </button>
         </section>
       )}
@@ -129,8 +135,9 @@ export function QueueTab({
             <h3 className="card-title">Menunggu Giliran</h3>
           </div>
           <p className="card-sub">
-            {holderName} sedang bekerja. Kamu antre di posisi {myPos >= 0 ? myPos + 1 : '-'} dan akan
-            mendapatkan giliran otomatis saat {holderName} selesai.
+            {agentBusy ? holderName + ' sedang menjalankan AI Coding Agent.' : holderName + ' sedang bekerja.'}
+            {' '}Kamu antre di posisi {myPos >= 0 ? myPos + 1 : '-'} dan akan mendapatkan giliran
+            setelah pekerjaan selesai dan aturan antrian diproses.
           </p>
           {myPos >= 0 ? null : (
             <p className="card-sub">
@@ -157,7 +164,7 @@ export function QueueTab({
               <span className="member-name">{holderName}</span>
               {state.queue.holder === state.selfId ? <span className="member-you">(kamu)</span> : null}
               <span className="member-end">
-                <Badge tone={state.queue.holder === state.selfId ? 'amber' : 'teal'}>Bekerja</Badge>
+                {agentBusy ? <Badge tone="amber">AI Coding</Badge> : <Badge tone={state.queue.holder === state.selfId ? 'amber' : 'teal'}>Bekerja</Badge>}
               </span>
               {startedAt ? (
                 <span className="queue-time">{formatDuration(nowTick - startedAt)}</span>
@@ -198,9 +205,9 @@ export function QueueTab({
       <div className="rules-card">
         <IconInfo size={17} />
         <span>
-          <b>Aturan otomatis:</b> giliran diberikan otomatis saat kamu mulai mengedit berkas,
-          menggunakan terminal, atau AI agent terdeteksi. Setelah 2 menit tidak ada aktivitas,
-          giliran dilepas otomatis dan rekan berikutnya dilanjutkan.
+          <b>Aturan otomatis:</b> giliran mengikuti aktivitas editor dan terminal. Ketika AI Coding Agent sedang berjalan,
+          giliran tidak dilepas oleh timer idle. Setelah agent selesai, pemegang giliran diberi waktu 15 detik untuk
+          menerima atau menunda permintaan berikutnya; jika tidak merespons, antrian disetujui otomatis.
         </span>
       </div>
     </div>

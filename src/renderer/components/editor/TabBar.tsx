@@ -1,5 +1,6 @@
 import type { IdeWorkbench } from './types';
 import { IconX } from '../icons';
+import { FileTypeIcon } from '../FileTypeIcon';
 
 interface Props {
   wb: IdeWorkbench;
@@ -43,6 +44,7 @@ export function TabBar({ wb, reportActivity }: Props) {
               }
             }}
           >
+            <FileTypeIcon path={file.path} size="tab" />
             <span className="ed-tab-name">{file.name}</span>
             <button
               type="button"

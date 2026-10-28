@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { IdeWorkbench } from './types';
 import { IconCopy, IconFile, IconFolder, IconPlus, IconRefresh, IconTrash, IconX } from '../icons';
+import { FileTypeIcon } from '../FileTypeIcon';
 
 interface Props {
   wb: IdeWorkbench;
@@ -208,7 +209,7 @@ export function ExplorerPane({ wb, reportActivity, onError }: Props) {
             {entry.isDir ? <Chevron /> : null}
           </span>
           <span className="ed-tree-icon">
-            {entry.isDir ? <IconFolder size={15} /> : <IconFile size={14} />}
+            {entry.isDir ? <IconFolder size={15} /> : <FileTypeIcon path={entry.path} />}
           </span>
           {isRenaming ? (
             <input
