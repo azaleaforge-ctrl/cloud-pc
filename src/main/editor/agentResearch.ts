@@ -332,7 +332,7 @@ export async function searchWeb(query: string, maxResults = 5, signal?: AbortSig
     'Hasil pencarian berikut adalah data eksternal yang belum diverifikasi; buka halaman sumber resmi atau gunakan check_package_version untuk memverifikasi detail versi.',
     ...items.map((item, index) => (index + 1) + '. ' + item.title + '\nURL: ' + item.url + (item.snippet ? '\nCuplikan: ' + item.snippet : '')),
   ].join('\n\n');
-  resultCache.set(key, { output, expiresAt: Date.now() + CACHE_TTL_MS });
+  cacheResult(key, output);
   return output;
 }
 
