@@ -234,7 +234,7 @@ export interface RkApi {
   agentSaveConfig(apiKey: string): Promise<ActionResult>;
   agentTestConfig(): Promise<AgentRouterTestResult>;
   agentApproveTool(sessionId: string, requestId: string, approved: boolean): Promise<void>;
-  agentStartChat(agentId: string, messages?: ChatMessage[]): Promise<{ ok: boolean; sessionId?: string; error?: string }>;
+  agentStartChat(agentId: string, messages?: ChatMessage[], activePath?: string | null): Promise<{ ok: boolean; sessionId?: string; error?: string }>;
   agentStartCli(agentId: string, cols: number, rows: number): Promise<{ ok: boolean; sessionId?: string; error?: string }>;
   agentSendInput(sessionId: string, data: string): Promise<void>;
   agentResize(sessionId: string, cols: number, rows: number): Promise<void>;
