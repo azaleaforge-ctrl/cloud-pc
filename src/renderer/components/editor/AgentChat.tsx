@@ -796,6 +796,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         });
       } else if (event.type === 'run-result') {
         setLastRunResult(event.result);
+        if (event.result.outcome === 'completed' || event.result.outcome === 'cancelled') setTodos([]);
       } else if (event.type === 'terminal-process') {
         setTerminalProcess(event.process);
         setTerminalHistory((previous) => upsertAgentTerminalProcess(previous, event.process));
