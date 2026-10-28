@@ -4,7 +4,8 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
-import { lstat, mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
+import { app } from 'electron';
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import * as pty from '@lydell/node-pty';
