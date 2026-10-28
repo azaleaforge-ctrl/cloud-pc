@@ -7,9 +7,13 @@ import type {
   AgentRouterStatus,
   AgentRouterTestResult,
   AgentSkillSelection,
+  AgentRunResult,
+  AgentTodo,
+  AgentToolActivity,
   ChatMessage,
 } from '../../../shared/agents';
 import { IconSend, Spinner, IconCopy, IconX, IconTrash, IconCheck } from '../icons';
+import './agent-progress.css';
 
 interface Props {
   wb: { root: string | null; activePath: string | null };
@@ -377,6 +381,82 @@ function DiffViewer({ change, onClose }: { change: AgentFileChange; onClose: () 
   );
 }
 
+
+function TodoPanel({ todos }: { todos: AgentTodo[] }) {
+  if (todos.length === 0) return null;
+  const completed = todos.filter((todo) => todo.status === 'completed').length;
+  const statusLabel: Record<AgentTodo['status'], string> = {
+    pending: 'Menunggu',
+    in_progress: 'Dikerjakan',
+    completed: 'Selesai',
+    blocked: 'Terblokir',
+  };
+  const statusMark: Record<AgentTodo['status'], string> = {
+    pending: '○',
+    in_progress: '◌',
+    completed: '✓',
+    blocked: '!',
+  };
+  return (
+    <section className="ai-todo-panel" aria-label="Todo List agent">
+      <header className="ai-todo-header">
+        <strong>Rencana pekerjaan</strong>
+        <span>{completed}/{todos.length} selesai</span>
+      </header>
+      <ol className="ai-todo-list">
+        {todos.map((todo) => (
+          <li className={'ai-todo-item status-' + todo.status} key={todo.id}>
+            <span className="ai-todo-mark" aria-hidden="true">{statusMark[todo.status]}</span>
+            <div className="ai-todo-content">
+              <strong>{todo.title}</strong>
+              {todo.verification ? <small>Kriteria: {todo.verification}</small> : null}
+              {todo.status === 'blocked' && todo.blockedReason ? <small className="ai-todo-blocked-reason">{todo.blockedReason}</small> : null}
+              {todo.status === 'completed' && todo.completionEvidence ? <small className="ai-todo-evidence" title={todo.completionEvidence}>Bukti: {todo.completionEvidence}</small> : null}
+            </div>
+            <span className={'ai-todo-status status-' + todo.status}>{statusLabel[todo.status]}</span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function ToolActivityList({ activities }: { activities: AgentToolActivity[] }) {
+  if (activities.length === 0) return null;
+  return (
+    <section className="ai-tool-activities" aria-label="Aktivitas tool agent" aria-live="polite">
+      <header>Aktivitas agent</header>
+      <div className="ai-tool-activity-list">
+        {activities.slice(-6).map((activity) => (
+          <div className={'ai-tool-activity status-' + activity.status} key={activity.id}>
+            <span className="ai-tool-activity-mark" aria-hidden="true">
+              {activity.status === 'running' ? '◌' : activity.status === 'completed' ? '✓' : '!'}
+            </span>
+            <span className="ai-tool-activity-name">{activity.name}</span>
+            <span className="ai-tool-activity-detail">{activity.detail}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RunResultBanner({ result }: { result: AgentRunResult }) {
+  const label: Record<AgentRunResult['outcome'], string> = {
+    completed: 'Run selesai',
+    blocked: 'Run terblokir',
+    cancelled: 'Run dibatalkan',
+    failed: 'Run gagal',
+  };
+  return (
+    <section className={'ai-run-result status-' + result.outcome} role={result.outcome === 'failed' || result.outcome === 'blocked' ? 'alert' : 'status'}>
+      <strong>{label[result.outcome]}</strong>
+      <span>{result.message}</span>
+      <small>{result.totalToolCalls} pemanggilan tool · {Math.max(0, Math.round(result.durationMs / 1000))} detik</small>
+    </section>
+  );
+}
+
 export function AgentChat({ wb, visible, onToggle }: Props) {
   const [agents, setAgents] = useState<AgentEntry[]>([]);
   const [activeAgentId, setActiveAgentId] = useState('poolside');
@@ -384,6 +464,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [conversationId, setConversationId] = useState(makeConversationId);
   const [sessionReady, setSessionReady] = useState(false);
   const [activeSkills, setActiveSkills] = useState<AgentSkillSelection[]>([]);
+  const [todos, setTodos] = useState<AgentTodo[]>([]);
+  const [toolActivities, setToolActivities] = useState<AgentToolActivity[]>([]);
+  const [lastRunResult, setLastRunResult] = useState<AgentRunResult | null>(null);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -463,7 +546,19 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   useEffect(() => {
     const unsubscribe = window.rk.onAgentEvent(({ sessionId, event }: { sessionId: string; event: AgentEvent }) => {
       if (activeSessionRef.current && activeSessionRef.current !== sessionId) return;
-      if (event.type === 'skills') {
+      if (event.type === 'todo-update') {
+        setTodos(event.todos);
+      } else if (event.type === 'tool-status') {
+        setToolActivities((previous) => {
+          const index = previous.findIndex((item) => item.id === event.activity.id);
+          if (index < 0) return [...previous, event.activity].slice(-8);
+          const next = [...previous];
+          next[index] = event.activity;
+          return next;
+        });
+      } else if (event.type === 'run-result') {
+        setLastRunResult(event.result);
+      } else if (event.type === 'skills') {
         setActiveSkills(event.skills);
       } else if (event.type === 'output') {
         setMessages((previous) => {
@@ -493,7 +588,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         setPermission((current) => current?.requestId === event.requestId ? null : current);
       } else if (event.type === 'state') {
         if (event.state.status === 'starting' || event.state.status === 'running') setLoading(true);
-        if (event.state.status === 'stopped' || event.state.status === 'error' || event.state.status === 'idle') {
+        if (event.state.status !== 'starting' && event.state.status !== 'running') {
           setLoading(false);
           setActivity('');
           setPermission((current) => current?.sessionId === sessionId ? null : current);
@@ -512,7 +607,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading, activity, permission, changes]);
+  }, [messages, loading, activity, permission, changes, todos, toolActivities, lastRunResult]);
 
   const activeAgent = agents.find((agent) => agent.id === activeAgentId);
 
@@ -541,6 +636,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       return;
     }
     setError(null);
+    setLastRunResult(null);
+    setToolActivities([]);
     setActivity('Mempersiapkan workspace…');
     const userMessage: ChatMessage = { id: 'user-' + Date.now(), role: 'user', content: text, ts: Date.now() };
     const assistantMessage: ChatMessage = { id: 'assistant-' + Date.now(), role: 'assistant', content: '', ts: Date.now(), streaming: true };
@@ -633,6 +730,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     activeSessionRef.current = 'pending-session';
     setActiveSessionId(null);
     setMessages([]);
+    setTodos([]);
+    setToolActivities([]);
+    setLastRunResult(null);
     setError(null);
     setActivity('');
     setPermission(null);
@@ -773,6 +873,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       <main className="ai-workspace-main">
         <div className="ai-chat-column">
           <div className="ai-messages">
+            <TodoPanel todos={todos} />
             {messages.filter((message) => message.role !== 'system' && message.content).length === 0 && !loading ? (
               <div className="ai-empty">
                 <span className="ai-empty-icon">{activeAgent?.icon ?? '🌊'}</span>
@@ -810,6 +911,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 </div>
               </div>
             ) : null}
+            <ToolActivityList activities={toolActivities} />
+            {lastRunResult ? <RunResultBanner result={lastRunResult} /> : null}
             {error ? <div className="ai-error" role="alert">{error}</div> : null}
             <div ref={bottomRef} />
           </div>

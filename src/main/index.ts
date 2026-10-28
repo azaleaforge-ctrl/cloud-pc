@@ -1031,7 +1031,7 @@ function registerIpc(): void {
   const emitAgentSessionEvent = (event: AgentEvent, sessionId: string): void => {
     if (event.type === 'state') {
       if (event.state.status === 'starting' || event.state.status === 'running') activeAgentSessions.add(sessionId);
-      else if (event.state.status === 'stopped' || event.state.status === 'error' || event.state.status === 'idle') activeAgentSessions.delete(sessionId);
+      else activeAgentSessions.delete(sessionId);
     } else if (event.type === 'error' || event.type === 'exit') {
       activeAgentSessions.delete(sessionId);
     }
