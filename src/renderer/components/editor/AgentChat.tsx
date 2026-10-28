@@ -949,7 +949,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     const onGlobalKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.repeat) return;
       const target = event.target instanceof HTMLElement ? event.target : null;
-      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return;
+      const isAgentQuestionInput = target?.id === 'ai-question-custom-answer';
+      if (!isAgentQuestionInput && target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return;
       event.preventDefault();
       event.stopPropagation();
       void stopAgent();
@@ -1556,11 +1557,11 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
               </section>
             ) : null}
 
+            {error ? <div className="ai-error ai-run-dock-error" role="alert">{error}</div> : null}
             <div className="ai-run-details-scroll">
               {terminalProcess ? <TerminalRunPanel process={terminalProcess} output={terminalOutput} /> : null}
               <ToolActivityList activities={toolActivities} />
               {lastRunResult ? <RunResultBanner result={lastRunResult} /> : null}
-              {error ? <div className="ai-error" role="alert">{error}</div> : null}
             </div>
           </div>
 
