@@ -1,3 +1,14 @@
+# Ruang Kerja v0.4.9
+
+## Penyempurnaan Markdown di AI Coding Agent
+
+- **Pembatas triple slash (`///`) kini dirender sebagai garis pemisah**, bersama aturan horizontal Markdown standar (`---`, `***`, dan `___`).
+- **Pemformatan rich text tetap aktif** untuk `**bold**`, *italic*, coretan, kode inline, blok kode, daftar bernomor dan bullet, blockquote, tabel, tautan, serta heading.
+- **AI Agent tetap tampil penuh di editor** dengan akses workspace, pembuatan dan penyuntingan file, serta diff lama/baru yang menunjukkan nomor baris dan statistik penambahan/penghapusan.
+- **Detail Version** tetap mengambil rilis terbaru dan menampilkan maksimal tiga versi beserta catatan perubahannya.
+
+---
+
 # Ruang Kerja v0.4.8
 
 ## AI Coding Agent: workspace access, real file editing, full-size editor, and code diff review
