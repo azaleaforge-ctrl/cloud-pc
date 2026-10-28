@@ -103,8 +103,21 @@ function formatEta(seconds: number): string {
 function UpdateNotice({ state }: { state: AppState }) {
   const update = state.update;
   const [actionPending, setActionPending] = useState(false);
+  const [errorVisible, setErrorVisible] = useState(true);
+  const isError = update.status === 'error';
   const visible = ['checking', 'available', 'downloading', 'downloaded', 'error'].includes(update.status);
-  if (!visible) return null;
+
+  useEffect(() => {
+    if (!isError) {
+      setErrorVisible(true);
+      return;
+    }
+    setErrorVisible(true);
+    const timer = window.setTimeout(() => setErrorVisible(false), 5000);
+    return () => window.clearTimeout(timer);
+  }, [isError, update.error, update.version]);
+
+  if (!visible || (isError && !errorVisible)) return null;
 
   const progress = Math.min(100, Math.max(0, update.progress ?? 0));
   const transferred = update.transferred ?? 0;
