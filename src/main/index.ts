@@ -792,9 +792,9 @@ async function fetchReleaseHistoryFromAtom(): Promise<ReleaseInfo[]> {
   return releases.sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at)).slice(0, 3);
 }
 
-async function loadReleaseHistory(): Promise<{ ok: boolean; error?: string; releases?: ReleaseInfo[] }> {
+async function loadReleaseHistory(forceRefresh = false): Promise<{ ok: boolean; error?: string; releases?: ReleaseInfo[] }> {
   const cached = readReleaseHistoryCache();
-  if (cached && Date.now() - cached.savedAt < RELEASE_HISTORY_CACHE_TTL_MS && cached.releases.length > 0) {
+  if (!forceRefresh && cached && Date.now() - cached.savedAt < RELEASE_HISTORY_CACHE_TTL_MS && cached.releases.length > 0) {
     return { ok: true, releases: cached.releases.slice(0, 3) };
   }
 
@@ -965,7 +965,7 @@ function registerIpc(): void {
     if (updateState.status === 'error') return { ok: false, error: updateState.error ?? 'Download pembaruan gagal.' };
     return { ok: false, error: 'Tidak ada pembaruan yang siap dipasang.' };
   });
-  ipcMain.handle('rk:fetch-release-notes', async () => loadReleaseHistory());
+  ipcMain.handle('rk:fetch-release-notes', async (_event, forceRefresh = false) => loadReleaseHistory(forceRefresh === true));
   ipcMain.handle('rk:list-project-files', async () => {
     const state = store.get();
     if (!state.projectPath) return [];
