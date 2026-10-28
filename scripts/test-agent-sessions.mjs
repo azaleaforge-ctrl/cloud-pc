@@ -72,6 +72,7 @@ try{
       id:'change-1',path:'example.ts',operation:'modify',oldContent:'before\\n',newContent:'after\\n',
       addedLines:1,removedLines:1,changedAt:Date.now(),
     };
+    await writeFile(file,'after\n','utf8'); // Simulate write_project_file before checkpoint persistence.
     const checkpoint=await api.recordAgentFileCheckpoint(userData,'chat-rewind','run-1',workspace,change);
     assert.equal(checkpoint.files.length,1);
     const rewind=await api.rewindAgentCheckpoint(userData,'chat-rewind',workspace,checkpoint.id);
@@ -89,6 +90,7 @@ try{
     const file=join(workspace,'created-by-agent.txt');
     await rm(file,{force:true});
     await api.saveAgentSession(userData,{id:'chat-created',messages:[],projectPath:workspace});
+    await writeFile(file,'created contents','utf8'); // Checkpoints are recorded after the tool writes the file.
     const checkpoint=await api.recordAgentFileCheckpoint(userData,'chat-created','run-create',workspace,{
       id:'change-create',path:'created-by-agent.txt',operation:'create',oldContent:'',newContent:'created contents',
       addedLines:1,removedLines:0,changedAt:Date.now(),
@@ -103,7 +105,7 @@ try{
 
   await test('refuses rewind if the target was manually modified after checkpoint',async()=>{
     const file=join(workspace,'manual-conflict.txt');
-    await writeFile(file,'before','utf8');
+    await writeFile(file,'agent edit','utf8');
     await api.saveAgentSession(userData,{id:'chat-conflict',messages:[],projectPath:workspace});
     const checkpoint=await api.recordAgentFileCheckpoint(userData,'chat-conflict','run-conflict',workspace,{
       id:'change-conflict',path:'manual-conflict.txt',operation:'modify',oldContent:'before',newContent:'agent edit',
