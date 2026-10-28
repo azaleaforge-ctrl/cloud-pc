@@ -1,3 +1,21 @@
+# Ruang Kerja v0.4.7
+
+## Perbaikan Detail Version dan deskripsi rilis
+
+### Perbaikan
+- **Versi terbaru muncul saat Detail Version dibuka:** aplikasi melakukan refresh ke GitHub setiap kali modal Riwayat Versi & Perubahan dibuka, tidak lagi menampilkan cache lokal hingga satu jam tanpa mencoba data baru.
+- **Tombol Muat Ulang Versi:** pengguna dapat meminta ulang daftar versi dan deskripsi secara langsung dari GitHub.
+- **Penanganan jaringan:** kegagalan API GitHub tidak membuat modal terus berada pada status memuat. Aplikasi menampilkan pesan error dan tetap mencoba release feed; cache digunakan sebagai fallback jika sumber online tidak tersedia.
+- **Maksimal tiga versi:** Detail Version menampilkan tiga rilis terbaru yang telah dipublikasikan.
+- **Deskripsi per rilis lebih bersih:** installer release sekarang mengambil bagian catatan untuk versi tersebut saja, bukan menyalin catatan seluruh versi lama ke deskripsi rilis terbaru.
+
+### Hasil yang diharapkan
+- Versi terbaru beserta deskripsinya tampil di urutan pertama.
+- Dua versi sebelumnya tampil di bawahnya.
+- Gunakan **Muat Ulang Versi** jika baru saja menerbitkan versi baru dan ingin memperbarui daftar.
+
+---
+
 # Ruang Kerja v0.4.6
 
 ## Fix AI Agent chat setup and 9router connection
