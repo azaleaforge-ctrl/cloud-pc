@@ -12,6 +12,8 @@ import type {
   AgentToolActivity,
   AgentTerminalProcess,
   AgentAttachmentRef,
+  AgentModelCatalogResult,
+  AgentModelCapabilityReport,
   ChatMessage,
 } from '../../../shared/agents';
 import { IconSend, IconPlus, Spinner, IconCopy, IconX, IconTrash, IconCheck } from '../icons';
@@ -520,6 +522,12 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [savingKey, setSavingKey] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<AgentRouterTestResult | null>(null);
+  const [modelCatalog, setModelCatalog] = useState<AgentModelCatalogResult | null>(null);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [selectedModelDraft, setSelectedModelDraft] = useState('');
+  const [savingModel, setSavingModel] = useState(false);
+  const [modelReport, setModelReport] = useState<AgentModelCapabilityReport | null>(null);
+  const [diagnosingModel, setDiagnosingModel] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [permission, setPermission] = useState<PendingPermission | null>(null);
   const [changes, setChanges] = useState<AgentFileChange[]>([]);
@@ -532,6 +540,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     try {
       const status = await window.rk.agentGetConfig();
       setRouterStatus(status);
+      setSelectedModelDraft(status.model);
       if (!status.configured) setSettingsOpen(true);
     } catch (err) {
       setError('Gagal membaca konfigurasi 9router: ' + (err as Error).message);
@@ -769,6 +778,50 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     }
   }, []);
 
+  const refreshModelCatalog = useCallback(async () => {
+    setLoadingModels(true);
+    setModelCatalog(null);
+    try {
+      const result = await window.rk.agentListModels();
+      setModelCatalog(result);
+    } catch (error) {
+      setModelCatalog({ ok: false, message: (error as Error).message || 'Gagal memuat daftar model.', models: [] });
+    } finally {
+      setLoadingModels(false);
+    }
+  }, []);
+
+  const saveSelectedModel = useCallback(async () => {
+    if (!selectedModelDraft.trim() || savingModel) return;
+    setSavingModel(true);
+    setModelReport(null);
+    try {
+      const result = await window.rk.agentSelectModel(selectedModelDraft.trim());
+      if (!result.ok) throw new Error(result.error || 'Gagal menyimpan model.');
+      await refreshRouterStatus();
+      setActivity('Model AI berhasil disimpan.');
+      setError(null);
+    } catch (error) {
+      setError((error as Error).message || 'Gagal menyimpan model.');
+    } finally {
+      setSavingModel(false);
+    }
+  }, [selectedModelDraft, savingModel, refreshRouterStatus]);
+
+  const diagnoseSelectedModel = useCallback(async () => {
+    if (diagnosingModel || !routerStatus?.configured || selectedModelDraft.trim() !== routerStatus.model) return;
+    setDiagnosingModel(true);
+    setModelReport(null);
+    try {
+      const result = await window.rk.agentDiagnoseModel();
+      setModelReport(result);
+    } catch (error) {
+      setError((error as Error).message || 'Diagnostik model gagal dijalankan.');
+    } finally {
+      setDiagnosingModel(false);
+    }
+  }, [diagnosingModel, routerStatus?.configured, routerStatus?.model, selectedModelDraft]);
+
   const saveRouterKey = useCallback(async () => {
     if (!apiKey.trim() || savingKey) return;
     setSavingKey(true);
@@ -893,7 +946,69 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             <div><span>Utama</span><code>{routerStatus?.endpoint ?? 'https://rbxludp.abc-tunnel.us/v1'}</code></div>
             <div><span>Cadangan</span><code>{routerStatus?.fallbackEndpoint ?? 'http://localhost:20128/v1'}</code></div>
           </div>
-          <p className="ai-settings-note">API key disimpan terenkripsi di perangkat ini dan tidak ditulis ke file proyek. Koneksi utama dicoba lebih dahulu, lalu endpoint cadangan bila perlu.</p>
+          <div className="ai-model-manager">
+            <div className="ai-model-manager-head">
+              <div>
+                <strong>Model & kemampuan</strong>
+                <p>Pilih model yang digunakan agent dan uji dukungan chat, function calling, serta input gambar.</p>
+              </div>
+              <button type="button" className="ai-settings-test" onClick={() => void refreshModelCatalog()} disabled={!routerStatus?.configured || loadingModels}>
+                {loadingModels ? 'Memuat…' : 'Muat katalog'}
+              </button>
+            </div>
+            <label className="ai-settings-label" htmlFor="rk-model-id">ID model aktif</label>
+            <div className="ai-model-select-row">
+              <input id="rk-model-id" className="ai-settings-key" type="text" value={selectedModelDraft}
+                onChange={(event) => setSelectedModelDraft(event.target.value)} maxLength={200} spellCheck={false}
+                placeholder="mis. provider/model-name" disabled={savingModel || loading} />
+              <button type="button" className="ai-settings-save" onClick={() => void saveSelectedModel()}
+                disabled={!selectedModelDraft.trim() || savingModel || loading || selectedModelDraft.trim() === routerStatus?.model}>
+                {savingModel ? 'Menyimpan…' : selectedModelDraft.trim() === routerStatus?.model ? 'Model aktif' : 'Gunakan model'}
+              </button>
+            </div>
+            {modelCatalog ? (
+              <div className={'ai-model-catalog-result ' + (modelCatalog.ok ? 'success' : 'failure')} role={modelCatalog.ok ? 'status' : 'alert'}>
+                <span>{modelCatalog.message}</span>
+                {modelCatalog.ok ? <small>{modelCatalog.models.length} model · {modelCatalog.endpoint} · {modelCatalog.retrievedAt}</small> : null}
+                {modelCatalog.ok && modelCatalog.models.length ? (
+                  <label className="ai-model-catalog-select">
+                    <span>Model dari provider</span>
+                    <select value={selectedModelDraft} onChange={(event) => setSelectedModelDraft(event.target.value)} disabled={savingModel || loading}>
+                      <option value="">Pilih model dari katalog…</option>
+                      {modelCatalog.models.map((model) => <option key={model.id} value={model.id}>{model.id}{model.ownedBy ? ' · ' + model.ownedBy : ''}</option>)}
+                    </select>
+                  </label>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="ai-model-diagnostic-actions">
+              <button type="button" className="ai-settings-test" onClick={() => void diagnoseSelectedModel()}
+                disabled={!routerStatus?.configured || loading || diagnosingModel || savingModel || selectedModelDraft.trim() !== routerStatus?.model}>
+                {diagnosingModel ? 'Menguji kemampuan…' : 'Diagnostik kemampuan'}
+              </button>
+              {selectedModelDraft.trim() !== routerStatus?.model ? <small>Simpan pilihan model sebelum menjalankan diagnostik.</small> : null}
+            </div>
+            {modelReport ? (
+              <div className="ai-model-report" role={modelReport.ok ? 'status' : 'alert'}>
+                <div className="ai-model-report-head">
+                  <strong>{modelReport.ok ? 'Hasil diagnostik' : 'Model belum siap'}</strong>
+                  <small>{modelReport.model} · {modelReport.checkedAt}</small>
+                </div>
+                {modelReport.checks.map((check) => (
+                  <div className="ai-model-check" key={check.id}>
+                    <span className={'ai-model-check-state ' + check.status}>{check.status === 'supported' ? 'Lolos' : check.status === 'unsupported' ? 'Tidak didukung' : 'Belum pasti'}</span>
+                    <div>
+                      <strong>{check.label}</strong>
+                      <p>{check.message}</p>
+                      <small>{check.durationMs} ms</small>
+                    </div>
+                  </div>
+                ))}
+                <p className="ai-model-report-note">{modelReport.message}</p>
+              </div>
+            ) : null}
+          </div>
+          <p className="ai-settings-note">API key disimpan terenkripsi di perangkat ini dan tidak ditulis ke file proyek. Endpoint utama dicoba lebih dahulu, lalu endpoint cadangan bila perlu. Katalog dan diagnosa memakai API key yang sama dan tidak menampilkan key di UI.</p>
         </section>
       ) : null}
 
