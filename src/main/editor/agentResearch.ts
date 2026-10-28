@@ -208,14 +208,14 @@ export function extractSearchResults(html: string, maxResults = 5): WebSearchRes
 
 /** Parse the public Bing HTML SERP as a secondary search provider. */
 export function extractBingSearchResults(html: string, maxResults = 5): WebSearchResult[] {
-  const starts = [...html.matchAll(/<li\\b[^>]*class=["'][^"']*\\bb_algo\\b[^"']*["'][^>]*>/gi)];
+  const starts = [...html.matchAll(/<li\b[^>]*class=["'][^"']*\bb_algo\b[^"']*["'][^>]*>/gi)];
   const output: WebSearchResult[] = [];
   const limit = Math.max(1, Math.min(8, Number.isInteger(maxResults) ? maxResults : 5));
   for (let index = 0; index < starts.length && output.length < limit; index++) {
     const start = starts[index].index ?? 0;
     const end = index + 1 < starts.length ? (starts[index + 1].index ?? html.length) : Math.min(html.length, start + 24_000);
     const block = html.slice(start, end);
-    const heading = /<h[1-6]\\b[^>]*>[\\s\\S]*?<a\\b([^>]*)>([\\s\\S]*?)<\\/a\\s*>[\\s\\S]*?<\\/h[1-6]\\s*>/i.exec(block);
+    const heading = /<h[1-6]\b[^>]*>[\s\S]*?<a\b([^>]*)>([\s\S]*?)<\/a\s*>[\s\S]*?<\/h[1-6]\s*>/i.exec(block);
     if (!heading) continue;
     const href = getAttribute(heading[1], 'href');
     if (!href) continue;
@@ -224,7 +224,7 @@ export function extractBingSearchResults(html: string, maxResults = 5): WebSearc
       if (target.protocol !== 'https:' || !target.hostname.includes('.') || target.hostname.endsWith('.bing.com')) continue;
       const title = stripTags(heading[2]);
       if (!title || output.some(item => item.url === target.toString())) continue;
-      const snippet = stripTags(/<p\\b[^>]*>([\\s\\S]*?)<\\/p\\s*>/i.exec(block)?.[1] ?? '');
+      const snippet = stripTags(/<p\b[^>]*>([\s\S]*?)<\/p\s*>/i.exec(block)?.[1] ?? '');
       output.push({ title: title.slice(0, 240), url: target.toString(), snippet: snippet.slice(0, 700) });
     } catch { /* Ignore malformed or non-HTTPS result links. */ }
   }
@@ -419,7 +419,7 @@ export async function readWebPage(input: string, signal?: AbortSignal): Promise<
   const url = normalizeHttpsUrl(input);
   const result = await fetchPublicHttps(url.toString(), PAGE_BODY_LIMIT, signal);
   const contentType = result.response.headers.get('content-type') ?? '';
-  if (/^(text\/html|application\/xhtml\+xml)/i.test(contentType) && /<title[^>]*>\\s*(?:just a moment|attention required|access denied|verify you are human|security check)/i.test(result.body)) {
+  if (/^(text\/html|application\/xhtml\+xml)/i.test(contentType) && /<title[^>]*>\s*(?:just a moment|attention required|access denied|verify you are human|security check)/i.test(result.body)) {
     throw new Error('Situs sumber mengembalikan halaman anti-bot/security challenge, bukan isi artikel. Coba halaman dokumentasi lain pada domain yang sama atau coba lagi nanti.');
   }
   if (!/^(text\/html|application\/xhtml\+xml|text\/plain|text\/markdown|application\/json|application\/xml|text\/xml)/i.test(contentType)) {
