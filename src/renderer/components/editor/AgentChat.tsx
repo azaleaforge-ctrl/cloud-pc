@@ -85,7 +85,7 @@ function makeConversationId(): string {
 }
 
 function inlineMarkdown(source: string, keyPrefix: string): ReactNode[] {
-  const pattern = /(\`[^\`]+\`|\*\*[\s\S]+?\*\*|__[\s\S]+?__|~~[\s\S]+?~~|\*[^*\n]+\*|_[^_\n]+_|\[[^\]]+\]\((?:https?:\/\/|mailto:)[^)]+\))/g;
+  const pattern = /(\`[^\`]+\`|<\/think>|\*\*[\s\S]+?\*\*|__[\s\S]+?__|~~[\s\S]+?~~|\*[^*\n]+\*|_[^_\n]+_|\[[^\]]+\]\((?:https?:\/\/|mailto:)[^)]+\))/g;
   const nodes: ReactNode[] = [];
   let cursor = 0;
   let tokenIndex = 0;
@@ -95,7 +95,9 @@ function inlineMarkdown(source: string, keyPrefix: string): ReactNode[] {
     const start = match.index ?? 0;
     if (start > cursor) nodes.push(source.slice(cursor, start));
     const key = keyPrefix + '-' + tokenIndex++;
-    if (token.startsWith('\`')) {
+    if (token === '</think>') {
+      nodes.push(<span className="ai-think-end" key={key}>✓ Akhir proses berpikir</span>);
+    } else if (token.startsWith('\`')) {
       nodes.push(<code className="ai-inline-code" key={key}>{token.slice(1, -1)}</code>);
     } else if (token.startsWith('**') || token.startsWith('__')) {
       nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>);
@@ -950,6 +952,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     if (!sessionProjectPath) setSessionProjectPath(wb.root);
     setError(null);
     setLastRunResult(null);
+    setTodos([]);
+    setChanges([]);
+    setSelectedChange(null);
     setToolActivities([]);
     setTerminalProcess(null);
     setTerminalOutput('');
