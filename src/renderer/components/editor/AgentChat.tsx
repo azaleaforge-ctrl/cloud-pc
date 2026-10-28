@@ -176,6 +176,12 @@ export function AgentChat({ wb, visible, onToggle, onMaximize }: Props) {
 
   const activeAgent = agents.find((agent) => agent.id === activeAgentId);
 
+  useEffect(() => {
+    if (!testResult || testResult.ok) return;
+    const timer = window.setTimeout(() => setTestResult(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [testResult]);
+
   const saveCopied = useCallback((content: string) => {
     void navigator.clipboard?.writeText(content).catch(() => undefined);
     setCopiedMsg(content);
@@ -222,19 +228,50 @@ export function AgentChat({ wb, visible, onToggle, onMaximize }: Props) {
     }
   }, [activeSessionId]);
 
+  const testRouterConnection = useCallback(async (): Promise<AgentRouterTestResult | null> => {
+    setTestingConnection(true);
+    setTestResult(null);
+    try {
+      const result = await window.rk.agentTestConfig();
+      setTestResult(result);
+      if (result.ok) setActivity('Koneksi model berhasil diverifikasi.');
+      else setActivity('');
+      return result;
+    } catch (err) {
+      const result: AgentRouterTestResult = {
+        ok: false,
+        message: 'Gagal menguji koneksi: ' + ((err as Error).message || 'kesalahan tidak diketahui'),
+      };
+      setTestResult(result);
+      setActivity('');
+      return result;
+    } finally {
+      setTestingConnection(false);
+    }
+  }, []);
+
   const saveRouterKey = useCallback(async () => {
     if (!apiKey.trim() || savingKey) return;
     setSavingKey(true);
+    setTestResult(null);
     try {
       const result = await window.rk.agentSaveConfig(apiKey);
       if (!result.ok) throw new Error(result.error ?? 'Gagal menyimpan API key.');
       setApiKey('');
       await refreshRouterStatus();
       setError(null);
-      setActivity('API key 9router tersimpan secara terenkripsi di perangkat ini.');
-      window.setTimeout(() => setActivity(''), 5000);
+      setActivity('');
+      const connectivity = await window.rk.agentTestConfig();
+      setTestResult(connectivity);
+      if (connectivity.ok) {
+        setActivity('Koneksi 9router dan model berhasil diuji.');
+        setSettingsOpen(false);
+      }
     } catch (err) {
-      setError((err as Error).message || 'Gagal menyimpan API key.');
+      setTestResult({
+        ok: false,
+        message: (err as Error).message || 'Gagal menyimpan API key.',
+      });
     } finally {
       setSavingKey(false);
     }
