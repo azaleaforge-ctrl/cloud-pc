@@ -1,3 +1,67 @@
+# Ruang Kerja v1.0.2
+
+## Agentic Coding AI — alur kerja lebih terarah, riset langsung, dan sesi yang dapat dipulihkan
+
+Ruang Kerja v1.0.2 menyatukan peningkatan Agentic Coding AI dari enam tahap implementasi. Agent sekarang mempunyai alur kerja berbasis tugas, terminal yang lebih terukur, dukungan lampiran, riset informasi terkini, diagnostik kemampuan model, serta riwayat sesi dan checkpoint perubahan file.
+
+### Fitur baru dan peningkatan
+
+#### 1. Todo dan orkestrasi pekerjaan AI
+- Permintaan coding kompleks dipecah menjadi daftar tugas dengan status, prioritas, dependensi, kriteria verifikasi, dan bukti penyelesaian.
+- Panel AI menampilkan progres Todo, aktivitas tool yang sedang berjalan atau telah selesai, serta hasil akhir run.
+- Status kerja dibedakan dengan jelas: selesai, terblokir, dibatalkan, atau gagal. Agent tidak boleh menyatakan pekerjaan selesai hanya karena menghasilkan jawaban teks ketika tugas masih belum terpenuhi.
+- Mekanisme kelanjutan memakai batas keselamatan untuk panggilan tool, durasi, kegagalan berulang, dan respons tanpa progres.
+
+#### 2. Terminal dan verifikasi build/test
+- Output stdout dan stderr ditampilkan secara streaming saat command berjalan.
+- Status proses, exit code, durasi, timeout, pembatalan, dan kegagalan disampaikan secara eksplisit.
+- Agent diarahkan menjalankan perintah pemeriksaan yang sesuai dengan project setelah perubahan kode, misalnya build, test, lint, atau typecheck, lalu menggunakan hasilnya untuk memperbaiki kegagalan.
+- Persetujuan pengguna sebelum command terminal dieksekusi tetap berlaku.
+
+#### 3. Lampiran gambar, dokumen, dan file kode
+- Pengguna dapat melampirkan gambar PNG, JPG/JPEG, WebP, dan GIF, serta dokumen PDF, DOCX, XLSX, dan PPTX ke chat AI.
+- File teks dan kode umum juga dapat dilampirkan untuk dianalisis bersama permintaan pengguna.
+- Pemrosesan dilakukan melalui proses utama aplikasi dan lampiran tidak ditulis ke workspace project.
+- Analisis visual bergantung pada dukungan model/router yang dipilih. PDF hasil scan yang tidak memiliki teks tidak menjalani OCR pada versi ini; ekstraksi dokumen Office berfokus pada teks dan nilai sel, bukan mempertahankan seluruh tata letak, grafik, komentar, atau media tertanam.
+
+#### 4. Navigasi Skills dan Plugin
+- Menu Extensions pada area editor diganti menjadi **Skills**.
+- Katalog **Skills** dan **Plugin** tersedia sebagai bagian terpisah dengan pencarian dan tautan menuju sumber upstream.
+- Agent dapat memakai skill bawaan yang sesuai tugas, termasuk analisis dokumen dan lampiran.
+- Katalog pihak ketiga berfungsi sebagai direktori referensi; instalasi otomatis skill eksternal dan runtime eksekusi plugin/MCP penuh belum termasuk rilis ini.
+
+#### 5. Riset web dan versi paket
+- Agent dapat mencari web, membaca halaman HTTPS publik yang memenuhi pemeriksaan keamanan, dan memeriksa versi paket pada registry npm, PyPI, crates.io, Packagist, serta RubyGems.
+- Tool waktu dapat membaca waktu sistem lokal dan zona waktu IANA yang diminta.
+- Hasil riset menyertakan sumber atau waktu pengambilan jika tersedia. Konten dari web diperlakukan sebagai data eksternal, bukan instruksi tepercaya.
+- Tool memiliki batas ukuran, timeout, serta perlindungan terhadap alamat internal dan URL yang tidak diperbolehkan.
+
+#### 6. Pemilihan model dan diagnostik kemampuan
+- Model dapat ditemukan melalui katalog `/models` dari endpoint 9router yang dikelola aplikasi, lalu dipilih dan disimpan untuk permintaan AI berikutnya.
+- Pemeriksaan kemampuan mencakup chat completion, function/tool-calling, dan penerimaan input gambar.
+- Hasil menunjukkan status dukungan dan waktu pemeriksaan. Dukungan menerima input gambar tidak menjamin kualitas pemahaman visual, dan kemampuan model dapat berubah sesuai provider, endpoint, atau versi model.
+- API key tetap dipisahkan dari pilihan model dan diagnostik, serta disimpan menggunakan Electron `safeStorage` bila didukung oleh sistem operasi.
+
+#### 7. Riwayat sesi, memory, dan checkpoint file
+- Percakapan disimpan secara lokal dan dapat dipulihkan setelah aplikasi dibuka kembali. Panel riwayat membantu membuka atau menghapus sesi tertentu, sementara **Chat Baru** membuat sesi yang terisolasi.
+- Context compaction menambahkan ringkasan percakapan lama ke konteks agent tanpa menghapus transcript yang terlihat di chat.
+- Todo dan metadata checkpoint disimpan bersama sesi.
+- Perubahan file yang dibuat melalui tool `write_project_file` dapat dicatat sebagai checkpoint dan dipulihkan menggunakan **Rewind** atau diterapkan kembali dengan **Redo**.
+- Sebelum menulis file, Rewind/Redo memeriksa workspace dan hash file saat ini. Jika file telah diubah secara manual atau oleh proses lain, operasi ditolak untuk menghindari menimpa perubahan yang tidak cocok.
+- Riwayat sesi dan memory disimpan di direktori data lokal aplikasi, bukan di folder project dan bukan disinkronkan ke anggota ruangan lain.
+
+### Catatan dan batasan
+- Lampiran yang dipilih untuk pesan tersedia selama sesi proses berjalan, tetapi isi file lampiran tidak disimpan secara permanen bersama riwayat chat. Setelah aplikasi dimulai ulang, lampiran yang diperlukan untuk analisis ulang harus dikirim kembali.
+- Checkpoint Rewind/Redo hanya mencakup penulisan yang dilakukan melalui tool `write_project_file`. Perubahan dari terminal, IDE eksternal, anggota kolaborasi lain, atau edit manual tidak otomatis menjadi checkpoint.
+- Transcript, ringkasan sesi, dan konten checkpoint disimpan sebagai file lokal JSON/Markdown dan tidak dienkripsi saat tersimpan. API key disimpan terpisah melalui `safeStorage`.
+- Penyimpanan sesi bersifat lokal di perangkat, bukan backup cloud. Buat backup project secara terpisah.
+- Pemeriksaan otomatis dan build tidak menggantikan pengujian manual pada installer Windows, akun model/router yang digunakan, serta folder project nyata.
+
+### Riwayat versi di dalam aplikasi
+Buka versi di bilah status bawah aplikasi untuk melihat **Detail Version**. Aplikasi memuat catatan rilis dari GitHub dan menampilkan maksimal tiga rilis terbaru yang telah dipublikasikan, termasuk versi ini dan dua versi sebelumnya. Gunakan tombol **Muat Ulang Versi** untuk meminta data terbaru.
+
+---
+
 # Ruang Kerja v1.0.1
 
 ## Agentic Coding AI — katalog Skill dan Plugin
