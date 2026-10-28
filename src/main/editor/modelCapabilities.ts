@@ -74,7 +74,7 @@ async function requestJson(url: string, apiKey: string, body?: unknown): Promise
   return { response, data };
 }
 
-function parseModels(data: Record<string, unknown>): AgentModelInfo[] {
+export function parseModels(data: Record<string, unknown>): AgentModelInfo[] {
   const raw = Array.isArray(data.data) ? data.data : Array.isArray(data.models) ? data.models : [];
   const seen = new Set<string>();
   const result: AgentModelInfo[] = [];
