@@ -2998,3 +2998,433 @@ button.ed-status-item:hover {
 /* The active conversation title is now the editor tab, not a second header. */
 .ai-panel.fullsize .ai-panel-header { display: none; }
 .ai-panel.fullsize .ai-agent-toolbar { flex: none; }
+
+
+/* ---------- v1.0.4 Phase 2: docked agent workbench ---------- */
+.ai-workspace-main {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.ai-chat-column {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ai-panel.fullsize .ai-messages {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  overflow-anchor: auto;
+  scrollbar-gutter: stable;
+}
+.ai-panel.fullsize .ai-messages > .ai-empty {
+  flex: 1 0 auto;
+}
+.ai-run-dock {
+  flex: 0 0 auto;
+  min-height: 0;
+  max-height: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px 14px 6px;
+  overflow: hidden;
+  border-top: 1px solid var(--ed-border);
+  background: #0a101a;
+}
+.ai-run-dock[data-active="false"] { display: none; }
+.ai-run-dock[data-awaiting-response="true"] { max-height: 340px; }
+.ai-run-status-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 35px;
+  padding: 4px 6px;
+  color: var(--ed-text-2);
+}
+.ai-run-status-row > div {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: grid;
+  gap: 2px;
+}
+.ai-run-status-row strong {
+  color: var(--ed-text);
+  font-size: 10.5px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.ai-run-status-row small {
+  color: var(--ed-text-3);
+  font-size: 9px;
+}
+.ai-run-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--ed-accent);
+}
+.ai-dock-stop {
+  flex: 0 0 auto;
+  min-height: 27px;
+  padding: 4px 9px;
+  border: 1px solid rgba(251,113,133,.35);
+  border-radius: 7px;
+  background: rgba(251,113,133,.08);
+  color: #fda4af;
+  font-size: 10px;
+  cursor: pointer;
+}
+.ai-dock-stop:hover { background: rgba(251,113,133,.15); }
+.ai-run-details-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.ai-run-dock[data-awaiting-response="true"] .ai-run-details-scroll { max-height: 54px; flex: 0 1 auto; }
+.ai-run-details-scroll > :last-child { margin-bottom: 0; }
+.ai-run-details-scroll .ai-terminal-run { margin-bottom: 6px; }
+.ai-run-details-scroll .ai-terminal-output { max-height: 70px; }
+.ai-run-details-scroll .ai-tool-activities { margin-bottom: 6px; }
+.ai-run-details-scroll .ai-tool-activity-list { max-height: 64px; overflow: auto; }
+.ai-run-details-scroll .ai-run-result { margin-bottom: 0; }
+.ai-panel.fullsize .ai-composer {
+  flex: 0 0 auto;
+  min-width: 0;
+  padding-top: 8px;
+  padding-bottom: 10px;
+  border-top: 1px solid var(--ed-border);
+}
+.ai-panel.fullsize .ai-composer.has-interaction {
+  border-top-color: rgba(45,212,191,.28);
+  background: #0b111b;
+}
+.ai-composer.has-interaction .ai-composer-context span:last-child {
+  color: var(--ed-accent-soft);
+}
+.ai-dock-interaction {
+  flex: 0 1 auto;
+  min-height: 0;
+  width: 100%;
+  max-width: 1320px;
+  margin: 0 auto;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+.ai-dock-interaction .ai-permission-heading strong { color: #fbbf24; }
+.ai-dock-interaction .ai-interaction-guidance {
+  display: block;
+  color: var(--ed-text-3);
+  font-size: 9.5px;
+  line-height: 1.4;
+}
+.ai-dock-interaction .ai-permission-card pre,
+.ai-dock-interaction pre { max-height: 75px; }
+
+/* User questions use three explained options and a free-form answer, never auto-approved. */
+.ai-question-card {
+  display: grid;
+  gap: 7px;
+  padding: 10px 11px;
+  border: 1px solid rgba(45,212,191,.36);
+  border-radius: 10px;
+  background: linear-gradient(120deg, rgba(13,35,43,.94), rgba(14,20,32,.98));
+  color: var(--ed-text);
+}
+.ai-question-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ai-question-heading > div { display: grid; gap: 4px; min-width: 0; }
+.ai-question-eyebrow {
+  color: var(--ed-accent-soft);
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+.ai-question-heading strong {
+  color: #f1f5f9;
+  font-size: 11.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.ai-question-chip {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  border: 1px solid rgba(45,212,191,.2);
+  border-radius: 999px;
+  color: var(--ed-accent-soft);
+  font-size: 8.5px;
+  white-space: nowrap;
+}
+.ai-question-context {
+  max-height: 50px;
+  margin: 0;
+  overflow: auto;
+  color: var(--ed-text-2);
+  font-size: 10px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.ai-question-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.ai-question-option {
+  min-width: 0;
+  min-height: 57px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 7px 8px;
+  border: 1px solid var(--ed-border);
+  border-radius: 7px;
+  background: rgba(148,163,184,.035);
+  color: var(--ed-text-2);
+  text-align: left;
+  cursor: pointer;
+}
+.ai-question-option:hover:not(:disabled) {
+  border-color: rgba(45,212,191,.4);
+  background: rgba(45,212,191,.05);
+}
+.ai-question-option.selected {
+  border-color: var(--ed-accent);
+  background: rgba(45,212,191,.09);
+  box-shadow: inset 0 0 0 1px rgba(45,212,191,.12);
+}
+.ai-question-option.recommended:not(.selected) { border-color: rgba(45,212,191,.25); }
+.ai-question-option-top { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.ai-question-option-top > strong {
+  min-width: 0;
+  color: var(--ed-text);
+  font-size: 10px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.ai-recommended-label {
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: rgba(45,212,191,.12);
+  color: var(--ed-accent-soft);
+  font-size: 7.5px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+.ai-question-option > small {
+  color: var(--ed-text-3);
+  font-size: 9px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.ai-question-custom {
+  display: grid;
+  grid-template-columns: minmax(100px, 145px) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+.ai-question-custom label {
+  color: var(--ed-text-2);
+  font-size: 9.5px;
+}
+.ai-question-custom input {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  padding: 6px 8px;
+  border: 1px solid var(--ed-border-strong);
+  border-radius: 6px;
+  outline: none;
+  background: #080d15;
+  color: var(--ed-text);
+  font: 10px var(--ed-font);
+}
+.ai-question-custom input:focus { border-color: var(--ed-accent); }
+.ai-question-custom input::placeholder { color: #65718a; }
+.ai-question-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ai-question-actions > span {
+  min-width: 0;
+  color: var(--ed-text-3);
+  font-size: 8.5px;
+  line-height: 1.35;
+}
+.ai-question-submit {
+  flex: 0 0 auto;
+  min-height: 29px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--ed-accent);
+  border-radius: 7px;
+  background: var(--ed-accent);
+  color: #03211b;
+  font-size: 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.ai-question-submit:disabled { opacity: .4; cursor: default; }
+
+/* Right work panel: each pane scrolls independently so the conversation stays short and readable. */
+.ai-agent-sidepanel {
+  display: flex !important;
+  flex: 0 0 clamp(260px, 25vw, 350px);
+  flex-direction: column;
+  gap: 9px;
+  width: clamp(260px, 25vw, 350px);
+  min-width: 250px;
+  max-width: 360px;
+  min-height: 0;
+  padding: 10px;
+  overflow: hidden;
+  border-left: 1px solid var(--ed-border);
+  background: #0e1420;
+}
+.ai-agent-sidepanel .ai-side-card {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 10px;
+  overflow: hidden;
+}
+.ai-agent-sidepanel .ai-side-card-title {
+  flex: 0 0 auto;
+  margin-bottom: 7px;
+}
+.ai-side-workspace-card { flex: 0 0 auto; max-height: 150px; }
+.ai-side-workspace-card .ai-root-path {
+  max-height: 58px;
+  overflow: auto;
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+.ai-side-workspace-card .ai-active-file {
+  margin-top: 7px;
+  padding-top: 7px;
+  gap: 3px;
+}
+.ai-side-workspace-card .ai-active-file code { font-size: 9px; }
+.ai-side-todo-card,
+.ai-side-changes-card {
+  flex: 1 1 0;
+  min-height: 135px;
+}
+.ai-side-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.ai-side-empty,
+.ai-agent-sidepanel .ai-no-changes {
+  margin: 0;
+  color: var(--ed-text-3);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.ai-side-todo-scroll .ai-todo-panel {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+.ai-side-todo-scroll .ai-todo-header { display: none; }
+.ai-side-todo-scroll .ai-todo-list { overflow: visible; }
+.ai-side-todo-scroll .ai-todo-item {
+  grid-template-columns: 16px minmax(0,1fr);
+  gap: 6px;
+  padding: 8px 0;
+}
+.ai-side-todo-scroll .ai-todo-mark { text-align: left; }
+.ai-side-todo-scroll .ai-todo-content > strong { font-size: 10px; }
+.ai-side-todo-scroll .ai-todo-content small { font-size: 9px; }
+.ai-side-todo-scroll .ai-todo-status {
+  grid-column: 2;
+  justify-self: start;
+  margin-top: 1px;
+}
+.ai-change-summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  margin: -2px 0 7px;
+  color: var(--ed-text-3);
+  font-size: 9px;
+}
+.ai-change-summary > span:first-child { flex: 1 1 auto; min-width: 0; }
+.ai-side-changes-scroll .ai-side-changes {
+  display: grid;
+  gap: 5px;
+}
+.ai-side-changes-scroll .ai-side-changes button {
+  grid-template-columns: minmax(0,1fr) auto auto;
+  gap: 5px;
+  padding: 7px 6px;
+  border: 1px solid rgba(148,163,184,.1);
+  background: rgba(148,163,184,.025);
+}
+.ai-side-changes-scroll .ai-side-change-path { font-size: 9px; }
+.ai-side-change-open {
+  grid-column: 1 / -1;
+  color: var(--ed-accent-soft);
+  font-size: 8.5px;
+}
+.ai-side-changes-scroll .ai-diff-added,
+.ai-side-changes-scroll .ai-diff-removed { font-size: 9px; }
+.ai-agent-sidepanel .ai-side-card-title > span { flex: 0 0 auto; }
+
+/* Below 1000px preserve the work panel in compact form rather than hiding Todo entirely. */
+@media (max-width: 1000px) {
+  .ai-agent-sidepanel {
+    flex-basis: 245px;
+    width: 245px;
+    min-width: 225px;
+    padding: 7px;
+    gap: 7px;
+  }
+  .ai-question-options { gap: 4px; }
+  .ai-question-option { padding: 6px; }
+}
+@media (max-width: 720px) {
+  .ai-agent-sidepanel { display: none !important; }
+  .ai-run-dock { max-height: 260px; padding: 6px 8px; }
+  .ai-run-dock[data-awaiting-response="true"] { max-height: 380px; }
+  .ai-question-options { grid-template-columns: minmax(0,1fr); }
+  .ai-question-option { min-height: 0; }
+  .ai-question-custom { grid-template-columns: minmax(0,1fr); gap: 5px; }
+  .ai-question-actions { align-items: stretch; flex-direction: column; }
+  .ai-question-submit { width: 100%; }
+  .ai-panel.fullsize .ai-composer { padding-left: 8px; padding-right: 8px; }
+}
