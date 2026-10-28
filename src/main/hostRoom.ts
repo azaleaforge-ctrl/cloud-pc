@@ -497,7 +497,27 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   };
 
   const reportActivity = (memberId: string, source: string): void => {
-    if (memberId !== holder) return;
+    if (!members.has(memberId)) return;
+    if (memberId !== holder) {
+      // Activity from another member may reclaim an expired idle turn even if a delayed timer
+      // has not fired yet. With no holder, the first active member gets the turn immediately.
+      if (holder === null) {
+        void internalTakeTurn(memberId);
+        return;
+      }
+      if (holderLastActivity !== null && Date.now() - holderLastActivity >= IDLE_TIMEOUT_MS && agentBusyHolder !== holder) {
+        const previousHolder = holder;
+        void internalReleaseTurn(previousHolder, true);
+        if (holder === null) {
+          void internalTakeTurn(memberId);
+        } else if (holder !== memberId && !queue.includes(memberId)) {
+          queue.push(memberId);
+          updateStatuses();
+          applyHolderChange();
+        }
+      }
+      return;
+    }
     resetIdleTimer(source);
     if (pendingPrompt) {
       const requesterId = pendingPrompt.requesterId;

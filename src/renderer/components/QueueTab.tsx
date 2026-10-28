@@ -176,6 +176,28 @@ export function QueueTab({
         )}
       </section>
 
+      <section className="card" aria-label="Daftar anggota idle">
+        <div className="card-head">
+          <span className="icon-chip"><IconInfo size={16} /></span>
+          <h3 className="card-title">Idle ({state.members.filter((member) => member.status === 'idle' && !state.queue.queue.includes(member.id)).length})</h3>
+        </div>
+        {state.members.filter((member) => member.status === 'idle' && !state.queue.queue.includes(member.id)).length === 0 ? (
+          <p className="card-sub">Tidak ada anggota berstatus idle.</p>
+        ) : (
+          <div className="queue-list">
+            {state.members.filter((member) => member.status === 'idle' && !state.queue.queue.includes(member.id)).map((member) => (
+              <div key={member.id} className={'queue-row' + (member.id === state.selfId ? ' self' : '')}>
+                <span className="queue-pos">·</span>
+                <span className="avatar">{member.name.charAt(0).toUpperCase()}</span>
+                <span className="member-name">{member.name}</span>
+                {member.id === state.selfId ? <span className="member-you">(kamu)</span> : null}
+                <span className="member-end"><Badge tone="slate">Idle</Badge></span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       <section className="card" aria-label="Daftar antrean">
         <div className="card-head">
           <span className="icon-chip">

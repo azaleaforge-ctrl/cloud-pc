@@ -85,7 +85,7 @@ function makeConversationId(): string {
 }
 
 function inlineMarkdown(source: string, keyPrefix: string): ReactNode[] {
-  const pattern = /(\`[^\`]+\`|\*\*[\s\S]+?\*\*|__[\s\S]+?__|~~[\s\S]+?~~|\*[^*\n]+\*|_[^_\n]+_|\[[^\]]+\]\((?:https?:\/\/|mailto:)[^)]+\))/g;
+  const pattern = /(\`[^\`]+\`|<\/think>|\*\*[\s\S]+?\*\*|__[\s\S]+?__|~~[\s\S]+?~~|\*[^*\n]+\*|_[^_\n]+_|\[[^\]]+\]\((?:https?:\/\/|mailto:)[^)]+\))/g;
   const nodes: ReactNode[] = [];
   let cursor = 0;
   let tokenIndex = 0;
@@ -95,7 +95,9 @@ function inlineMarkdown(source: string, keyPrefix: string): ReactNode[] {
     const start = match.index ?? 0;
     if (start > cursor) nodes.push(source.slice(cursor, start));
     const key = keyPrefix + '-' + tokenIndex++;
-    if (token.startsWith('\`')) {
+    if (token === '</think>') {
+      nodes.push(<span className="ai-think-end" key={key}>✓ Akhir proses berpikir</span>);
+    } else if (token.startsWith('\`')) {
       nodes.push(<code className="ai-inline-code" key={key}>{token.slice(1, -1)}</code>);
     } else if (token.startsWith('**') || token.startsWith('__')) {
       nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>);
@@ -123,7 +125,7 @@ function isBlockStart(lines: string[], index: number): boolean {
   const line = lines[index] ?? '';
   return /^\s*\`\`\`/.test(line) || /^#{1,6}\s+/.test(line) ||
     /^\s*(?:[-*_]\s*){3,}$/.test(line) || /^\s*\/{3,}\s*$/.test(line) || /^\s*>/.test(line) ||
-    /^\s*[-*+]\s+/.test(line) || /^\s*\d+[.)]\s+/.test(line) ||
+    /^\s*[-*+]\s+/.test(line) || /^\s*(?:\d+|[a-zA-Z]|[ivxlcdmIVXLCDM]{2,})[.)]\s+/.test(line) ||
     (line.trim().startsWith('|') && index + 1 < lines.length && isTableSeparator(lines[index + 1]));
 }
 
@@ -200,19 +202,30 @@ function MarkdownContent({ content }: { content: string }) {
     }
 
     const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
-    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
-    if (unordered || ordered) {
+    const ordered = line.match(/^\s*(\d+|[a-zA-Z]|[ivxlcdmIVXLCDM]{2,})[.)]\s+(.+)$/);
+    const task = line.match(/^\s*[-*+]\s+\[([ xX])\]\s+(.+)$/);
+    if (unordered || ordered || task) {
       const orderedList = !!ordered;
-      const items: string[] = [];
+      const items: Array<{ text: string; checked?: boolean }> = [];
+      const firstMarker = ordered?.[1] ?? '';
       while (index < lines.length) {
         const current = lines[index];
-        const match = orderedList ? current.match(/^\s*\d+[.)]\s+(.+)$/) : current.match(/^\s*[-*+]\s+(.+)$/);
-        if (!match) break;
-        items.push(match[1]);
+        const currentTask = current.match(/^\s*[-*+]\s+\[([ xX])\]\s+(.+)$/);
+        const currentOrdered = current.match(/^\s*(\d+|[a-zA-Z]|[ivxlcdmIVXLCDM]{2,})[.)]\s+(.+)$/);
+        const currentUnordered = current.match(/^\s*[-*+]\s+(.+)$/);
+        if (task ? !currentTask : orderedList ? !currentOrdered : (!currentUnordered || !!currentTask)) break;
+        if (currentTask) items.push({ text: currentTask[2], checked: /x/i.test(currentTask[1]) });
+        else if (currentOrdered) items.push({ text: currentOrdered[2] });
+        else if (currentUnordered) items.push({ text: currentUnordered[1] });
         index++;
       }
-      const list = items.map((item, i) => <li key={i}>{inlineMarkdown(item, 'list-' + key + '-' + i)}</li>);
-      blocks.push(orderedList ? <ol key={'md-' + key++}>{list}</ol> : <ul key={'md-' + key++}>{list}</ul>);
+      const list = items.map((item, i) => <li key={i}>{item.checked !== undefined ? <><span className="ai-markdown-task-mark" aria-label={item.checked ? 'Selesai' : 'Belum selesai'}>{item.checked ? '☑' : '☐'}</span> {inlineMarkdown(item.text, 'list-' + key + '-' + i)}</> : inlineMarkdown(item.text, 'list-' + key + '-' + i)}</li>);
+      const listKey = 'md-' + key++;
+      if (orderedList) {
+        const markerType = /^\d+$/.test(firstMarker) ? '1' : /^[A-Z]$/.test(firstMarker) ? 'A' : /^[a-z]$/.test(firstMarker) ? 'a' : /^[IVXLCDM]+$/.test(firstMarker) ? 'I' : 'i';
+        blocks.push(<ol className="ai-markdown-ordered-list" type={markerType} start={/^\d+$/.test(firstMarker) ? Number(firstMarker) : undefined} key={listKey}>{list}</ol>);
+      } else if (task) blocks.push(<ul className="ai-markdown-task-list" key={listKey}>{list}</ul>);
+      else blocks.push(<ul className="ai-markdown-unordered-list" key={listKey}>{list}</ul>);
       continue;
     }
 
@@ -646,7 +659,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const stickToBottomRef = useRef(true);
   const forceScrollToBottomRef = useRef(true);
   const activeSessionRef = useRef<string | null>(null);
+  const sessionWorkspaceRef = useRef<string | null>(wb.root);
   const cancelRequestedRef = useRef(false);
+
 
   const refreshRouterStatus = useCallback(async () => {
     try {
@@ -694,9 +709,10 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
           if (!alive) return;
           setSessions(available);
           setLoadingSessions(false);
-          if (available.length > 0) {
-            // Resume most recently used conversation at startup. Other sessions remain in History.
-            setConversationId(available[0].id);
+          const workspaceSessions = available.filter((session) => sameWorkspacePath(session.projectPath, wb.root));
+          if (workspaceSessions.length > 0) {
+            // Resume the latest session for this exact project folder, never a different workspace.
+            setConversationId(workspaceSessions[0].id);
             return;
           }
         }
@@ -743,6 +759,51 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   }, [conversationId]);
 
   useEffect(() => {
+    const previousRoot = sessionWorkspaceRef.current;
+    if (sameWorkspacePath(previousRoot, wb.root)) return;
+    sessionWorkspaceRef.current = wb.root;
+
+    // A folder switch starts a clean visible conversation, while the old folder's session is saved.
+    setSessionReady(false);
+    setMessages([]);
+    setConversationSummary('');
+    setSummaryThroughTs(0);
+    setTodos([]);
+    setCheckpoints([]);
+    setChanges([]);
+    setSelectedChange(null);
+    setActiveSkills([]);
+    setToolActivities([]);
+    setTerminalProcess(null);
+    setTerminalOutput('');
+    setTerminalHistory([]);
+    setLastRunResult(null);
+    setError(null);
+
+    void (async () => {
+      try {
+        if (conversationId && sessionReady) {
+          await window.rk.agentSaveSession({
+            id: conversationId,
+            ...(sessionProjectPath ? { projectPath: sessionProjectPath } : previousRoot ? { projectPath: previousRoot } : {}),
+            activeAgentId,
+            messages,
+            summary: conversationSummary,
+            summaryThroughTs,
+            todos,
+          });
+        }
+        const available = await window.rk.agentListSessions();
+        setSessions(available);
+        const workspaceSessions = available.filter((session) => sameWorkspacePath(session.projectPath, wb.root));
+        setConversationId(workspaceSessions.length > 0 ? workspaceSessions[0].id : makeConversationId());
+      } catch (err) {
+        setError('Gagal memulihkan sesi proyek: ' + ((err as Error).message || 'kesalahan tidak diketahui'));
+      }
+    })();
+  }, [wb.root]);
+
+  useEffect(() => {
     if (!sessionReady) return;
     const timer = window.setTimeout(() => {
       void window.rk.agentSaveSession({
@@ -782,6 +843,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         });
       } else if (event.type === 'run-result') {
         setLastRunResult(event.result);
+        if (event.result.outcome === 'completed' || event.result.outcome === 'cancelled') setTodos([]);
       } else if (event.type === 'terminal-process') {
         setTerminalProcess(event.process);
         setTerminalHistory((previous) => upsertAgentTerminalProcess(previous, event.process));
@@ -897,6 +959,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   }, [messages]);
 
   const activeAgent = agents.find((agent) => agent.id === activeAgentId);
+  const workspaceSessions = sessions.filter((session) => sameWorkspacePath(session.projectPath, wb.root));
 
   useEffect(() => {
     if (!testResult || testResult.ok) return;
@@ -950,6 +1013,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     if (!sessionProjectPath) setSessionProjectPath(wb.root);
     setError(null);
     setLastRunResult(null);
+    setTodos([]);
+    setChanges([]);
+    setSelectedChange(null);
     setToolActivities([]);
     setTerminalProcess(null);
     setTerminalOutput('');
@@ -1165,6 +1231,38 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       setSubmittingQuestion(false);
     }
   }, [agentQuestion, customQuestionAnswer, selectedQuestionOption, submittingQuestion]);
+
+  // Keyboard controls mirror a terminal-style agent question: arrows select, Enter confirms.
+  useEffect(() => {
+    if (!visible || !agentQuestion || submittingQuestion) return;
+    const onQuestionKeyDown = (event: KeyboardEvent) => {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const inCustomAnswer = target?.id === 'ai-question-custom-answer';
+      if (inCustomAnswer && event.key !== 'Escape') {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          void answerAgentQuestion();
+        }
+        return;
+      }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        setCustomQuestionAnswer('');
+        setSelectedQuestionOption((current) => {
+          const count = agentQuestion.options.length;
+          if (count === 0) return null;
+          if (current === null) return event.key === 'ArrowDown' ? 1 : count;
+          return event.key === 'ArrowDown' ? (current % count) + 1 : ((current - 2 + count) % count) + 1;
+        });
+      } else if (event.key === 'Enter' && selectedQuestionOption !== null) {
+        event.preventDefault();
+        void answerAgentQuestion();
+      }
+    };
+    window.addEventListener('keydown', onQuestionKeyDown);
+    return () => window.removeEventListener('keydown', onQuestionKeyDown);
+  }, [visible, agentQuestion, submittingQuestion, selectedQuestionOption, answerAgentQuestion]);
+
 
   const deleteStoredSession = useCallback(async (id: string) => {
     const entry = sessions.find(item => item.id === id);
@@ -1416,11 +1514,11 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             </div>
             <button type="button" className="ai-icon-btn" onClick={() => setHistoryOpen(false)} aria-label="Tutup riwayat"><IconX size={14} /></button>
           </header>
-          {loadingSessions ? <p className="ai-session-empty">Memuat riwayat…</p> : sessions.length === 0 ? (
+          {loadingSessions ? <p className="ai-session-empty">Memuat riwayat…</p> : workspaceSessions.length === 0 ? (
             <p className="ai-session-empty">Belum ada percakapan tersimpan.</p>
           ) : (
             <div className="ai-session-list">
-              {sessions.map(session => (
+              {workspaceSessions.map(session => (
                 <div className={'ai-session-item' + (session.id === conversationId ? ' active' : '')} key={session.id}>
                   <button type="button" className="ai-session-open" disabled={loading}
                     onClick={() => { setHistoryOpen(false); if (session.id !== conversationId) setConversationId(session.id); }}>
@@ -1498,7 +1596,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         </button>
         <button type="button" className={'ai-clear-btn' + (historyOpen ? ' active' : '')}
           onClick={() => { setHistoryOpen(open => !open); setCheckpointsOpen(false); }} title="Riwayat percakapan">
-          ☷ Riwayat ({sessions.length})
+          ☷ Riwayat ({workspaceSessions.length})
         </button>
         <button type="button" className={'ai-clear-btn' + (checkpointsOpen ? ' active' : '')}
           onClick={() => { setCheckpointsOpen(open => !open); setHistoryOpen(false); }} title="Checkpoint dan rewind">

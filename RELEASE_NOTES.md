@@ -1,3 +1,39 @@
+# Ruang Kerja v1.0.5
+
+## Agentic Coding AI, Markdown, dan antrian kolaborasi
+
+### 1. Perenderan teks AI yang lebih lengkap
+- Memperbaiki daftar bernomor agar urutannya tampil 1, 2, 3, 4, bukan 1, 1, 1, 1.
+- Mendukung variasi penanda daftar bernomor, alfabet/romawi, bullet, serta checklist Markdown.
+- Memperjelas format teks: heading, **tebal**, *miring*, ~~coret~~, `kode inline`, tautan, kutipan, tabel, garis pemisah, dan blok kode.
+- Menampilkan penanda akhir `</think>` secara jelas, bukan sebagai tag mentah yang membingungkan.
+- Menambah jarak antarparagraf agar penjelasan error dan solusi lebih mudah dibaca.
+
+### 2. Todo dan perubahan workspace
+- Todo dan diff lama dibersihkan saat tugas baru dimulai agar panel menampilkan pekerjaan terbaru.
+- Todo disembunyikan setelah run berhasil selesai atau dibatalkan.
+
+### 3. Pertanyaan Agentic AI
+- Mempertahankan pertanyaan agent dengan tiga pilihan berdeskripsi dan satu jawaban custom.
+- Jawaban tetap harus dikonfirmasi pengguna melalui tombol kirim sebelum agent melanjutkan eksekusi.
+- Navigasi keyboard dan fokus pilihan harus diuji pada regresi rilis.
+
+### 4. Status antrian
+- Menampilkan anggota berstatus Idle terpisah dari Sedang Bekerja dan Antrean Menunggu.
+- Setelah pemegang giliran idle selama dua menit, giliran dilepas dan diteruskan ke anggota antrean berikutnya. Jika tidak ada anggota lain, ruang kembali kosong sehingga giliran baru bisa diambil.
+
+### 5. Detail Version
+- Detail Version di dalam aplikasi tetap tersedia.
+- Setiap versi harus memiliki deskripsi perubahan/fitur/perbaikan yang spesifik; tampilkan tiga rilis terbaru dan pertahankan riwayat versi lama.
+- Tombol Muat Ulang Versi dan fallback/cache tetap dipertahankan saat GitHub API gagal atau terkena rate limit.
+
+### Validasi rilis
+- Jalankan typecheck, build, dan test agent runtime pada CI Windows.
+- Uji manual: daftar bernomor dan variasi marker, format Markdown, pertanyaan AI dengan mouse/keyboard, konfirmasi sebelum eksekusi, pembersihan Todo/diff, serta alih giliran idle dengan satu dan dua anggota.
+- Pastikan artefak `Ruang-Kerja-Setup-1.0.5.exe`, `latest.yml`, dan blockmap tersedia di GitHub Release.
+
+---
+
 # Ruang Kerja v1.0.4
 
 ## Agentic Coding AI — stabilitas terminal, kontrol kerja, dan diagnostik yang dapat diperiksa
