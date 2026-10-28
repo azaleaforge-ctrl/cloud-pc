@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type {
   AgentEntry,
   AgentEvent,
+  AgentQuestionOption,
   AgentFileChange,
   AgentRouterStatus,
   AgentRouterTestResult,
@@ -32,6 +33,15 @@ interface PendingPermission {
   requestId: string;
   command: string;
   reason: string;
+}
+
+interface PendingAgentQuestion {
+  sessionId: string;
+  requestId: string;
+  question: string;
+  context: string;
+  options: AgentQuestionOption[];
+  recommendedOption: number;
 }
 
 interface DiffRow {
@@ -548,10 +558,17 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [diagnosingModel, setDiagnosingModel] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [permission, setPermission] = useState<PendingPermission | null>(null);
+  const [agentQuestion, setAgentQuestion] = useState<PendingAgentQuestion | null>(null);
+  const [selectedQuestionOption, setSelectedQuestionOption] = useState<number | null>(null);
+  const [customQuestionAnswer, setCustomQuestionAnswer] = useState('');
+  const [submittingQuestion, setSubmittingQuestion] = useState(false);
   const [changes, setChanges] = useState<AgentFileChange[]>([]);
   const [selectedChange, setSelectedChange] = useState<AgentFileChange | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesViewportRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
+  const forceScrollToBottomRef = useRef(true);
   const activeSessionRef = useRef<string | null>(null);
   const cancelRequestedRef = useRef(false);
 
@@ -589,6 +606,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
 
   useEffect(() => {
     let alive = true;
+    stickToBottomRef.current = true;
+    forceScrollToBottomRef.current = true;
     setSessionReady(false);
     void (async () => {
       try {
@@ -673,12 +692,6 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   }, [sessionReady, conversationId, wb.root, sessionProjectPath, activeAgentId, messages, conversationSummary, summaryThroughTs, todos]);
 
   useEffect(() => {
-    if (!error) return;
-    const timer = window.setTimeout(() => setError(null), 5000);
-    return () => window.clearTimeout(timer);
-  }, [error]);
-
-  useEffect(() => {
     const unsubscribe = window.rk.onAgentEvent(({ sessionId, event }: { sessionId: string; event: AgentEvent }) => {
       if (activeSessionRef.current && activeSessionRef.current !== sessionId) return;
       if (event.type === 'todo-update') {
@@ -747,6 +760,26 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         setActivity('Menunggu persetujuan command terminal');
       } else if (event.type === 'permission-result') {
         setPermission((current) => current?.requestId === event.requestId ? null : current);
+      } else if (event.type === 'question-request') {
+        setAgentQuestion({
+          sessionId,
+          requestId: event.requestId,
+          question: event.question,
+          context: event.context,
+          options: event.options,
+          recommendedOption: event.recommendedOption,
+        });
+        setSelectedQuestionOption(event.recommendedOption);
+        setCustomQuestionAnswer('');
+        setActivity('Menunggu jawaban darimu…');
+      } else if (event.type === 'question-result') {
+        if (!event.answered) {
+          setActivity('Pertanyaan berakhir tanpa jawaban.');
+        }
+        setAgentQuestion((current) => current?.requestId === event.requestId ? null : current);
+        setSelectedQuestionOption(null);
+        setCustomQuestionAnswer('');
+        setSubmittingQuestion(false);
       } else if (event.type === 'state') {
         if (event.state.status === 'starting' || event.state.status === 'running') setLoading(true);
         if (event.state.status !== 'starting' && event.state.status !== 'running') {
@@ -768,9 +801,21 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     return unsubscribe;
   }, []);
 
+  const handleMessagesScroll = useCallback(() => {
+    const viewport = messagesViewportRef.current;
+    if (!viewport) return;
+    const distanceToBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+    stickToBottomRef.current = distanceToBottom < 120;
+  }, []);
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading, activity, permission, changes, todos, toolActivities, lastRunResult, terminalProcess, terminalOutput]);
+    const viewport = messagesViewportRef.current;
+    if (!viewport) return;
+    if (!forceScrollToBottomRef.current && !stickToBottomRef.current) return;
+    viewport.scrollTop = viewport.scrollHeight;
+    forceScrollToBottomRef.current = false;
+    stickToBottomRef.current = true;
+  }, [messages]);
 
   const activeAgent = agents.find((agent) => agent.id === activeAgentId);
 
@@ -837,6 +882,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       ...(pendingAttachments.length ? { attachments: pendingAttachments } : {}),
     };
     const assistantMessage: ChatMessage = { id: 'assistant-' + Date.now(), role: 'assistant', content: '', ts: Date.now(), streaming: true };
+    stickToBottomRef.current = true;
+    forceScrollToBottomRef.current = true;
     setMessages((previous) => [...previous, userMessage, assistantMessage]);
     setInput('');
     setLoading(true);
@@ -1002,6 +1049,31 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     catch (err) { setError('Gagal mengirim keputusan terminal: ' + (err as Error).message); }
   }, [permission]);
 
+  const answerAgentQuestion = useCallback(async () => {
+    const current = agentQuestion;
+    if (!current || submittingQuestion) return;
+    const custom = customQuestionAnswer.trim();
+    const selected = selectedQuestionOption === null ? null : current.options[selectedQuestionOption - 1];
+    const answer = custom
+      ? 'Jawaban custom: ' + custom
+      : selected
+        ? 'Pilihan ' + selectedQuestionOption + ': ' + selected.label + '\n' + selected.description
+        : '';
+    if (!answer) return;
+    setSubmittingQuestion(true);
+    setActivity('Mengirim jawaban ke agent…');
+    try {
+      await window.rk.agentAnswerQuestion(current.sessionId, current.requestId, answer);
+      setAgentQuestion((active) => active?.requestId === current.requestId ? null : active);
+      setSelectedQuestionOption(null);
+      setCustomQuestionAnswer('');
+      setActivity('Jawaban diterima; agent melanjutkan pekerjaan…');
+    } catch (err) {
+      setError('Gagal mengirim jawaban: ' + ((err as Error).message || 'kesalahan tidak diketahui'));
+      setSubmittingQuestion(false);
+    }
+  }, [agentQuestion, customQuestionAnswer, selectedQuestionOption, submittingQuestion]);
+
   const deleteStoredSession = useCallback(async (id: string) => {
     const entry = sessions.find(item => item.id === id);
     if (!window.confirm('Hapus riwayat percakapan "' + (entry?.title || id) + '" dari perangkat ini? Tindakan ini tidak dapat dibatalkan.')) return;
@@ -1093,6 +1165,10 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setError(null);
     setActivity('');
     setPermission(null);
+    setAgentQuestion(null);
+    setSelectedQuestionOption(null);
+    setCustomQuestionAnswer('');
+    setSubmittingQuestion(false);
     setLoading(false);
     setChanges([]);
     setSelectedChange(null);
@@ -1362,12 +1438,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         </section>
       ) : null}
 
-      <ChangeList changes={changes} onSelect={setSelectedChange} />
-
       <main className="ai-workspace-main">
         <div className="ai-chat-column">
-          <div className="ai-messages">
-            <TodoPanel todos={todos} />
+          <div className="ai-messages" ref={messagesViewportRef} onScroll={handleMessagesScroll}>
             {messages.filter((message) => message.role !== 'system' && message.content).length === 0 && !loading ? (
               <div className="ai-empty">
                 <span className="ai-empty-icon">{activeAgent?.icon ?? '🌊'}</span>
@@ -1387,35 +1460,107 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
               ))
             )}
 
-            {loading ? (
-              <div className="ai-agent-activity">
-                <Spinner size={15} />
-                <div><strong>{activity || 'Agent sedang bekerja…'}</strong><small>Memeriksa workspace dan menjalankan tool bila diperlukan</small></div>
+            <div ref={bottomRef} />
+          </div>
+
+          <div
+            className="ai-run-dock"
+            data-active={Boolean(loading || activity || permission || agentQuestion || terminalProcess || toolActivities.length || lastRunResult || error)}
+            data-awaiting-response={Boolean(permission || agentQuestion)}
+          >
+            {loading || activity ? (
+              <div className="ai-run-status-row" role="status">
+                {loading ? <Spinner size={15} /> : <span className="ai-run-status-dot" />}
+                <div>
+                  <strong>{activity || 'Agent sedang bekerja…'}</strong>
+                  <small>{loading ? 'Agent berjalan · Escape untuk membatalkan' : 'Status terbaru agent'}</small>
+                </div>
+                {loading ? <button type="button" className="ai-dock-stop" onClick={() => void stopAgent()}>Hentikan</button> : null}
               </div>
             ) : null}
 
             {permission ? (
-              <div className="ai-permission-card">
-                <div className="ai-permission-heading"><strong>Persetujuan terminal diperlukan</strong><span>Command belum dijalankan</span></div>
+              <section className="ai-permission-card ai-dock-interaction" aria-label="Persetujuan command terminal" aria-live="polite">
+                <div className="ai-permission-heading">
+                  <strong>Persetujuan terminal diperlukan</strong><span>Belum dijalankan</span>
+                </div>
                 <p>{permission.reason}</p>
                 <pre>{permission.command}</pre>
+                <small className="ai-interaction-guidance">Periksa command dan alasannya. Command hanya berjalan setelah kamu menyetujuinya.</small>
                 <div className="ai-permission-actions">
-                  <button type="button" className="ai-permission-deny" onClick={() => void resolvePermission(false)}>Tolak</button>
+                  <button type="button" className="ai-permission-deny" onClick={() => void resolvePermission(false)}>Tolak command</button>
                   <button type="button" className="ai-permission-approve" onClick={() => void resolvePermission(true)}>Izinkan sekali</button>
                 </div>
-              </div>
+              </section>
             ) : null}
-            {terminalProcess ? <TerminalRunPanel process={terminalProcess} output={terminalOutput} /> : null}
-            <ToolActivityList activities={toolActivities} />
-            {lastRunResult ? <RunResultBanner result={lastRunResult} /> : null}
-            {error ? <div className="ai-error" role="alert">{error}</div> : null}
-            <div ref={bottomRef} />
+
+            {agentQuestion ? (
+              <section className="ai-question-card ai-dock-interaction" aria-label="Pertanyaan dari AI Agent" aria-live="polite">
+                <header className="ai-question-heading">
+                  <div><span className="ai-question-eyebrow">BUTUH KEPUTUSANMU</span><strong>{agentQuestion.question}</strong></div>
+                  <span className="ai-question-chip">Menunggu jawaban</span>
+                </header>
+                <p className="ai-question-context">{agentQuestion.context}</p>
+                <div className="ai-question-options" role="group" aria-label="Pilihan jawaban">
+                  {agentQuestion.options.map((option, index) => {
+                    const optionNumber = index + 1;
+                    const recommended = optionNumber === agentQuestion.recommendedOption;
+                    return (
+                      <button
+                        type="button"
+                        key={optionNumber}
+                        className={'ai-question-option' + (selectedQuestionOption === optionNumber ? ' selected' : '') + (recommended ? ' recommended' : '')}
+                        onClick={() => { setSelectedQuestionOption(optionNumber); setCustomQuestionAnswer(''); }}
+                        disabled={submittingQuestion}
+                        aria-pressed={selectedQuestionOption === optionNumber}
+                      >
+                        <span className="ai-question-option-top">
+                          <strong>{option.label}</strong>
+                          {recommended ? <span className="ai-recommended-label">Rekomendasi</span> : null}
+                        </span>
+                        <small>{option.description}</small>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="ai-question-custom">
+                  <label htmlFor="ai-question-custom-answer">Atau tulis jawaban sendiri</label>
+                  <input
+                    id="ai-question-custom-answer"
+                    value={customQuestionAnswer}
+                    onChange={(event) => { setCustomQuestionAnswer(event.target.value); setSelectedQuestionOption(null); }}
+                    maxLength={2000}
+                    placeholder="Masukkan keputusan atau instruksi khusus…"
+                    disabled={submittingQuestion}
+                  />
+                </div>
+                <footer className="ai-question-actions">
+                  <span>Rekomendasi tidak dipilih otomatis. Agent menunggu keputusanmu.</span>
+                  <button
+                    type="button"
+                    className="ai-question-submit"
+                    disabled={submittingQuestion || (!customQuestionAnswer.trim() && selectedQuestionOption === null)}
+                    onClick={() => void answerAgentQuestion()}
+                  >
+                    {submittingQuestion ? <Spinner size={14} /> : null}
+                    {submittingQuestion ? 'Mengirim…' : 'Kirim jawaban'}
+                  </button>
+                </footer>
+              </section>
+            ) : null}
+
+            <div className="ai-run-details-scroll">
+              {terminalProcess ? <TerminalRunPanel process={terminalProcess} output={terminalOutput} /> : null}
+              <ToolActivityList activities={toolActivities} />
+              {lastRunResult ? <RunResultBanner result={lastRunResult} /> : null}
+              {error ? <div className="ai-error" role="alert">{error}</div> : null}
+            </div>
           </div>
 
-          <div className="ai-composer">
+          <div className={'ai-composer' + (permission || agentQuestion ? ' has-interaction' : '')}>
             <div className="ai-composer-context">
-              <span>{wb.activePath ? pathName(wb.activePath) : pathName(wb.root)}</span>
-              <span>Enter untuk kirim · Shift+Enter untuk baris baru</span>
+              <span>{permission ? 'Persetujuan command diperlukan' : agentQuestion ? 'Jawab pertanyaan agent di panel ini' : wb.activePath ? pathName(wb.activePath) : pathName(wb.root)}</span>
+              <span>{permission || agentQuestion ? 'Agent menunggu keputusanmu' : 'Enter untuk kirim · Shift+Enter untuk baris baru'}</span>
             </div>
             {pendingAttachments.length ? (
               <div className="ai-pending-attachments" aria-label="Lampiran siap dikirim">
@@ -1441,7 +1586,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={loading ? 'Agent sedang bekerja…' : !sessionReady ? 'Menyiapkan sesi AI baru…' : !routerStatus?.configured ? 'Atur API key 9router pada pengaturan…' : !wb.root ? 'Buka workspace proyek terlebih dahulu…' : 'Minta agent membaca, membuat, atau mengubah kode…'}
+                placeholder={permission ? 'Setujui atau tolak command di panel di atas…' : agentQuestion ? 'Pilih opsi atau tulis jawaban custom pada panel di atas…' : loading ? 'Agent sedang bekerja…' : !sessionReady ? 'Menyiapkan sesi AI baru…' : !routerStatus?.configured ? 'Atur API key 9router pada pengaturan…' : !wb.root ? 'Buka workspace proyek terlebih dahulu…' : 'Minta agent membaca, membuat, atau mengubah kode…'}
                 rows={3}
                 disabled={loading || !sessionReady || !activeAgent || !routerStatus?.configured || !wb.root}
                 aria-label="Pesan AI coding agent"
@@ -1458,39 +1603,24 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             </div>
           </div>
         </div>
-        <aside className="ai-agent-sidepanel">
-          <section className="ai-side-card">
+        <aside className="ai-agent-sidepanel" aria-label="Rincian kerja agent">
+          <section className="ai-side-card ai-side-workspace-card">
             <div className="ai-side-card-title"><strong>Workspace aktif</strong><span className="ai-side-dot" /></div>
             <div className="ai-root-path">{wb.root ?? 'Belum ada folder project'}</div>
-            <p>Agent membaca dan menulis file dalam folder ini. Path absolute maupun relatif diterima selama masih berada di dalam workspace.</p>
             {wb.activePath ? <div className="ai-active-file"><span>File terpilih di editor</span><code>{wb.activePath}</code></div> : null}
           </section>
-          <section className="ai-side-card">
-            <div className="ai-side-card-title"><strong>Perubahan sesi ini</strong><span>{changes.length}</span></div>
-            {changes.length === 0 ? (
-              <p className="ai-no-changes">Perubahan file yang dibuat agent akan muncul di sini beserta rincian barisnya.</p>
-            ) : (
-              <div className="ai-side-changes">
-                {changes.slice(0, 12).map((change) => (
-                  <button type="button" key={change.id} onClick={() => setSelectedChange(change)}>
-                    <span className="ai-side-change-path">{change.path}</span>
-                    <span className="ai-diff-added">+{change.addedLines}</span>
-                    <span className="ai-diff-removed">−{change.removedLines}</span>
-                  </button>
-                ))}
-              </div>
-            )}
+
+          <section className="ai-side-card ai-side-todo-card">
+            <div className="ai-side-card-title">
+              <strong>Todo List</strong>
+              <span>{todos.filter(todo => todo.status === 'completed').length}/{todos.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-todo-scroll">
+              {todos.length ? <TodoPanel todos={todos} /> : <p className="ai-side-empty">Rencana agent akan muncul di sini setelah Todo List dibuat.</p>}
+            </div>
           </section>
-          <section className="ai-side-card ai-agent-rules">
-            <strong>Alur agent</strong>
-            <ol>
-              <li>Periksa struktur dan file terkait.</li>
-              <li>Rencanakan perubahan berdasarkan kode yang dibaca.</li>
-              <li>Tulis atau buat file di workspace.</li>
-              <li>Tinjau diff lama dan baru.</li>
-              <li>Jalankan test/build hanya setelah izin terminal diberikan.</li>
-            </ol>
-          </section>
+
+          <ChangeList changes={changes} onSelect={setSelectedChange} />
         </aside>
       </main>
 
