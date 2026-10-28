@@ -27,7 +27,7 @@ import type {
   TerminalSessionInfo,
   VsxSearchResult,
 } from '../shared/editor';
-import type { AgentAttachmentRef, AgentEntry, ChatMessage, AgentEvent } from '../shared/agents';
+import type { AgentAttachmentRef, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, ChatMessage, AgentEvent } from '../shared/agents';
 import { APP_VERSION } from '../shared/types';
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -119,6 +119,9 @@ const api: RkApi = {
   agentGetConfig: () => ipcRenderer.invoke('rk:agent:get-config'),
   agentSaveConfig: (apiKey: string) => ipcRenderer.invoke('rk:agent:save-config', apiKey),
   agentTestConfig: () => ipcRenderer.invoke('rk:agent:test-config'),
+  agentListModels: (): Promise<AgentModelCatalogResult> => ipcRenderer.invoke('rk:agent:list-models'),
+  agentSelectModel: (model: string) => ipcRenderer.invoke('rk:agent:select-model', model),
+  agentDiagnoseModel: (): Promise<AgentModelCapabilityReport> => ipcRenderer.invoke('rk:agent:diagnose-model'),
   agentListSkills: () => ipcRenderer.invoke('rk:agent:list-skills'),
   agentPickAttachments: (): Promise<{ ok: boolean; attachments?: AgentAttachmentRef[]; error?: string }> => ipcRenderer.invoke('rk:agent:pick-attachments'),
   agentApproveTool: (sessionId: string, requestId: string, approved: boolean) => ipcRenderer.invoke('rk:agent:approve-tool', sessionId, requestId, approved),
