@@ -248,6 +248,7 @@ export interface RkApi {
   agentListSkills(): Promise<AgentSkillInfo[]>;
   agentPickAttachments(): Promise<{ ok: boolean; attachments?: AgentAttachmentRef[]; error?: string }>;
   agentApproveTool(sessionId: string, requestId: string, approved: boolean): Promise<void>;
+  agentAnswerQuestion(sessionId: string, requestId: string, answer: string): Promise<void>;
   /** Create or activate a conversation without erasing other session memory. */
   agentBeginSession(conversationId: string): Promise<ActionResult>;
   agentStartChat(agentId: string, messages?: ChatMessage[], activePath?: string | null, conversationId?: string): Promise<{ ok: boolean; sessionId?: string; error?: string }>;
