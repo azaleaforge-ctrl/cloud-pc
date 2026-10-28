@@ -659,6 +659,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const stickToBottomRef = useRef(true);
   const forceScrollToBottomRef = useRef(true);
   const activeSessionRef = useRef<string | null>(null);
+  const sessionWorkspaceRef = useRef<string | null>(wb.root);
   const cancelRequestedRef = useRef(false);
 
 
@@ -708,9 +709,10 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
           if (!alive) return;
           setSessions(available);
           setLoadingSessions(false);
-          if (available.length > 0) {
-            // Resume most recently used conversation at startup. Other sessions remain in History.
-            setConversationId(available[0].id);
+          const workspaceSessions = available.filter((session) => sameWorkspacePath(session.projectPath, wb.root));
+          if (workspaceSessions.length > 0) {
+            // Resume the latest session for this exact project folder, never a different workspace.
+            setConversationId(workspaceSessions[0].id);
             return;
           }
         }
@@ -755,6 +757,52 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     })();
     return () => { alive = false; };
   }, [conversationId]);
+
+  useEffect(() => {
+    const previousRoot = sessionWorkspaceRef.current;
+    if (sameWorkspacePath(previousRoot, wb.root)) return;
+    sessionWorkspaceRef.current = wb.root;
+
+    // A folder switch starts a clean visible conversation, while the old folder's session is saved.
+    setSessionReady(false);
+    setMessages([]);
+    setConversationSummary('');
+    setSummaryThroughTs(0);
+    setTodos([]);
+    setCheckpoints([]);
+    setChanges([]);
+    setSelectedChange(null);
+    setActiveSkills([]);
+    setToolActivities([]);
+    setTerminalProcess(null);
+    setTerminalOutput('');
+    setTerminalHistory([]);
+    setLastRunResult(null);
+    setError(null);
+    setConversationId(makeConversationId());
+
+    void (async () => {
+      try {
+        if (conversationId && sessionReady) {
+          await window.rk.agentSaveSession({
+            id: conversationId,
+            ...(sessionProjectPath ? { projectPath: sessionProjectPath } : previousRoot ? { projectPath: previousRoot } : {}),
+            activeAgentId,
+            messages,
+            summary: conversationSummary,
+            summaryThroughTs,
+            todos,
+          });
+        }
+        const available = await window.rk.agentListSessions();
+        setSessions(available);
+        const workspaceSessions = available.filter((session) => sameWorkspacePath(session.projectPath, wb.root));
+        if (workspaceSessions.length > 0) setConversationId(workspaceSessions[0].id);
+      } catch (err) {
+        setError('Gagal memulihkan sesi proyek: ' + ((err as Error).message || 'kesalahan tidak diketahui'));
+      }
+    })();
+  }, [wb.root]);
 
   useEffect(() => {
     if (!sessionReady) return;
