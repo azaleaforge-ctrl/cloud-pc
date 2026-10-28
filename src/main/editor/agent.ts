@@ -288,7 +288,8 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
 ];
-\nfunction emit(session: { id: string; onEvent: EmitAgentEvent }, event: AgentEvent): void {
+
+function emit(session: { id: string; onEvent: EmitAgentEvent }, event: AgentEvent): void {
   try { session.onEvent(event, session.id); } catch { /* renderer may have closed */ }
 }
 
@@ -664,7 +665,7 @@ async function executeTool(
   call: ToolCall,
   approvals: Map<string, PendingApproval>,
 ): Promise<string> {
-  if (!root && isWorkspaceTool(call.name)) return 'Tool gagal: belum ada folder proyek yang terbuka.';
+  if (!root) return 'Tool gagal: belum ada folder proyek yang terbuka.';
   let args: Record<string, unknown>;
   try { args = JSON.parse(call.arguments || '{}') as Record<string, unknown>; }
   catch { return 'Tool gagal: argumen dari model bukan JSON valid.'; }
