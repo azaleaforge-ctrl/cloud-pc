@@ -1,6 +1,6 @@
 # Ruang Kerja v1.0.2 — Phase 4: Live Web, Registry and Time Research
 
-**Status:** Implemented on a feature branch; awaiting CI and user review  
+**Status:** Implemented on a feature branch; GitHub Actions CI run #129 passed; awaiting user review  
 **Base commit:** \`a590881539e4f5c9f87e2cf253dcd21e786488da\` (Phase 3 merge)  
 **Application version:** \`1.0.1\` (not bumped; no public release)
 
@@ -47,6 +47,8 @@ Returns the upstream-reported current/latest version field available in that reg
 - Web page reading is capped at about 1 MB fetched response and 18,000 extracted characters; search HTML is capped at about 1.5 MB; registry JSON at about 2 MB.
 
 ## Tests and CI
+
+GitHub Actions run #129 passed on the initial implementation commit: dependency installation, the combined Agent Runtime test suite, TypeScript typecheck, and application build. Any later code changes will trigger another CI run.
 
 \`npm run test:agent-research\` tests public/private IP classification, URL rejection, search result parsing, HTML text extraction, entity decoding, registry URL construction and timezone handling without relying on live external services.
 
