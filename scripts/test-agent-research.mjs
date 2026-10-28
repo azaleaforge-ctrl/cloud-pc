@@ -43,6 +43,22 @@ try{
     assert.equal(rows[0].title,'Official & Safe Docs');
     assert.equal(rows[0].url,'https://docs.example.dev/guide?a=1&b=2');
   });
+  test('parses Bing fallback results and strips Bing click redirect URLs',()=>{
+    const direct='<li class="b_algo"><h2><a href="https://nextjs.org/docs">Next.js Docs</a></h2><p>Official framework documentation.</p></li>';
+    const encoded='a1'+Buffer.from('https://nodejs.org/en/about/previous-releases').toString('base64');
+    const wrapped='<li class="b_algo"><h2><a href="https://www.bing.com/ck/a?u='+encoded+'">Node.js releases</a></h2><p>Release schedule.</p></li>';
+    const rows=research.extractBingSearchResults('<html><body>'+direct+wrapped+'</body></html>',5);
+    assert.equal(rows.length,2);
+    assert.equal(rows[0].title,'Next.js Docs');
+    assert.equal(rows[0].url,'https://nextjs.org/docs');
+    assert.match(rows[0].snippet,/Official framework/);
+    assert.equal(rows[1].url,'https://nodejs.org/en/about/previous-releases');
+  });
+  test('ignores malformed, non-HTTPS, and Bing-internal search links',()=>{
+    const html='<li class="b_algo"><h2><a href="javascript:alert(1)">Bad</a></h2></li>'+
+      '<li class="b_algo"><h2><a href="https://www.bing.com/search?q=internal">Internal</a></h2></li>';
+    assert.deepEqual(research.extractBingSearchResults(html),[]);
+  });
   test('extracts readable page text, keeps title and strips script/nav content',()=>{
     const result=research.extractReadableContent('<html><head><title>Guide &amp; API</title></head><body><nav>Menu item</nav><main><h1>Installation</h1><p>Run npm install.</p><script>steal secrets()</script></main></body></html>','text/html');
     assert.equal(result.title,'Guide & API');
