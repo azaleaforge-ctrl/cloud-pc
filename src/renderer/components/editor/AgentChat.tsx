@@ -348,27 +348,34 @@ function buildDiffRows(change: AgentFileChange): DiffRow[] {
 }
 
 function ChangeList({ changes, onSelect }: { changes: AgentFileChange[]; onSelect: (change: AgentFileChange) => void }) {
-  if (changes.length === 0) return null;
   const added = changes.reduce((total, change) => total + change.addedLines, 0);
   const removed = changes.reduce((total, change) => total + change.removedLines, 0);
   return (
-    <section className="ai-change-list" aria-label="Perubahan kode dari agent">
-      <div className="ai-change-list-heading">
+    <section className="ai-side-card ai-side-changes-card" aria-label="Perubahan workspace">
+      <div className="ai-side-card-title">
         <strong>Perubahan workspace</strong>
         <span>{changes.length} file</span>
+      </div>
+      <div className="ai-change-summary">
+        <span>{changes.length ? 'Perubahan sesi ini' : 'Belum ada perubahan'}</span>
         <span className="ai-diff-added">+{added}</span>
         <span className="ai-diff-removed">−{removed}</span>
       </div>
-      <div className="ai-change-list-items">
-        {changes.slice().reverse().map((change) => (
-          <button type="button" className="ai-change-item" key={change.id} onClick={() => onSelect(change)}>
-            <span className="ai-change-file-icon">{change.operation === 'create' ? '+' : '≡'}</span>
-            <span className="ai-change-path" title={change.path}>{change.path}</span>
-            <span className="ai-diff-added">+{change.addedLines}</span>
-            <span className="ai-diff-removed">−{change.removedLines}</span>
-            <span className="ai-change-view">Detail diff →</span>
-          </button>
-        ))}
+      <div className="ai-side-scroll ai-side-changes-scroll">
+        {changes.length === 0 ? (
+          <p className="ai-no-changes">File yang diubah agent akan muncul di sini. Pilih file untuk membuka perbandingan diff.</p>
+        ) : (
+          <div className="ai-side-changes">
+            {changes.slice().reverse().map((change) => (
+              <button type="button" key={change.id} onClick={() => onSelect(change)} title={'Lihat diff ' + change.path}>
+                <span className="ai-side-change-path">{change.path}</span>
+                <span className="ai-diff-added">+{change.addedLines}</span>
+                <span className="ai-diff-removed">−{change.removedLines}</span>
+                <small className="ai-side-change-open">Detail diff →</small>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );
