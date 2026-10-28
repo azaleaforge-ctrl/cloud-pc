@@ -21,7 +21,8 @@
     "test:agent-attachments": "node scripts/test-agent-attachments.mjs",
     "test:agent-research": "node scripts/test-agent-research.mjs",
     "test:agent-model-capabilities": "node scripts/test-agent-model-capabilities.mjs",
-    "test:agent-runtime": "npm run test:agent-todo && npm run test:agent-terminal && npm run test:agent-attachments && npm run test:agent-research && npm run test:agent-model-capabilities"
+    "test:agent-sessions": "node scripts/test-agent-sessions.mjs",
+    "test:agent-runtime": "npm run test:agent-todo && npm run test:agent-terminal && npm run test:agent-attachments && npm run test:agent-research && npm run test:agent-model-capabilities && npm run test:agent-sessions"
   },
   "build": {
     "appId": "com.ruangkerja.app",
