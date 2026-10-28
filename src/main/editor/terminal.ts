@@ -33,7 +33,6 @@ const DEFAULT_ROWS = 30;
 const MAX_DIMENSION = 2000;
 
 
-
 function isInside(root: string, target: string): boolean {
   const rel = relative(root, target);
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
@@ -189,8 +188,7 @@ export function createTerminalService(opts: {
       }
       sessions.clear();
       tearingDown = false;
-      // probe shell diulang pada sesi berikutnya (mis. setelah pwsh dipasang)
-      // Shell profile resolution is shared with the AI runner and remains stable for this process.
+      // The shell profile is shared with the AI runner and remains stable for this process.
     },
   };
 }
