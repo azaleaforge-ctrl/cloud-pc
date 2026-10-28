@@ -231,6 +231,13 @@ export interface AgentSessionSaveInput {
   summaryThroughTs?: number;
   todos?: AgentTodo[];
 }
+export interface AgentSessionSaveResult {
+  ok: boolean;
+  error?: string;
+  summary?: string;
+  summaryThroughTs?: number;
+  session?: AgentSessionSummary;
+}
 export interface AgentCheckpointActionResult {
   ok: boolean;
   message: string;
