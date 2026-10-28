@@ -275,20 +275,35 @@ export function VersionModal({
   }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
     setLoading(true);
     setError(null);
-    window.rk.fetchReleaseNotes().then((res) => {
-      if (res.ok && res.releases) {
-        setReleases(res.releases.filter((r) => !r.draft));
-      } else {
-        setError(res.error ?? 'Gagal memuat riwayat versi.');
-      }
-      setLoading(false);
-    });
-  }, [open]);
+
+    // Selalu ambil data terbaru saat modal dibuka atau diminta refresh.
+    // Jangan menggunakan cache satu jam untuk tampilan Detail Version.
+    void window.rk.fetchReleaseNotes(true)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.ok && res.releases) {
+          setReleases(res.releases.filter((release) => !release.draft).slice(0, 3));
+          if (res.releases.length === 0) setError('GitHub belum mengembalikan riwayat versi yang diterbitkan.');
+        } else {
+          setError(res.error ?? 'Gagal memuat riwayat versi.');
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setError('Gagal memuat riwayat versi: ' + ((err as Error).message || 'kesalahan jaringan.'));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [open, reloadKey]);
 
   if (!open) return null;
 
@@ -307,13 +322,23 @@ export function VersionModal({
             <button
               type="button"
               className="btn btn-ghost btn-sm"
-              onClick={async () => {
-                const res = await window.rk.checkForUpdates().catch(() => null);
-                console.log('update check', res);
-              }}
-              title="Periksa pembaruan aplikasi"
+              onClick={() => setReloadKey((value) => value + 1)}
+              disabled={loading}
+              title="Muat ulang daftar versi dan deskripsi dari GitHub"
             >
-              <IconRefresh size={14} /> Cek Pembaruan
+              <IconRefresh size={14} /> {loading ? 'Memuat…' : 'Muat Ulang Versi'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={async () => {
+                const result = await window.rk.checkForUpdates().catch(() => null);
+                setReloadKey((value) => value + 1);
+                if (!result?.ok) console.warn('update check failed', result);
+              }}
+              title="Periksa pembaruan installer"
+            >
+              <IconDownload size={14} /> Cek Pembaruan
             </button>
             <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
               Tutup
