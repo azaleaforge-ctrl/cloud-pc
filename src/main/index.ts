@@ -17,7 +17,7 @@ import type {
   ServerState,
   UpdateState,
 } from '../shared/types';
-import type { AgentRouterStatus, ChatMessage } from '../shared/agents';
+import type { AgentRouterStatus, AgentRouterTestResult, ChatMessage } from '../shared/agents';
 import { APP_VERSION } from '../shared/types';
 import { StateStore } from './store';
 import { detectFramework } from './frameworkDetect';
@@ -324,6 +324,77 @@ function saveAgentRouterKey(apiKey: string): { ok: boolean; error?: string } {
   } catch (error) {
     return { ok: false, error: 'Gagal menyimpan API key: ' + (error as Error).message };
   }
+}
+
+async function testAgentRouter(): Promise<AgentRouterTestResult> {
+  const config = getRouterConfig();
+  if (!config?.apiKey) {
+    return { ok: false, message: 'API key belum disetel. Masukkan API key 9router lalu tekan Simpan.' };
+  }
+
+  const endpoints = [...new Set([config.endpoint, config.fallbackEndpoint].filter(Boolean).map((url) => url!.replace(/\\/+$/, '')))];
+  let lastError = 'Tidak ada endpoint yang berhasil dihubungi.';
+
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint + '/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + config.apiKey,
+          'User-Agent': 'RuangKerja-Agent/0.4.6',
+        },
+        body: JSON.stringify({
+          model: config.models[0] ?? ROUTER_MODEL,
+          messages: [{ role: 'user', content: 'Reply with exactly OK.' }],
+          stream: false,
+          max_tokens: 8,
+          temperature: 0,
+        }),
+        signal: AbortSignal.timeout(20_000),
+      });
+
+      if (!response.ok) {
+        lastError = response.status === 401
+          ? 'API key ditolak oleh endpoint (HTTP 401). Periksa key 9router yang dimasukkan.'
+          : response.status === 403
+            ? 'Akses ditolak oleh endpoint (HTTP 403). Periksa izin atau akses model.'
+            : 'Endpoint menjawab HTTP ' + response.status + '.';
+        continue;
+      }
+
+      const payload = await response.json() as {
+        choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>;
+        error?: { message?: string };
+      };
+      if (payload.error?.message) {
+        lastError = 'Router mengembalikan error model: ' + payload.error.message.slice(0, 220);
+        continue;
+      }
+      const answer = payload.choices?.[0]?.message?.content;
+      if (typeof answer !== 'string' && !Array.isArray(answer)) {
+        lastError = 'Endpoint merespons, tetapi format jawaban model tidak dikenali.';
+        continue;
+      }
+
+      return {
+        ok: true,
+        endpoint,
+        model: config.models[0] ?? ROUTER_MODEL,
+        message: 'Koneksi berhasil. Model menerima permintaan dan mengembalikan jawaban.',
+      };
+    } catch (error) {
+      lastError = (error as Error).name === 'TimeoutError'
+        ? 'Permintaan ke endpoint habis waktu setelah 20 detik.'
+        : 'Koneksi gagal: ' + (((error as Error).message || 'kesalahan jaringan').slice(0, 180));
+    }
+  }
+
+  return {
+    ok: false,
+    model: config.models[0] ?? ROUTER_MODEL,
+    message: lastError + ' Endpoint cadangan juga sudah dicoba.',
+  };
 }
 
 const agentService = createAgentService(getRouterConfig);
@@ -947,6 +1018,7 @@ function registerIpc(): void {
   ipcMain.handle('rk:agent:list', () => agentService.listAgents());
   ipcMain.handle('rk:agent:get-config', () => getAgentRouterStatus());
   ipcMain.handle('rk:agent:save-config', (_e, apiKey: string) => saveAgentRouterKey(apiKey));
+  ipcMain.handle('rk:agent:test-config', () => testAgentRouter());
   ipcMain.handle('rk:agent:start-chat', async (_e, agentId: string, messages: ChatMessage[] = []) => {
     const projectPath = store.get().projectPath;
     try {
