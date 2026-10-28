@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AgentEntry, AgentEvent, AgentRouterStatus, ChatMessage } from '../../../shared/agents';
+import type { AgentEntry, AgentEvent, AgentRouterStatus, AgentRouterTestResult, ChatMessage } from '../../../shared/agents';
 import {
   IconSend, Spinner, IconCopy, IconX, IconTrash, IconCheck, IconMaximize, IconMinimize,
 } from '../icons';
@@ -66,6 +66,8 @@ export function AgentChat({ wb, visible, onToggle, onMaximize }: Props) {
   const [apiKey, setApiKey] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [testResult, setTestResult] = useState<AgentRouterTestResult | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [permission, setPermission] = useState<PendingPermission | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -73,7 +75,9 @@ export function AgentChat({ wb, visible, onToggle, onMaximize }: Props) {
 
   const refreshRouterStatus = useCallback(async () => {
     try {
-      setRouterStatus(await window.rk.agentGetConfig());
+      const status = await window.rk.agentGetConfig();
+      setRouterStatus(status);
+      if (!status.configured) setSettingsOpen(true);
     } catch (err) {
       setError('Gagal membaca konfigurasi 9router: ' + (err as Error).message);
     }
