@@ -132,6 +132,7 @@ const api: RkApi = {
   agentListSkills: () => ipcRenderer.invoke('rk:agent:list-skills'),
   agentPickAttachments: (): Promise<{ ok: boolean; attachments?: AgentAttachmentRef[]; error?: string }> => ipcRenderer.invoke('rk:agent:pick-attachments'),
   agentApproveTool: (sessionId: string, requestId: string, approved: boolean) => ipcRenderer.invoke('rk:agent:approve-tool', sessionId, requestId, approved),
+  agentAnswerQuestion: (sessionId: string, requestId: string, answer: string) => ipcRenderer.invoke('rk:agent:answer-question', sessionId, requestId, answer),
   agentBeginSession: (conversationId: string) => ipcRenderer.invoke('rk:agent:begin-session', conversationId),
   agentStartChat: (agentId: string, messages?: ChatMessage[], activePath?: string | null, conversationId?: string) => ipcRenderer.invoke('rk:agent:start-chat', agentId, messages ?? [], activePath ?? null, conversationId ?? ''),
   agentStartCli: (agentId: string, cols: number, rows: number) => ipcRenderer.invoke('rk:agent:start-cli', agentId, cols, rows),

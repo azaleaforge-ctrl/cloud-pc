@@ -57,6 +57,11 @@ export interface AgentSkillSelection {
 export type AgentTodoStatus = 'pending' | 'in_progress' | 'completed' | 'blocked';
 export type AgentTodoPriority = 'low' | 'normal' | 'high';
 
+export interface AgentQuestionOption {
+  label: string;
+  description: string;
+}
+
 export interface AgentTodo {
   id: string;
   title: string;
@@ -133,6 +138,8 @@ export type AgentEvent =
   | { type: 'file-change'; change: AgentFileChange }
   | { type: 'permission-request'; requestId: string; command: string; reason: string }
   | { type: 'permission-result'; requestId: string; approved: boolean }
+  | { type: 'question-request'; requestId: string; question: string; context: string; options: AgentQuestionOption[]; recommendedOption: number }
+  | { type: 'question-result'; requestId: string; answered: boolean }
   | { type: 'skills'; skills: AgentSkillSelection[] }
   | { type: 'todo-update'; todos: AgentTodo[] }
   | { type: 'tool-status'; activity: AgentToolActivity }
