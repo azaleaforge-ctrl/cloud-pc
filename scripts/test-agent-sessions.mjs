@@ -66,21 +66,21 @@ try{
 
   await test('stores a file checkpoint and restores then re-applies it with redo',async()=>{
     const file=join(workspace,'example.ts');
-    await writeFile(file,'before\\n','utf8');
+    await writeFile(file,'before','utf8');
     await api.saveAgentSession(userData,{id:'chat-rewind',messages:[],projectPath:workspace});
     const change={
-      id:'change-1',path:'example.ts',operation:'modify',oldContent:'before\\n',newContent:'after\\n',
+      id:'change-1',path:'example.ts',operation:'modify',oldContent:'before',newContent:'after',
       addedLines:1,removedLines:1,changedAt:Date.now(),
     };
-    await writeFile(file,'after\n','utf8'); // Simulate write_project_file before checkpoint persistence.
+    await writeFile(file,'after','utf8'); // Simulate write_project_file before checkpoint persistence.
     const checkpoint=await api.recordAgentFileCheckpoint(userData,'chat-rewind','run-1',workspace,change);
     assert.equal(checkpoint.files.length,1);
     const rewind=await api.rewindAgentCheckpoint(userData,'chat-rewind',workspace,checkpoint.id);
     assert.equal(rewind.ok,true);
-    assert.equal(await readFile(file,'utf8'),'before\\n');
+    assert.equal(await readFile(file,'utf8'),'before');
     const redo=await api.redoAgentCheckpoint(userData,'chat-rewind',workspace,checkpoint.id);
     assert.equal(redo.ok,true);
-    assert.equal(await readFile(file,'utf8'),'after\\n');
+    assert.equal(await readFile(file,'utf8'),'after');
     const checkpoints=await api.listAgentCheckpoints(userData,'chat-rewind');
     assert.equal(checkpoints[0].status,'applied');
     assert.deepEqual(checkpoints[0].paths,['example.ts']);
