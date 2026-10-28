@@ -1,3 +1,31 @@
+# Ruang Kerja v0.4.8
+
+## AI Coding Agent: workspace access, real file editing, full-size editor, and code diff review
+
+### Agentic coding — bukan chat mengambang
+- **Tampilan penuh di editor:** panel AI berubah menjadi workbench penuh dengan tombol Kembali ke Editor. Tersedia area percakapan, status workspace, dan panel konteks proyek.
+- **Akses workspace nyata:** agent membaca inventory folder proyek yang sedang aktif sebelum menjawab. Inventory menjelajah folder bertingkat dan mengabaikan dependency/build output yang besar.
+- **Konteks file terpilih:** jika sebuah file sedang terbuka di editor, isi file tersebut diteruskan sebagai konteks agent dengan tetap mematuhi batas workspace.
+- **Tool usage untuk tugas coding:** permintaan membuat, membaca, mencari, memperbaiki, atau mengubah kode mendorong agent memakai tool workspace, bukan hanya menjawab dengan contoh kode. Jika model tidak memanggil tool, aplikasi menampilkan error yang jelas.
+- **Path lebih fleksibel:** tool menerima path relatif atau path absolut selama target tetap berada di dalam folder proyek ruangan aktif.
+- **Menulis kode sungguhan:** tool `write_project_file` membuat file baru dan direktori yang dibutuhkan atau menyimpan perubahan pada file yang ada.
+- **Diff yang bisa diperiksa:** setiap penulisan mengirim perubahan file ke UI. Detail diff memperlihatkan kode lama dan baru secara berdampingan, nomor baris, serta jumlah baris ditambahkan dan dihapus.
+- **Markdown lebih lengkap:** jawaban agent mendukung heading, **bold**, *italic*, coretan, inline code, fenced code blocks, daftar bernomor/tidak bernomor, blockquote, tabel, dan tautan.
+- **Terminal tetap aman:** command terminal meminta persetujuan sebelum dieksekusi.
+- **Detail Version:** riwayat versi di aplikasi tetap dibatasi pada tiga rilis terbaru, dan deskripsi rilis terbaru tersedia di GitHub.
+
+### Cara menggunakan
+1. Pasang versi v0.4.8.
+2. Buka ruangan dengan folder proyek yang benar, lalu buka tab **Editor**.
+3. Klik **AI Agent** atau tekan `Ctrl+Shift+L`. AI akan mengambil seluruh area editor, bukan tampil sebagai jendela mengambang.
+4. Pastikan path workspace di bagian atas sesuai dengan folder project yang dipilih ketika membuat atau bergabung ke ruangan.
+5. Masukkan API key 9router yang aktif di pengaturan jika belum tersimpan.
+6. Minta agent memeriksa atau mengubah file. Perubahan yang dibuat muncul pada bagian **Perubahan workspace**. Klik **Detail diff** untuk membandingkan versi lama dan versi baru serta memeriksa statistik baris.
+
+> Keamanan: agent hanya boleh membaca dan menulis di dalam folder proyek ruangan aktif; file secret tetap diblokir. Jika tool-calling model tidak didukung oleh endpoint/provider, aplikasi menampilkan kegagalan secara eksplisit alih-alih mengklaim file sudah diubah.
+
+---
+
 # Ruang Kerja v0.4.7
 
 ## Perbaikan Detail Version dan deskripsi rilis
