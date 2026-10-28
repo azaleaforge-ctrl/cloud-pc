@@ -1044,6 +1044,22 @@ function registerIpc(): void {
   ipcMain.handle('rk:agent:get-config', () => getAgentRouterStatus());
   ipcMain.handle('rk:agent:save-config', (_e, apiKey: string) => saveAgentRouterKey(apiKey));
   ipcMain.handle('rk:agent:test-config', () => testAgentRouter());
+  ipcMain.handle('rk:agent:list-skills', () => agentService.listSkills());
+  ipcMain.handle('rk:agent:pick-attachments', async () => {
+    try {
+      const selected = await dialog.showOpenDialog({
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: 'Lampiran AI', extensions: [
+          'png','jpg','jpeg','webp','gif','pdf','docx','xlsx','pptx','txt','md','markdown','csv','tsv','json','jsonl',
+          'xml','html','htm','css','js','jsx','ts','tsx','mjs','cjs','py','php','sql','yaml','yml','log','ini','toml','sh','ps1'
+        ] }],
+      });
+      if (selected.canceled || selected.filePaths.length === 0) return { ok: true, attachments: [] };
+      return { ok: true, attachments: await agentService.prepareAttachments(selected.filePaths) };
+    } catch (error) {
+      return { ok: false, error: (error as Error).message || 'Lampiran gagal diproses.' };
+    }
+  });
   ipcMain.handle('rk:agent:begin-session', async (_e, conversationId: string) => {
     try {
       await agentService.beginConversation(conversationId);
