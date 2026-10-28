@@ -140,12 +140,12 @@ try{
   await test('deletes only the selected session and its own memory file',async()=>{
     const memory=join(userData,'ai-memory','sessions');
     await mkdir(memory,{recursive:true});
-    await writeFile(join(memory,'chat-delete.md'),'delete me','utf8');
+    await writeFile(join(memory,'chat-one.md'),'delete me','utf8');
     await writeFile(join(memory,'chat-keep.md'),'keep me','utf8');
     const deleted=await api.deleteAgentSession(userData,'chat-one');
     assert.equal(deleted,true);
     assert.equal(await api.loadAgentSession(userData,'chat-one'),null);
-    await assert.rejects(()=>stat(join(memory,'chat-delete.md')));
+    await assert.rejects(()=>stat(join(memory,'chat-one.md')));
     assert.equal(await readFile(join(memory,'chat-keep.md'),'utf8'),'keep me');
   });
 
