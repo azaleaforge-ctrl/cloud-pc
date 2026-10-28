@@ -1,3 +1,32 @@
+# Ruang Kerja v1.0.3
+
+## Perbaikan keandalan Agentic Coding AI
+
+Rilis ini menindaklanjuti kegagalan tool yang terlihat pada v1.0.2, termasuk Todo Orchestrator yang berhenti pada transisi dependensi dan tool web research yang gagal memperoleh atau membaca hasil.
+
+### 1. Todo Orchestrator
+- Memperbaiki transisi task dependen: agent dapat menyelesaikan task aktif dengan bukti yang memadai sekaligus mengaktifkan task berikutnya dalam satu pembaruan Todo.
+- Validasi dependensi tetap aktif. Task dependen tidak dapat dimulai bila prasyarat masih pending, blocked, atau belum diselesaikan.
+- Menambahkan regression test untuk transisi atomik dan bukti completion yang tidak memadai.
+- Kegagalan Todo tetap dilaporkan secara eksplisit; perubahan ini tidak menonaktifkan safety guard terhadap loop tanpa kemajuan.
+
+### 2. Web Search dan Web Read
+- Web Search kini mencoba DuckDuckGo HTML terlebih dahulu lalu beralih ke Bing HTML ketika penyedia pertama gagal, dibatasi, atau hasilnya tidak dapat diparse.
+- Parser fallback hanya menerima tautan HTTPS dan menangani pola redirect Bing yang umum.
+- Kegagalan jaringan sementara dan HTTP 429/5xx mendapat satu percobaan ulang terbatas.
+- Permintaan web menggunakan User-Agent browser-style dan Accept-Language untuk kompatibilitas yang lebih baik.
+- Tool mendeteksi sejumlah halaman anti-bot/security challenge agar tidak memperlakukan halaman penghalang sebagai isi artikel.
+- Jika semua penyedia pencarian gagal, tool mengembalikan alasan error yang lebih jelas alih-alih menyatakan pencarian berhasil tanpa hasil.
+
+### Catatan validasi dan batasan
+- Regression tests, TypeScript typecheck, dan build aplikasi lulus pada CI GitHub Actions untuk perbaikan Todo dan web research.
+- CI memvalidasi parser, alur dan build dengan data uji; CI tidak menjamin semua mesin pencari atau situs tujuan selalu tersedia.
+- Akses langsung masih bergantung pada DNS, koneksi internet, rate limit, redirect, dan kebijakan situs. Sebagian situs dapat menolak akses otomatis atau memuat isi secara dinamis.
+- Dukungan function/tool-calling tetap bergantung pada model, endpoint, dan provider 9router yang dipilih. Gunakan Pengaturan AI/diagnostik kemampuan model bila agent tidak menjalankan tool.
+- Jika error lain tetap muncul, catat nama tool dan pesan error yang tampil. Rilis ini memperbaiki temuan yang telah direproduksi, bukan mengklaim semua kemungkinan kegagalan telah dihilangkan.
+
+---
+
 # Ruang Kerja v1.0.2
 
 ## Agentic Coding AI — alur kerja lebih terarah, riset langsung, dan sesi yang dapat dipulihkan
