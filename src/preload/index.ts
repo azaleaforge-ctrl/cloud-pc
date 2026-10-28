@@ -27,7 +27,7 @@ import type {
   TerminalSessionInfo,
   VsxSearchResult,
 } from '../shared/editor';
-import type { AgentEntry, ChatMessage, AgentEvent } from '../shared/agents';
+import type { AgentAttachmentRef, AgentEntry, ChatMessage, AgentEvent } from '../shared/agents';
 import { APP_VERSION } from '../shared/types';
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -119,6 +119,8 @@ const api: RkApi = {
   agentGetConfig: () => ipcRenderer.invoke('rk:agent:get-config'),
   agentSaveConfig: (apiKey: string) => ipcRenderer.invoke('rk:agent:save-config', apiKey),
   agentTestConfig: () => ipcRenderer.invoke('rk:agent:test-config'),
+  agentListSkills: () => ipcRenderer.invoke('rk:agent:list-skills'),
+  agentPickAttachments: (): Promise<{ ok: boolean; attachments?: AgentAttachmentRef[]; error?: string }> => ipcRenderer.invoke('rk:agent:pick-attachments'),
   agentApproveTool: (sessionId: string, requestId: string, approved: boolean) => ipcRenderer.invoke('rk:agent:approve-tool', sessionId, requestId, approved),
   agentBeginSession: (conversationId: string) => ipcRenderer.invoke('rk:agent:begin-session', conversationId),
   agentStartChat: (agentId: string, messages?: ChatMessage[], activePath?: string | null, conversationId?: string) => ipcRenderer.invoke('rk:agent:start-chat', agentId, messages ?? [], activePath ?? null, conversationId ?? ''),
