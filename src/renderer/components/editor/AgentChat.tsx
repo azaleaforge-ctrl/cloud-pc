@@ -402,6 +402,15 @@ export function AgentChat({ wb, visible, onToggle, onMaximize }: Props) {
             <span className="ai-agent-mode">Agentic tools</span>
           </div>
 
+          {!routerStatus?.configured ? (
+            <section className="ai-setup-needed">
+              <div className="ai-setup-icon">⚙</div>
+              <strong>Hubungkan 9router sebelum mulai chat</strong>
+              <p>API key belum diatur. Masukkan API key 9router yang masih aktif di pengaturan. API key yang pernah dipublikasikan sebaiknya dicabut dan diganti.</p>
+              <button type="button" onClick={() => setSettingsOpen(true)}>Buka pengaturan AI</button>
+            </section>
+          ) : null}
+
           <div className="ai-messages">
             {messages.filter((message) => message.role !== 'system' && message.content).length === 0 && !loading ? (
               <div className="ai-empty">
@@ -436,6 +445,7 @@ export function AgentChat({ wb, visible, onToggle, onMaximize }: Props) {
                 </div>
               </div>
             ) : null}
+            {error ? <div className="ai-error" role="alert">{error}</div> : null}
             <div ref={bottomRef} />
           </div>
 
@@ -446,21 +456,20 @@ export function AgentChat({ wb, visible, onToggle, onMaximize }: Props) {
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={loading ? 'Agent sedang bekerja…' : 'Minta agent memeriksa atau mengubah kode…'}
+              placeholder={loading ? 'Agent sedang bekerja…' : !routerStatus?.configured ? 'Atur API key 9router pada pengaturan untuk mulai chat…' : !wb.root ? 'Buka workspace proyek untuk mulai chat…' : 'Minta agent memeriksa atau mengubah kode…'}
               rows={2}
-              disabled={loading || !activeAgent}
+              disabled={loading || !activeAgent || !routerStatus?.configured || !wb.root}
               aria-label="Pesan AI coding agent"
             />
             <button
               type="button"
               className="ai-send-btn"
               onClick={() => void sendMessage()}
-              disabled={loading || !input.trim() || !activeAgent}
+              disabled={loading || !input.trim() || !activeAgent || !routerStatus?.configured || !wb.root}
               title="Kirim (Enter)"
             >
               {loading ? <Spinner size={16} /> : <IconSend size={16} />}
             </button>
-            {error ? <span className="ai-error" role="alert">{error}</span> : null}
           </div>
 
           <div className="ai-panel-footer">
