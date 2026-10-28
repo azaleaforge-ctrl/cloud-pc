@@ -159,6 +159,39 @@ export interface AgentRouterTestResult {
   model?: string;
 }
 
+export interface AgentModelInfo {
+  id: string;
+  name?: string;
+  ownedBy?: string;
+}
+
+export interface AgentModelCatalogResult {
+  ok: boolean;
+  message: string;
+  endpoint?: string;
+  retrievedAt?: string;
+  models: AgentModelInfo[];
+}
+
+export type AgentCapabilityStatus = 'supported' | 'unsupported' | 'unknown';
+
+export interface AgentModelCapabilityCheck {
+  id: 'chat' | 'tool-calling' | 'vision';
+  label: string;
+  status: AgentCapabilityStatus;
+  message: string;
+  durationMs: number;
+}
+
+export interface AgentModelCapabilityReport {
+  ok: boolean;
+  model: string;
+  endpoint?: string;
+  checkedAt: string;
+  checks: AgentModelCapabilityCheck[];
+  message: string;
+}
+
 export const BUILTIN_AGENTS: AgentEntry[] = [
   {
     id: 'poolside',
