@@ -169,7 +169,7 @@ export function applyAgentTodoUpdate(
       if (existing?.status !== 'in_progress') {
         throw new Error('Task hanya bisa menjadi completed setelah berstatus in_progress: ' + todo.title + '.');
       }
-      if (todo.completionEvidence.length < 8) {
+      if ((todo.completionEvidence ?? '').length < 8) {
         throw new Error('Task completed memerlukan bukti verifikasi spesifik minimal 8 karakter: ' + todo.title + '.');
       }
       for (const dependencyId of todo.blockedBy) {
