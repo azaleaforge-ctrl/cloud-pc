@@ -10,7 +10,7 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import * as pty from '@lydell/node-pty';
 import type { IPty } from '@lydell/node-pty';
-import type { AgentAttachmentRef, AgentEntry, AgentEvent, AgentRunResult, AgentSkillInfo, AgentSkillSelection, AgentTodo, AgentToolActivity, ChatMessage, RouterConfig } from '../../shared/agents';
+import type { AgentAttachmentRef, AgentEntry, AgentEvent, AgentFileChange, AgentRunResult, AgentSkillInfo, AgentSkillSelection, AgentTodo, AgentToolActivity, ChatMessage, RouterConfig } from '../../shared/agents';
 import { applyAgentTodoUpdate } from './agentTodo';
 import { installBuiltinSkills, loadAgentSkillInstructions, selectAgentSkills } from './skills';
 import { startTerminalCommand } from './terminalRuntime';
