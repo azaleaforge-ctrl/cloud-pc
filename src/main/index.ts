@@ -1121,8 +1121,14 @@ function registerIpc(): void {
   });
   ipcMain.handle('rk:agent:save-session', async (_e, input: AgentSessionSaveInput) => {
     try {
-      await saveAgentSession(app.getPath('userData'), input);
-      return { ok: true };
+      const summary = await saveAgentSession(app.getPath('userData'), input);
+      const record = await loadAgentSession(app.getPath('userData'), input.id);
+      return {
+        ok: true,
+        summary: record?.summary ?? '',
+        summaryThroughTs: record?.summaryThroughTs ?? 0,
+        session: summary,
+      };
     } catch (error) {
       return { ok: false, error: (error as Error).message || 'Gagal menyimpan riwayat sesi.' };
     }
