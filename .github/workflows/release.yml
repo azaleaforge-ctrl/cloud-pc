@@ -148,11 +148,14 @@ jobs:
         shell: pwsh
         run: |
           $notes = Get-Content RELEASE_NOTES.md -Raw
-          $sections = $notes -split '(?m)^---\s*
-
-          $currentNotes = $sections[0].Trim()
+          $separatorIndex = $notes.IndexOf('---')
+          $currentNotes = $notes
+          if ($separatorIndex -ge 0) {
+            $currentNotes = $notes.Substring(0, $separatorIndex)
+          }
+          $currentNotes = $currentNotes.Trim()
           if ([string]::IsNullOrWhiteSpace($currentNotes)) {
-            throw 'Catatan untuk versi terbaru kosong.'
+            throw 'Latest release notes are empty.'
           }
           Set-Content -LiteralPath 'release/release-notes.md' -Value $currentNotes -Encoding utf8
           Write-Host 'Prepared release description for the current version only.'
