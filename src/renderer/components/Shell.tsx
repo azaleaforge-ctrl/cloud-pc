@@ -4,12 +4,13 @@ import { IconCode, IconGlobe, IconHourglass, IconMonitor, IconServer, IconUsers,
 import { RoomTab } from './RoomTab';
 import { QueueTab } from './QueueTab';
 import { ExtensionsTab } from './ExtensionsTab';
+import { SkillsPluginsTab } from './SkillsPluginsTab';
 import { ServerTab } from './ServerTab';
 import { WebTab } from './WebTab';
 import { FileTab } from './FileTab';
 import { FooterBar, VersionModal } from './ui';
 
-type TabId = 'room' | 'file' | 'queue' | 'extensions' | 'editor' | 'server' | 'web';
+type TabId = 'room' | 'file' | 'queue' | 'skills' | 'plugins' | 'editor' | 'server' | 'web';
 
 // Editor selalu di-mount (background), tidak di-lazy load agar terminal & state tetap hidup
 import { EditorShell } from './editor/EditorShell';
@@ -70,7 +71,8 @@ export function Shell({ state, logs, onError, onClearLogs, onRoomLeft }: ShellPr
     { id: 'file', label: 'File', icon: <IconFolder size={17} /> },
     { id: 'editor', label: 'Editor', icon: <IconCode size={17} /> },
     { id: 'queue', label: 'Antrian', icon: <IconHourglass size={17} /> },
-    { id: 'extensions', label: 'Ekstensi', icon: <IconExtension size={17} /> },
+    { id: 'skills', label: 'Skills', icon: <IconExtension size={17} /> },
+    { id: 'plugins', label: 'Plugin', icon: <IconBot size={17} /> },
     { id: 'server', label: 'Server', icon: <IconServer size={17} /> },
   ];
   if (webAvailable) {
@@ -137,8 +139,10 @@ export function Shell({ state, logs, onError, onClearLogs, onRoomLeft }: ShellPr
             <FileTab state={state} />
           ) : tab === 'queue' ? (
             <QueueTab state={state} onError={onError} />
-          ) : tab === 'extensions' ? (
-            <ExtensionsTab state={state} onError={onError} />
+          ) : tab === 'skills' ? (
+            <SkillsPluginsTab mode="skills" onError={onError} />
+          ) : tab === 'plugins' ? (
+            <SkillsPluginsTab mode="plugins" onError={onError} />
           ) : tab === 'server' ? (
             <ServerTab
               state={state}
