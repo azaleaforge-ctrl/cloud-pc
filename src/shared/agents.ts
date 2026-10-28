@@ -95,6 +95,8 @@ export type AgentTerminalStatus = 'starting' | 'running' | 'completed' | 'failed
 export interface AgentTerminalProcess {
   commandId: string;
   command: string;
+  cwd?: string;
+  shell?: string;
   status: AgentTerminalStatus;
   startedAt: number;
   finishedAt?: number;
@@ -138,7 +140,7 @@ export type AgentEvent =
   | { type: 'file-change'; change: AgentFileChange }
   | { type: 'permission-request'; requestId: string; command: string; reason: string }
   | { type: 'permission-result'; requestId: string; approved: boolean }
-  | { type: 'question-request'; requestId: string; question: string; context: string; options: AgentQuestionOption[]; recommendedOption: number }
+  | { type: 'question-request'; requestId: string; question: string; context: string; options: AgentQuestionOption[]; recommendedOption: number; recommendationReason: string }
   | { type: 'question-result'; requestId: string; answered: boolean }
   | { type: 'skills'; skills: AgentSkillSelection[] }
   | { type: 'todo-update'; todos: AgentTodo[] }
