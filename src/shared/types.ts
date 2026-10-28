@@ -219,7 +219,8 @@ export interface RkApi {
   checkForUpdates(): Promise<ActionResult>;
   downloadUpdate(): Promise<ActionResult>;
   installUpdate(): Promise<ActionResult>;
-  fetchReleaseNotes(): Promise<FetchReleasesResult>;
+  /** Force bypass of cached release history so the newest published release is visible immediately. */
+  fetchReleaseNotes(forceRefresh?: boolean): Promise<FetchReleasesResult>;
   listProjectFiles(): Promise<ProjectFile[]>;
   /** Fires after watched project paths change on disk or through collaboration sync. */
   onProjectFilesChanged(cb: () => void): () => void;
