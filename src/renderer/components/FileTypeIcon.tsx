@@ -84,7 +84,7 @@ export function FileTypeIcon({ path, size = 'small' }: Props) {
   const style: CSSProperties = { color: glyph.color, backgroundColor: glyph.background };
   return (
     <span
-      className={\`rk-file-type-icon rk-file-type-icon-\${size}\`}
+      className={`rk-file-type-icon rk-file-type-icon-${size}`}
       style={style}
       title={glyph.title}
       aria-label={glyph.title + ' file'}
