@@ -17,7 +17,7 @@ import type {
   ServerState,
   UpdateState,
 } from '../shared/types';
-import type { AgentEvent, AgentRouterStatus, AgentRouterTestResult, ChatMessage } from '../shared/agents';
+import type { AgentCheckpointActionResult, AgentEvent, AgentRouterStatus, AgentRouterTestResult, AgentSessionData, AgentSessionSaveInput, ChatMessage } from '../shared/agents';
 import { diagnoseModelCapabilities, listAvailableModels, normalizeModelId } from './editor/modelCapabilities';
 import { APP_VERSION } from '../shared/types';
 import { StateStore } from './store';
@@ -32,6 +32,15 @@ import { createTerminalService } from './editor/terminal';
 import { createExtensionService } from './editor/extensions';
 import { createDebugService } from './editor/debugger';
 import { createAgentService } from './editor/agent';
+import {
+  deleteAgentSession,
+  listAgentCheckpoints,
+  listAgentSessions,
+  loadAgentSession,
+  redoAgentCheckpoint,
+  rewindAgentCheckpoint,
+  saveAgentSession,
+} from './editor/agentSessionStore';
 import type { RouterConfig } from '../shared/agents';
 import { scanProjectEntries } from './fsScan';
 import { watchProjectFileChanges, type ProjectFileWatch } from './projectFileWatcher';
@@ -1071,6 +1080,115 @@ function registerIpc(): void {
   ipcMain.handle('rk:agent:get-config', () => getAgentRouterStatus());
   ipcMain.handle('rk:agent:save-config', (_e, apiKey: string) => saveAgentRouterKey(apiKey));
   ipcMain.handle('rk:agent:test-config', () => testAgentRouter());
+  ipcMain.handle('rk:agent:list-sessions', () => listAgentSessions(app.getPath('userData')));
+  ipcMain.handle('rk:agent:load-session', async (_e, id: string) => {
+    try {
+      const existing = await loadAgentSession(app.getPath('userData'), id);
+      if (!existing) return { ok: false, error: 'Sesi tidak ditemukan.' };
+      await agentService.beginConversation(id);
+      const record = await loadAgentSession(app.getPath('userData'), id);
+      if (!record) return { ok: false, error: 'Sesi tidak dapat dimuat.' };
+      const session: AgentSessionData = {
+        id: record.id,
+        title: record.title,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+        projectPath: record.projectPath,
+        activeAgentId: record.activeAgentId,
+        messageCount: record.messages.length,
+        ...([...record.messages].reverse().find(message => message.role !== 'system' && message.content)
+          ? { lastMessage: [...record.messages].reverse().find(message => message.role !== 'system' && message.content)!.content.slice(0, 160) }
+          : {}),
+        hasSummary: !!record.summary,
+        checkpointCount: record.checkpoints.length,
+        messages: record.messages,
+        summary: record.summary,
+        summaryThroughTs: record.summaryThroughTs,
+        todos: record.todos,
+        checkpoints: record.checkpoints.map(checkpoint => ({
+          id: checkpoint.id,
+          runId: checkpoint.runId,
+          createdAt: checkpoint.createdAt,
+          projectPath: checkpoint.projectPath,
+          status: checkpoint.status,
+          paths: checkpoint.files.map(file => file.path),
+        })),
+      };
+      return { ok: true, session };
+    } catch (error) {
+      return { ok: false, error: (error as Error).message || 'Gagal memuat sesi.' };
+    }
+  });
+  ipcMain.handle('rk:agent:save-session', async (_e, input: AgentSessionSaveInput) => {
+    try {
+      const summary = await saveAgentSession(app.getPath('userData'), input);
+      const record = await loadAgentSession(app.getPath('userData'), input.id);
+      return {
+        ok: true,
+        summary: record?.summary ?? '',
+        summaryThroughTs: record?.summaryThroughTs ?? 0,
+        session: summary,
+      };
+    } catch (error) {
+      return { ok: false, error: (error as Error).message || 'Gagal menyimpan riwayat sesi.' };
+    }
+  });
+  ipcMain.handle('rk:agent:delete-session', async (_e, id: string) => {
+    try {
+      await deleteAgentSession(app.getPath('userData'), id);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: (error as Error).message || 'Gagal menghapus sesi.' };
+    }
+  });
+  ipcMain.handle('rk:agent:list-checkpoints', (_e, sessionId: string) =>
+    listAgentCheckpoints(app.getPath('userData'), sessionId));
+  const canMutateAgentWorkspace = (): ActionResult => {
+    const state = store.get();
+    if (!state.projectPath) return { ok: false, error: 'Workspace project tidak sedang terbuka.' };
+    if (state.role !== 'none' && state.queue.holder !== settings.selfId) {
+      return { ok: false, error: 'Pemulihan file hanya bisa dilakukan saat kamu memegang giliran kerja.' };
+    }
+    return { ok: true };
+  };
+  ipcMain.handle('rk:agent:rewind-checkpoint', async (_e, sessionId: string, checkpointId: string): Promise<AgentCheckpointActionResult> => {
+    const permission = canMutateAgentWorkspace();
+    if (!permission.ok) return { ok: false, message: permission.error ?? 'Akses workspace ditolak.' };
+    const projectPath = store.get().projectPath!;
+    const result = await rewindAgentCheckpoint(app.getPath('userData'), sessionId, projectPath, checkpointId);
+    if (result.ok) send('rk:project-files-changed', { changedAt: Date.now() });
+    return {
+      ok: result.ok,
+      message: result.message,
+      ...(result.checkpoint ? { checkpoint: {
+        id: result.checkpoint.id,
+        runId: result.checkpoint.runId,
+        createdAt: result.checkpoint.createdAt,
+        projectPath: result.checkpoint.projectPath,
+        status: result.checkpoint.status,
+        paths: result.checkpoint.files.map(file => file.path),
+      } } : {}),
+    };
+  });
+  ipcMain.handle('rk:agent:redo-checkpoint', async (_e, sessionId: string, checkpointId: string): Promise<AgentCheckpointActionResult> => {
+    const permission = canMutateAgentWorkspace();
+    if (!permission.ok) return { ok: false, message: permission.error ?? 'Akses workspace ditolak.' };
+    const projectPath = store.get().projectPath!;
+    const result = await redoAgentCheckpoint(app.getPath('userData'), sessionId, projectPath, checkpointId);
+    if (result.ok) send('rk:project-files-changed', { changedAt: Date.now() });
+    return {
+      ok: result.ok,
+      message: result.message,
+      ...(result.checkpoint ? { checkpoint: {
+        id: result.checkpoint.id,
+        runId: result.checkpoint.runId,
+        createdAt: result.checkpoint.createdAt,
+        projectPath: result.checkpoint.projectPath,
+        status: result.checkpoint.status,
+        paths: result.checkpoint.files.map(file => file.path),
+      } } : {}),
+    };
+  });
   ipcMain.handle('rk:agent:list-models', async () => {
     const config = getRouterConfig();
     if (!config) return { ok: false, message: 'API key belum diatur.', models: [] };

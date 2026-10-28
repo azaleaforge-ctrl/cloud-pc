@@ -12,8 +12,10 @@ import type {
   AgentToolActivity,
   AgentTerminalProcess,
   AgentAttachmentRef,
+  AgentCheckpointSummary,
   AgentModelCatalogResult,
   AgentModelCapabilityReport,
+  AgentSessionSummary,
   ChatMessage,
 } from '../../../shared/agents';
 import { IconSend, IconPlus, Spinner, IconCopy, IconX, IconTrash, IconCheck } from '../icons';
@@ -46,6 +48,12 @@ const HISTORY_KEY = 'rk.ai.chatHistory';
 function pathName(path: string | null): string {
   if (!path) return 'Workspace belum dipilih';
   return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
+}
+
+function sameWorkspacePath(left: string | null, right: string | null): boolean {
+  if (!left || !right) return false;
+  const normalize = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  return normalize(left) === normalize(right);
 }
 
 function loadSavedMessages(): ChatMessage[] {
@@ -503,6 +511,16 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>(loadSavedMessages);
   const [conversationId, setConversationId] = useState(makeConversationId);
   const [sessionReady, setSessionReady] = useState(false);
+  const [sessionProjectPath, setSessionProjectPath] = useState<string | null>(null);
+  const [conversationSummary, setConversationSummary] = useState('');
+  const [summaryThroughTs, setSummaryThroughTs] = useState(0);
+  const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [checkpoints, setCheckpoints] = useState<AgentCheckpointSummary[]>([]);
+  const [checkpointsOpen, setCheckpointsOpen] = useState(false);
+  const [checkpointActionBusy, setCheckpointActionBusy] = useState<string | null>(null);
+  const firstSessionLoadRef = useRef(true);
   const [activeSkills, setActiveSkills] = useState<AgentSkillSelection[]>([]);
   const [todos, setTodos] = useState<AgentTodo[]>([]);
   const [toolActivities, setToolActivities] = useState<AgentToolActivity[]>([]);
@@ -571,22 +589,87 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   useEffect(() => {
     let alive = true;
     setSessionReady(false);
-    void window.rk.agentBeginSession(conversationId).then((result) => {
-      if (!alive) return;
-      if (!result.ok) {
-        setError(result.error ?? 'Gagal membuat sesi AI baru.');
-        setSessionReady(false);
-        return;
+    void (async () => {
+      try {
+        if (firstSessionLoadRef.current) {
+          firstSessionLoadRef.current = false;
+          setLoadingSessions(true);
+          const available = await window.rk.agentListSessions();
+          if (!alive) return;
+          setSessions(available);
+          setLoadingSessions(false);
+          if (available.length > 0) {
+            // Resume most recently used conversation at startup. Other sessions remain in History.
+            setConversationId(available[0].id);
+            return;
+          }
+        }
+        const loaded = await window.rk.agentLoadSession(conversationId);
+        if (!alive) return;
+        if (loaded.ok && loaded.session) {
+          const session = loaded.session;
+          setMessages(session.messages.map(message => ({ ...message, streaming: false })));
+          setActiveAgentId(session.activeAgentId || 'poolside');
+          setSessionProjectPath(session.projectPath);
+          setConversationSummary(session.summary || '');
+          setSummaryThroughTs(session.summaryThroughTs || 0);
+          setTodos(session.todos || []);
+          setCheckpoints(session.checkpoints || []);
+          setChanges([]);
+          setSelectedChange(null);
+          setActiveSkills([]);
+          setSessionReady(true);
+        } else {
+          const created = await window.rk.agentBeginSession(conversationId);
+          if (!alive) return;
+          if (!created.ok) throw new Error(created.error || 'Gagal membuat sesi baru.');
+          setMessages([]);
+          setSessionProjectPath(wb.root);
+          setConversationSummary('');
+          setSummaryThroughTs(0);
+          setTodos([]);
+          setCheckpoints([]);
+          setChanges([]);
+          setSelectedChange(null);
+          setSessionReady(true);
+        }
+        const refreshed = await window.rk.agentListSessions();
+        if (alive) setSessions(refreshed);
+      } catch (err) {
+        if (alive) {
+          setError('Gagal memuat atau membuat sesi AI: ' + ((err as Error).message || 'kesalahan tidak diketahui'));
+          setSessionReady(false);
+          setLoadingSessions(false);
+        }
       }
-      setSessionReady(true);
-    }).catch((err) => {
-      if (alive) {
-        setError('Gagal menginisialisasi memory sesi: ' + ((err as Error).message || 'error tidak diketahui'));
-        setSessionReady(false);
-      }
-    });
+    })();
     return () => { alive = false; };
   }, [conversationId]);
+
+  useEffect(() => {
+    if (!sessionReady) return;
+    const timer = window.setTimeout(() => {
+      void window.rk.agentSaveSession({
+        id: conversationId,
+        ...(sessionProjectPath ? { projectPath: sessionProjectPath } : (!messages.length && wb.root ? { projectPath: wb.root } : {})),
+        activeAgentId,
+        messages,
+        summary: conversationSummary,
+        summaryThroughTs,
+        todos,
+      }).then(async result => {
+        if (!result.ok) {
+          setError('Gagal menyimpan riwayat sesi: ' + (result.error || 'penyimpanan gagal'));
+          return;
+        }
+        if (result.summary !== undefined) setConversationSummary(current => current === result.summary ? current : result.summary!);
+        if (result.summaryThroughTs !== undefined) setSummaryThroughTs(current => current === result.summaryThroughTs ? current : result.summaryThroughTs!);
+        const refreshed = await window.rk.agentListSessions();
+        setSessions(refreshed);
+      }).catch(err => setError('Gagal menyimpan riwayat sesi: ' + ((err as Error).message || 'penyimpanan gagal')));
+    }, 650);
+    return () => window.clearTimeout(timer);
+  }, [sessionReady, conversationId, wb.root, sessionProjectPath, activeAgentId, messages, conversationSummary, summaryThroughTs, todos]);
 
   useEffect(() => {
     if (!error) return;
@@ -628,6 +711,27 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       } else if (event.type === 'file-change') {
         setChanges((previous) => [event.change, ...previous.filter((item) => item.id !== event.change.id)].slice(0, 30));
         setActivity('Perubahan file tersimpan: ' + event.change.path);
+        if (event.change.checkpointId) {
+          setCheckpoints(previous => {
+            const existing = previous.find(item => item.id === event.change.checkpointId);
+            if (existing) {
+              return previous.map(item => item.id === event.change.checkpointId
+                ? { ...item, paths: Array.from(new Set([...item.paths, event.change.path])) }
+                : item);
+            }
+            return [{
+              id: event.change.checkpointId!,
+              runId: sessionId,
+              createdAt: event.change.changedAt,
+              projectPath: sessionProjectPath ?? wb.root ?? '',
+              status: 'applied' as const,
+              paths: [event.change.path],
+            }, ...previous].slice(0, 50);
+          });
+        }
+        if (event.change.checkpointError) {
+          setError('File sudah ditulis, tetapi checkpoint tidak dapat disimpan: ' + event.change.checkpointError);
+        }
       } else if (event.type === 'error') {
         setError(event.message);
         setLoading(false);
@@ -712,6 +816,11 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       setError('Workspace proyek belum tersedia. Buka ruangan proyek terlebih dahulu.');
       return;
     }
+    if (sessionProjectPath && !sameWorkspacePath(sessionProjectPath, wb.root)) {
+      setError('Sesi ini terkait workspace ' + sessionProjectPath + '. Buka workspace tersebut untuk melanjutkan percakapan ini, atau pilih Chat Baru untuk workspace saat ini.');
+      return;
+    }
+    if (!sessionProjectPath) setSessionProjectPath(wb.root);
     setError(null);
     setLastRunResult(null);
     setToolActivities([]);
@@ -749,7 +858,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         index === previous.length - 1 && item.role === 'assistant' ? { ...item, streaming: false } : item,
       ));
     }
-  }, [input, pendingAttachments, loading, sessionReady, activeAgent, messages, routerStatus?.configured, wb.root, wb.activePath, conversationId]);
+  }, [input, pendingAttachments, loading, sessionReady, activeAgent, messages, routerStatus?.configured, wb.root, wb.activePath, conversationId, sessionProjectPath]);
 
   const stopAgent = useCallback(async () => {
     if (!activeSessionId) return;
@@ -855,11 +964,89 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     catch (err) { setError('Gagal mengirim keputusan terminal: ' + (err as Error).message); }
   }, [permission]);
 
+  const deleteStoredSession = useCallback(async (id: string) => {
+    const entry = sessions.find(item => item.id === id);
+    if (!window.confirm('Hapus riwayat percakapan "' + (entry?.title || id) + '" dari perangkat ini? Tindakan ini tidak dapat dibatalkan.')) return;
+    try {
+      const result = await window.rk.agentDeleteSession(id);
+      if (!result.ok) throw new Error(result.error || 'Sesi gagal dihapus.');
+      const refreshed = await window.rk.agentListSessions();
+      setSessions(refreshed);
+      if (id === conversationId) {
+        setSessionReady(false);
+        setMessages([]);
+        setSessionProjectPath(wb.root);
+        setConversationSummary('');
+        setSummaryThroughTs(0);
+        setTodos([]);
+        setCheckpoints([]);
+        setChanges([]);
+        setSelectedChange(null);
+        setActiveSkills([]);
+        setConversationId(makeConversationId());
+      }
+    } catch (error) {
+      setError((error as Error).message || 'Gagal menghapus sesi.');
+    }
+  }, [sessions, conversationId, wb.root]);
+
+  const runCheckpointAction = useCallback(async (checkpointId: string, action: 'rewind' | 'redo') => {
+    if (loading || checkpointActionBusy) return;
+    setCheckpointActionBusy(checkpointId);
+    setError(null);
+    try {
+      const result = action === 'rewind'
+        ? await window.rk.agentRewindCheckpoint(conversationId, checkpointId)
+        : await window.rk.agentRedoCheckpoint(conversationId, checkpointId);
+      if (!result.ok) throw new Error(result.message);
+      setActivity(result.message);
+      const [nextCheckpoints, nextSessions] = await Promise.all([
+        window.rk.agentListCheckpoints(conversationId),
+        window.rk.agentListSessions(),
+      ]);
+      setCheckpoints(nextCheckpoints);
+      setSessions(nextSessions);
+    } catch (error) {
+      setError((error as Error).message || 'Operasi checkpoint gagal.');
+    } finally {
+      setCheckpointActionBusy(null);
+    }
+  }, [loading, checkpointActionBusy, conversationId]);
+
+  useEffect(() => {
+    if (!historyOpen) return;
+    let alive = true;
+    setLoadingSessions(true);
+    void window.rk.agentListSessions().then(list => {
+      if (alive) setSessions(list);
+    }).catch(error => {
+      if (alive) setError((error as Error).message || 'Gagal memuat riwayat sesi.');
+    }).finally(() => {
+      if (alive) setLoadingSessions(false);
+    });
+    return () => { alive = false; };
+  }, [historyOpen]);
+
+  useEffect(() => {
+    if (!checkpointsOpen) return;
+    let alive = true;
+    void window.rk.agentListCheckpoints(conversationId).then(items => {
+      if (alive) setCheckpoints(items);
+    }).catch(error => {
+      if (alive) setError((error as Error).message || 'Gagal memuat checkpoint.');
+    });
+    return () => { alive = false; };
+  }, [checkpointsOpen, conversationId]);
+
   const clearChat = useCallback(() => {
     if (activeSessionId) void window.rk.agentStop(activeSessionId);
+    setSessionProjectPath(wb.root);
     activeSessionRef.current = 'pending-session';
     setActiveSessionId(null);
     setMessages([]);
+    setConversationSummary('');
+    setSummaryThroughTs(0);
+    setCheckpoints([]);
     setTodos([]);
     setToolActivities([]);
     setLastRunResult(null);
@@ -873,9 +1060,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setSelectedChange(null);
     setActiveSkills([]);
     try { localStorage.removeItem(HISTORY_KEY); } catch { /* ignore */ }
-    // A new ID erases the prior session-memory directory in the main process.
+    // A new ID creates a separate session; the prior chat and memory remain available in History.
     setConversationId(makeConversationId());
-  }, [activeSessionId]);
+  }, [activeSessionId, wb.root]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -1012,6 +1199,73 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         </section>
       ) : null}
 
+      {historyOpen ? (
+        <section className="ai-session-history" aria-label="Riwayat percakapan tersimpan">
+          <header className="ai-session-panel-head">
+            <div>
+              <strong>Riwayat percakapan</strong>
+              <small>Tersimpan lokal di perangkat ini, terpisah dari folder project.</small>
+            </div>
+            <button type="button" className="ai-icon-btn" onClick={() => setHistoryOpen(false)} aria-label="Tutup riwayat"><IconX size={14} /></button>
+          </header>
+          {loadingSessions ? <p className="ai-session-empty">Memuat riwayat…</p> : sessions.length === 0 ? (
+            <p className="ai-session-empty">Belum ada percakapan tersimpan.</p>
+          ) : (
+            <div className="ai-session-list">
+              {sessions.map(session => (
+                <div className={'ai-session-item' + (session.id === conversationId ? ' active' : '')} key={session.id}>
+                  <button type="button" className="ai-session-open" disabled={loading}
+                    onClick={() => { setHistoryOpen(false); if (session.id !== conversationId) setConversationId(session.id); }}>
+                    <strong>{session.title || 'Percakapan baru'}</strong>
+                    <span>{session.lastMessage || 'Belum ada pesan'}</span>
+                    <small>{new Date(session.updatedAt).toLocaleString()} · {session.messageCount} pesan · {session.checkpointCount} checkpoint{session.projectPath ? ' · ' + pathName(session.projectPath) : ''}</small>
+                  </button>
+                  <button type="button" className="ai-icon-btn ai-session-delete" title="Hapus riwayat ini"
+                    aria-label={'Hapus riwayat ' + (session.title || session.id)} disabled={loading}
+                    onClick={() => void deleteStoredSession(session.id)}><IconTrash size={13} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {checkpointsOpen ? (
+        <section className="ai-session-history ai-checkpoint-panel" aria-label="Checkpoint perubahan file">
+          <header className="ai-session-panel-head">
+            <div>
+              <strong>Checkpoint perubahan file</strong>
+              <small>Rewind/redo hanya berjalan jika isi file masih cocok dengan checkpoint. Perubahan manual yang konflik tidak akan ditimpa.</small>
+            </div>
+            <button type="button" className="ai-icon-btn" onClick={() => setCheckpointsOpen(false)} aria-label="Tutup checkpoint"><IconX size={14} /></button>
+          </header>
+          {checkpoints.length === 0 ? <p className="ai-session-empty">Belum ada checkpoint untuk sesi ini. Checkpoint dibuat saat agent menulis file melalui tool-nya.</p> : (
+            <div className="ai-checkpoint-list">
+              {checkpoints.map(checkpoint => (
+                <article className="ai-checkpoint-item" key={checkpoint.id}>
+                  <div className="ai-checkpoint-info">
+                    <strong>{new Date(checkpoint.createdAt).toLocaleString()}</strong>
+                    <small>{checkpoint.paths.join(', ') || 'Perubahan file'}</small>
+                    <span className={'ai-checkpoint-status ' + checkpoint.status}>{checkpoint.status === 'applied' ? 'Perubahan aktif' : 'Sudah di-rewind'}</span>
+                  </div>
+                  {checkpoint.status === 'applied' ? (
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || !sessionProjectPath || !sameWorkspacePath(sessionProjectPath, wb.root) || checkpointActionBusy === checkpoint.id}
+                      onClick={() => void runCheckpointAction(checkpoint.id, 'rewind')}>
+                      {checkpointActionBusy === checkpoint.id ? 'Memulihkan…' : 'Rewind'}
+                    </button>
+                  ) : (
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || !sessionProjectPath || !sameWorkspacePath(sessionProjectPath, wb.root) || checkpointActionBusy === checkpoint.id}
+                      onClick={() => void runCheckpointAction(checkpoint.id, 'redo')}>
+                      {checkpointActionBusy === checkpoint.id ? 'Menerapkan…' : 'Redo'}
+                    </button>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
       <div className="ai-agent-toolbar">
         <div className="ai-agent-switcher">
           {agents.map((agent) => (
@@ -1033,6 +1287,14 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         </div>
         <button type="button" className="ai-clear-btn" onClick={() => setSettingsOpen((open) => !open)} title="Pengaturan AI">
           ⚙ Pengaturan AI
+        </button>
+        <button type="button" className={'ai-clear-btn' + (historyOpen ? ' active' : '')}
+          onClick={() => { setHistoryOpen(open => !open); setCheckpointsOpen(false); }} title="Riwayat percakapan">
+          ☷ Riwayat ({sessions.length})
+        </button>
+        <button type="button" className={'ai-clear-btn' + (checkpointsOpen ? ' active' : '')}
+          onClick={() => { setCheckpointsOpen(open => !open); setHistoryOpen(false); }} title="Checkpoint dan rewind">
+          ↶ Checkpoint ({checkpoints.length})
         </button>
         {loading ? (
           <button type="button" className="ai-clear-btn" onClick={() => void stopAgent()} title="Hentikan agent">

@@ -120,6 +120,8 @@ export interface AgentFileChange {
   addedLines: number;
   removedLines: number;
   changedAt: number;
+  checkpointId?: string;
+  checkpointError?: string;
 }
 
 export type AgentEvent =
@@ -190,6 +192,56 @@ export interface AgentModelCapabilityReport {
   checkedAt: string;
   checks: AgentModelCapabilityCheck[];
   message: string;
+}
+
+export interface AgentCheckpointSummary {
+  id: string;
+  runId: string;
+  createdAt: number;
+  projectPath: string;
+  status: 'applied' | 'rewound';
+  paths: string[];
+}
+export interface AgentSessionSummary {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  projectPath: string | null;
+  activeAgentId: string;
+  messageCount: number;
+  lastMessage?: string;
+  hasSummary: boolean;
+  checkpointCount: number;
+}
+export interface AgentSessionData extends AgentSessionSummary {
+  messages: ChatMessage[];
+  summary: string;
+  summaryThroughTs: number;
+  todos: AgentTodo[];
+  checkpoints: AgentCheckpointSummary[];
+}
+export interface AgentSessionSaveInput {
+  id: string;
+  title?: string;
+  projectPath?: string | null;
+  activeAgentId?: string;
+  messages: ChatMessage[];
+  summary?: string;
+  summaryThroughTs?: number;
+  todos?: AgentTodo[];
+}
+export interface AgentSessionSaveResult {
+  ok: boolean;
+  error?: string;
+  summary?: string;
+  summaryThroughTs?: number;
+  session?: AgentSessionSummary;
+}
+export interface AgentCheckpointActionResult {
+  ok: boolean;
+  message: string;
+  checkpoint?: AgentCheckpointSummary;
 }
 
 export const BUILTIN_AGENTS: AgentEntry[] = [
