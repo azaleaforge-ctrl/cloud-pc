@@ -40,18 +40,24 @@ function terminalCommand(mode, shell) {
   if (shell.family === 'powershell') {
     if (mode === 'streams') return "[Console]::Out.WriteLine('terminal-runtime-ok'); [Console]::Error.WriteLine('stderr-ok')";
     if (mode === 'fail') return 'exit 7';
+    if (mode === 'native-fail') return 'node -e "process.exit(7)"';
+    if (mode === 'location') return 'Get-Location | Select-Object -ExpandProperty Path';
     if (mode === 'hang') return 'Start-Sleep -Seconds 30';
     if (mode === 'large') return "1..1000 | ForEach-Object { 'x' }";
   }
   if (shell.family === 'cmd') {
     if (mode === 'streams') return 'echo terminal-runtime-ok & echo stderr-ok 1>&2';
     if (mode === 'fail') return 'exit /b 7';
+    if (mode === 'native-fail') return 'node -e "process.exit(7)"';
+    if (mode === 'location') return 'cd';
     if (mode === 'hang') return 'ping -n 30 127.0.0.1 > NUL';
     if (mode === 'large') return 'for /l %i in (1,1,1000) do @echo x';
   }
   if (shell.family === 'posix') {
     if (mode === 'streams') return "printf 'terminal-runtime-ok\\n'; printf 'stderr-ok\\n' >&2";
     if (mode === 'fail') return 'exit 7';
+    if (mode === 'native-fail') return 'node -e "process.exit(7)"';
+    if (mode === 'location') return 'pwd';
     if (mode === 'hang') return 'sleep 30';
     if (mode === 'large') return 'yes x | head -n 1000';
   }
@@ -121,9 +127,22 @@ try {
   });
 
   const failedRun = await startTerminalCommand(options(terminalCommand('fail', shell))).promise;
-  test('preserves non-zero exit code as a failure', () => {
+  test('preserves a shell-level non-zero exit code as a failure', () => {
     assert.equal(failedRun.status, 'failed');
     assert.equal(failedRun.exitCode, 7);
+  });
+
+  const nativeFailedRun = await startTerminalCommand(options(terminalCommand('native-fail', shell))).promise;
+  test('propagates non-zero exit codes from native programs through the selected shell', () => {
+    assert.equal(nativeFailedRun.status, 'failed');
+    assert.equal(nativeFailedRun.exitCode, 7);
+  });
+
+  const locationRun = await startTerminalCommand(options(terminalCommand('location', shell))).promise;
+  test('executes the shell-language probe using the selected command interpreter', () => {
+    assert.equal(locationRun.status, 'completed');
+    assert.equal(locationRun.exitCode, 0);
+    assert.match(locationRun.output, /.+/);
   });
 
   const timeoutRun = await startTerminalCommand(options(
