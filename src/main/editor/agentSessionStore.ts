@@ -113,7 +113,8 @@ export function buildConversationSummary(
   const totalChars = eligible.reduce((sum, message) => sum + message.content.length, 0);
   const shouldCompact = eligible.length > keepRecent || totalChars > 80_000;
   if (!shouldCompact) return { summary: previousSummary, throughTs: previousThroughTs };
-  const keepCount = totalChars > 80_000 ? Math.min(keepRecent, 12) : keepRecent;
+  const requestedKeepCount = totalChars > 80_000 ? Math.min(keepRecent, 12) : keepRecent;
+  const keepCount = Math.min(requestedKeepCount, Math.max(1, eligible.length - 1));
   const older = eligible.slice(0, Math.max(0, eligible.length - keepCount));
   if (!older.length) return { summary: previousSummary, throughTs: previousThroughTs };
   const lines = older.map(message => {
@@ -302,15 +303,21 @@ async function resolveSafeTarget(rootReal: string, relativePath: string, allowMi
   if (!fromRoot || fromRoot === '..' || fromRoot.startsWith('..' + sep) || isAbsolute(fromRoot)) {
     throw new Error('Path checkpoint keluar dari workspace.');
   }
-  const parent = dirname(target);
-  try {
-    const parentReal = await realpath(parent);
-    const parentRelative = relative(rootReal, parentReal);
-    if (parentRelative === '..' || parentRelative.startsWith('..' + sep) || isAbsolute(parentRelative)) {
-      throw new Error('Path checkpoint parent keluar dari workspace.');
+  let parent = dirname(target);
+  for (;;) {
+    try {
+      const parentReal = await realpath(parent);
+      const parentRelative = relative(rootReal, parentReal);
+      if (parentRelative === '..' || parentRelative.startsWith('..' + sep) || isAbsolute(parentRelative)) {
+        throw new Error('Path checkpoint parent keluar dari workspace.');
+      }
+      break;
+    } catch (error) {
+      if (!allowMissingParent || (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      const nextParent = dirname(parent);
+      if (nextParent === parent) throw new Error('Parent checkpoint tidak dapat divalidasi.');
+      parent = nextParent;
     }
-  } catch (error) {
-    if (!allowMissingParent || (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
   try {
     const info = await lstat(target);
