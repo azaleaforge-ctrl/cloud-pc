@@ -10,8 +10,8 @@ const root=fileURLToPath(new URL('..',import.meta.url));
 const dir=await mkdtemp(join(tmpdir(),'rk-model-capabilities-'));
 const require=createRequire(import.meta.url);
 let passed=0,failed=0;
-function test(name,fn){
-  try{fn();passed++;console.log('PASS '+name);}
+async function test(name,fn){
+  try{await fn();passed++;console.log('PASS '+name);}
   catch(error){failed++;console.error('FAIL '+name+': '+(error instanceof Error?error.message:String(error)));}
 }
 const originalFetch=globalThis.fetch;
