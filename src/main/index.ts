@@ -332,7 +332,7 @@ async function testAgentRouter(): Promise<AgentRouterTestResult> {
     return { ok: false, message: 'API key belum disetel. Masukkan API key 9router lalu tekan Simpan.' };
   }
 
-  const endpoints = [...new Set([config.endpoint, config.fallbackEndpoint].filter(Boolean).map((url) => url!.replace(/\\/+$/, '')))];
+  const endpoints = [...new Set([config.endpoint, config.fallbackEndpoint].filter(Boolean).map((url) => url!.replace(/\/+$/, '')))];
   let lastError = 'Tidak ada endpoint yang berhasil dihubungi.';
 
   for (const endpoint of endpoints) {
