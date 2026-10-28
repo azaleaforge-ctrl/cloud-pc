@@ -50,6 +50,12 @@ function pathName(path: string | null): string {
   return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
 }
 
+function sameWorkspacePath(left: string | null, right: string | null): boolean {
+  if (!left || !right) return false;
+  const normalize = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  return normalize(left) === normalize(right);
+}
+
 function loadSavedMessages(): ChatMessage[] {
   // Chat history is intentionally ephemeral and does not persist across app/chat sessions.
   try { localStorage.removeItem(HISTORY_KEY); } catch { /* storage can be unavailable */ }
@@ -505,6 +511,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>(loadSavedMessages);
   const [conversationId, setConversationId] = useState(makeConversationId);
   const [sessionReady, setSessionReady] = useState(false);
+  const [sessionProjectPath, setSessionProjectPath] = useState<string | null>(null);
   const [conversationSummary, setConversationSummary] = useState('');
   const [summaryThroughTs, setSummaryThroughTs] = useState(0);
   const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
@@ -603,6 +610,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
           const session = loaded.session;
           setMessages(session.messages.map(message => ({ ...message, streaming: false })));
           setActiveAgentId(session.activeAgentId || 'poolside');
+          setSessionProjectPath(session.projectPath);
           setConversationSummary(session.summary || '');
           setSummaryThroughTs(session.summaryThroughTs || 0);
           setTodos(session.todos || []);
@@ -616,6 +624,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
           if (!alive) return;
           if (!created.ok) throw new Error(created.error || 'Gagal membuat sesi baru.');
           setMessages([]);
+          setSessionProjectPath(wb.root);
           setConversationSummary('');
           setSummaryThroughTs(0);
           setTodos([]);
@@ -642,7 +651,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     const timer = window.setTimeout(() => {
       void window.rk.agentSaveSession({
         id: conversationId,
-        ...(wb.root ? { projectPath: wb.root } : {}),
+        ...(sessionProjectPath ? { projectPath: sessionProjectPath } : (!messages.length && wb.root ? { projectPath: wb.root } : {})),
         activeAgentId,
         messages,
         summary: conversationSummary,
@@ -807,6 +816,11 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       setError('Workspace proyek belum tersedia. Buka ruangan proyek terlebih dahulu.');
       return;
     }
+    if (sessionProjectPath && !sameWorkspacePath(sessionProjectPath, wb.root)) {
+      setError('Sesi ini terkait workspace ' + sessionProjectPath + '. Buka workspace tersebut untuk melanjutkan percakapan ini, atau pilih Chat Baru untuk workspace saat ini.');
+      return;
+    }
+    if (!sessionProjectPath) setSessionProjectPath(wb.root);
     setError(null);
     setLastRunResult(null);
     setToolActivities([]);
@@ -844,13 +858,13 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         index === previous.length - 1 && item.role === 'assistant' ? { ...item, streaming: false } : item,
       ));
     }
-  }, [input, pendingAttachments, loading, sessionReady, activeAgent, messages, routerStatus?.configured, wb.root, wb.activePath, conversationId]);
+  }, [input, pendingAttachments, loading, sessionReady, activeAgent, messages, routerStatus?.configured, wb.root, wb.activePath, conversationId, sessionProjectPath]);
 
   const stopAgent = useCallback(async () => {
     if (!activeSessionId) return;
     try { await window.rk.agentStop(activeSessionId); }
     catch (err) { setError('Gagal menghentikan agent: ' + (err as Error).message); }
-  }, [activeSessionId]);
+  }, [activeSessionId, wb.root]);
 
   const testRouterConnection = useCallback(async (): Promise<AgentRouterTestResult | null> => {
     setTestingConnection(true);
@@ -961,6 +975,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       if (id === conversationId) {
         setSessionReady(false);
         setMessages([]);
+        setSessionProjectPath(wb.root);
         setConversationSummary('');
         setSummaryThroughTs(0);
         setTodos([]);
@@ -973,7 +988,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     } catch (error) {
       setError((error as Error).message || 'Gagal menghapus sesi.');
     }
-  }, [sessions, conversationId]);
+  }, [sessions, conversationId, wb.root]);
 
   const runCheckpointAction = useCallback(async (checkpointId: string, action: 'rewind' | 'redo') => {
     if (loading || checkpointActionBusy) return;
@@ -1025,6 +1040,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
 
   const clearChat = useCallback(() => {
     if (activeSessionId) void window.rk.agentStop(activeSessionId);
+    setSessionProjectPath(wb.root);
     activeSessionRef.current = 'pending-session';
     setActiveSessionId(null);
     setMessages([]);
@@ -1202,7 +1218,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                     onClick={() => { setHistoryOpen(false); if (session.id !== conversationId) setConversationId(session.id); }}>
                     <strong>{session.title || 'Percakapan baru'}</strong>
                     <span>{session.lastMessage || 'Belum ada pesan'}</span>
-                    <small>{new Date(session.updatedAt).toLocaleString()} · {session.messageCount} pesan · {session.checkpointCount} checkpoint</small>
+                    <small>{new Date(session.updatedAt).toLocaleString()} · {session.messageCount} pesan · {session.checkpointCount} checkpoint{session.projectPath ? ' · ' + pathName(session.projectPath) : ''}</small>
                   </button>
                   <button type="button" className="ai-icon-btn ai-session-delete" title="Hapus riwayat ini"
                     aria-label={'Hapus riwayat ' + (session.title || session.id)} disabled={loading}
@@ -1233,7 +1249,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                     <span className={'ai-checkpoint-status ' + checkpoint.status}>{checkpoint.status === 'applied' ? 'Perubahan aktif' : 'Sudah di-rewind'}</span>
                   </div>
                   {checkpoint.status === 'applied' ? (
-                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || checkpointActionBusy === checkpoint.id}
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || !sessionProjectPath || !sameWorkspacePath(sessionProjectPath, wb.root) || checkpointActionBusy === checkpoint.id}
                       onClick={() => void runCheckpointAction(checkpoint.id, 'rewind')}>
                       {checkpointActionBusy === checkpoint.id ? 'Memulihkan…' : 'Rewind'}
                     </button>
