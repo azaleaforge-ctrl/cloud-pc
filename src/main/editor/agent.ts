@@ -61,7 +61,7 @@ const IGNORED_DIRS = new Set([
   '.cache', 'coverage', '.venv', 'venv', '__pycache__', '.idea',
   '.vscode', 'release', 'vendor', 'target',
 ]);
-const SENSITIVE_NAME = /(^\.env($|\.)|(^|[._-])(secret|secrets|credential|credentials|token|private[_-]?key)([._-]|$)|(^|[\\/])id_rsa$|\.(pem|pfx|key)$/i;
+const SENSITIVE_NAME = /(?:^\.env(?:$|\.)|(?:^|[._-])(?:secret|secrets|credential|credentials|token|private[_-]?key)(?:[._-]|$)|(?:^|[\\/])id_rsa$|\.(?:pem|pfx|key)$)/i;
 
 const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
