@@ -328,15 +328,17 @@ export async function recordAgentFileCheckpoint(
     record.checkpoints.push(checkpoint);
   }
   const oldExists = change.operation !== 'create';
+  const index = checkpoint.files.findIndex(item => item.path === rel);
+  const previous = index >= 0 ? checkpoint.files[index] : null;
   const file: AgentCheckpointFile = {
     path: rel,
-    oldExists,
-    oldContent: change.oldContent,
+    // Multiple writes to the same file in one run retain the original pre-run state.
+    oldExists: previous ? previous.oldExists : oldExists,
+    oldContent: previous ? previous.oldContent : change.oldContent,
     newContent: change.newContent,
-    oldHash: oldExists ? hashText(change.oldContent) : 'absent',
+    oldHash: previous ? previous.oldHash : (oldExists ? hashText(change.oldContent) : 'absent'),
     newHash: hashText(change.newContent),
   };
-  const index = checkpoint.files.findIndex(item => item.path === rel);
   if (index >= 0) checkpoint.files[index] = file;
   else checkpoint.files.push(file);
   const checkpointBytes = checkpoint.files.reduce((total, item) =>
@@ -385,9 +387,7 @@ async function applyCheckpoint(
       const currentContent = currentExists ? await readFile(target, 'utf8') : '';
       const expectedExists = direction === 'rewind' ? true : file.oldExists;
       const expectedHash = direction === 'rewind' ? file.newHash : file.oldHash;
-      if (direction === 'rewind' && !file.oldExists) {
-        if (currentExists && hashText(currentContent) !== file.newHash) throw new Error('File berubah di luar agent: ' + file.path);
-      } else if (currentExists !== expectedExists || (currentExists && hashText(currentContent) !== expectedHash)) {
+      if (currentExists !== expectedExists || (currentExists && hashText(currentContent) !== expectedHash)) {
         throw new Error('Isi file berubah setelah checkpoint: ' + file.path + '. Pemulihan dibatalkan agar perubahan manual tidak tertimpa.');
       }
       pending.push({ target, file, currentExists, currentContent });
