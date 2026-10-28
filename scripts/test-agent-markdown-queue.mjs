@@ -24,5 +24,6 @@ assert.ok(queueHost.includes('if (holder === null)') && queueHost.includes('void
 assert.ok(queueHost.includes('Date.now() - holderLastActivity >= IDLE_TIMEOUT_MS'), 'fresh activity must recover an expired idle turn');
 assert.ok(chat.includes('available.filter((session) => sameWorkspacePath(session.projectPath, wb.root))'), 'initial session restore must be scoped to the selected project folder');
 assert.ok(chat.includes('const sessionWorkspaceRef = useRef<string | null>(wb.root)'), 'workspace changes must be tracked independently');
+assert.ok(chat.includes('const workspaceSessions = sessions.filter((session) => sameWorkspacePath(session.projectPath, wb.root))'), 'history UI must only show sessions for the active project folder');
 assert.ok(chat.includes('setMessages([]);') && chat.includes('setConversationId(makeConversationId());'), 'switching project folders must create a fresh visible conversation');
-console.log('Agent Markdown, queue, and workspace-session regression tests: 15 assertions passed.');
+console.log('Agent Markdown, queue, and workspace-session regression tests: 16 assertions passed.');
