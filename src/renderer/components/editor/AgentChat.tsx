@@ -553,6 +553,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const activeSessionRef = useRef<string | null>(null);
+  const cancelRequestedRef = useRef(false);
 
   const refreshRouterStatus = useCallback(async () => {
     try {
@@ -755,6 +756,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
           setMessages((previous) => previous.map((item, index) =>
             index === previous.length - 1 && item.role === 'assistant' ? { ...item, streaming: false } : item,
           ));
+          cancelRequestedRef.current = false;
+          if (activeSessionRef.current === sessionId) activeSessionRef.current = null;
           setActiveSessionId((current) => current === sessionId ? null : current);
         }
       } else if (event.type === 'exit') {
@@ -839,7 +842,10 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setLoading(true);
     setActiveSessionId(null);
     setPermission(null);
-    activeSessionRef.current = 'pending-session';
+    cancelRequestedRef.current = false;
+    // Allow initial events while IPC resolves the newly created session ID. The
+    // ID becomes authoritative as soon as agentStartChat returns.
+    activeSessionRef.current = null;
     try {
       const compactContext = [...messages.filter(message => !message.streaming), userMessage]
         .filter(message => message.role === 'user' || message.role === 'assistant')
@@ -850,7 +856,17 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       activeSessionRef.current = result.sessionId;
       setActiveSessionId(result.sessionId);
       setPendingAttachments([]);
+      if (cancelRequestedRef.current) {
+        setActivity('Membatalkan agent…');
+        try {
+          await window.rk.agentStop(result.sessionId);
+        } catch (cancelError) {
+          setError('Pembatalan agent gagal: ' + ((cancelError as Error).message || 'kesalahan tidak diketahui'));
+        }
+      }
     } catch (err) {
+      cancelRequestedRef.current = false;
+      activeSessionRef.current = null;
       setError((err as Error).message || 'Gagal memulai agent.');
       setLoading(false);
       setActivity('');
@@ -861,10 +877,32 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   }, [input, pendingAttachments, loading, sessionReady, activeAgent, messages, routerStatus?.configured, wb.root, wb.activePath, conversationId, sessionProjectPath]);
 
   const stopAgent = useCallback(async () => {
-    if (!activeSessionId) return;
+    cancelRequestedRef.current = true;
+    if (!activeSessionId) {
+      if (loading) setActivity('Pembatalan diminta… menunggu ID sesi agar proses bisa dihentikan.');
+      return;
+    }
+    setActivity('Menghentikan agent dan proses turunannya…');
     try { await window.rk.agentStop(activeSessionId); }
-    catch (err) { setError('Gagal menghentikan agent: ' + (err as Error).message); }
-  }, [activeSessionId]);
+    catch (err) {
+      setError('Gagal menghentikan agent: ' + ((err as Error).message || 'kesalahan tidak diketahui'));
+      cancelRequestedRef.current = false;
+    }
+  }, [activeSessionId, loading]);
+
+  useEffect(() => {
+    if (!visible || !loading) return;
+    const onGlobalKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.repeat) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void stopAgent();
+    };
+    window.addEventListener('keydown', onGlobalKeyDown, true);
+    return () => window.removeEventListener('keydown', onGlobalKeyDown, true);
+  }, [visible, loading, stopAgent]);
 
   const testRouterConnection = useCallback(async (): Promise<AgentRouterTestResult | null> => {
     setTestingConnection(true);
