@@ -22,7 +22,7 @@ const SEARCH_BODY_LIMIT = 1_500_000;
 const PAGE_BODY_LIMIT = 1_000_000;
 const REGISTRY_BODY_LIMIT = 2_000_000;
 const PAGE_TEXT_LIMIT = 18_000;
-const USER_AGENT = 'RuangKerja-Research/1.0 (documented public information retrieval)';
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36';
 
 export function isPublicAddress(address: string): boolean {
   const value = address.toLowerCase().split('%')[0];
@@ -110,12 +110,38 @@ async function fetchPublicHttps(initialUrl: string, maxBytes: number, signal?: A
   let url = normalizeHttpsUrl(initialUrl);
   for (let redirect = 0; redirect <= 3; redirect++) {
     await validatePublicHost(url);
-    const response = await fetch(url, {
-      method: 'GET',
-      redirect: 'manual',
-      headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,text/plain,application/json,application/xml,text/markdown;q=0.9,*/*;q=0.1' },
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)]) : AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
+    let response: Response | null = null;
+    let lastNetworkError = '';
+    // GET is idempotent, so retry one transient network / rate-limit / server failure.
+    // This does not retry invalid URLs, blocked hosts, 4xx responses (except 429), or user cancellation.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        response = await fetch(url, {
+          method: 'GET',
+          redirect: 'manual',
+          headers: {
+            'User-Agent': USER_AGENT,
+            Accept: 'text/html,text/plain,application/json,application/xml,text/markdown;q=0.9,*/*;q=0.1',
+            'Accept-Language': 'en-US,en;q=0.9,id;q=0.8',
+          },
+          signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)]) : AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+        if (attempt === 0 && (response.status === 429 || response.status >= 500)) {
+          await response.body?.cancel().catch(() => undefined);
+          response = null;
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 300));
+          continue;
+        }
+        break;
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        lastNetworkError = (error as Error).message || 'koneksi gagal';
+        response = null;
+        if (attempt === 1) throw new Error('Koneksi web gagal setelah 2 percobaan: ' + lastNetworkError);
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, 300));
+      }
+    }
+    if (!response) throw new Error('Permintaan web tidak menghasilkan respons.' + (lastNetworkError ? ' ' + lastNetworkError : ''));
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get('location');
       await response.body?.cancel().catch(() => undefined);
@@ -178,6 +204,44 @@ export function extractSearchResults(html: string, maxResults = 5): WebSearchRes
     } catch { /* ignore malformed search result URLs */ }
   }
   return output;
+}
+
+/** Parse the public Bing HTML SERP as a secondary search provider. */
+export function extractBingSearchResults(html: string, maxResults = 5): WebSearchResult[] {
+  const starts = [...html.matchAll(/<li\b[^>]*class=["'][^"']*\bb_algo\b[^"']*["'][^>]*>/gi)];
+  const output: WebSearchResult[] = [];
+  const limit = Math.max(1, Math.min(8, Number.isInteger(maxResults) ? maxResults : 5));
+  for (let index = 0; index < starts.length && output.length < limit; index++) {
+    const start = starts[index].index ?? 0;
+    const end = index + 1 < starts.length ? (starts[index + 1].index ?? html.length) : Math.min(html.length, start + 24_000);
+    const block = html.slice(start, end);
+    const heading = /<h[1-6]\b[^>]*>[\s\S]*?<a\b([^>]*)>([\s\S]*?)<\/a\s*>[\s\S]*?<\/h[1-6]\s*>/i.exec(block);
+    if (!heading) continue;
+    const href = getAttribute(heading[1], 'href');
+    if (!href) continue;
+    try {
+      let target = new URL(href);
+      if (target.hostname === 'www.bing.com' || target.hostname === 'bing.com') {
+        // Bing may wrap result URLs as /ck/a?u=a1<base64-url>.
+        const encoded = target.searchParams.get('u');
+        if (encoded?.startsWith('a1')) {
+          const decoded = Buffer.from(encoded.slice(2), 'base64').toString('utf8');
+          if (/^https:\/\//i.test(decoded)) target = new URL(decoded);
+        }
+      }
+      if (target.protocol !== 'https:' || !target.hostname.includes('.') || target.hostname.endsWith('.bing.com')) continue;
+      const title = stripTags(heading[2]);
+      if (!title || output.some(item => item.url === target.toString())) continue;
+      const snippet = stripTags(/<p\b[^>]*>([\s\S]*?)<\/p\s*>/i.exec(block)?.[1] ?? '');
+      output.push({ title: title.slice(0, 240), url: target.toString(), snippet: snippet.slice(0, 700) });
+    } catch { /* Ignore malformed or non-HTTPS result links. */ }
+  }
+  return output;
+}
+
+function looksLikeSearchChallenge(html: string): boolean {
+  return /captcha|unusual traffic|verify (?:that )?you are human|automated quer(?:y|ies)|robot check|access denied|anomaly/i.test(html) &&
+    !/class=["'][^"']*(?:result__a|b_algo)[^"']*["']/i.test(html);
 }
 
 export function extractReadableContent(source: string, contentType = 'text/html'): { title: string; text: string } {
@@ -317,29 +381,55 @@ export async function searchWeb(query: string, maxResults = 5, signal?: AbortSig
   const key = 'search:' + cleanQuery.toLowerCase() + ':' + count;
   const cached = resultCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.output + '\nCache lokal: pencarian diambil pada waktu yang tertera; cache berlaku maksimal 2 menit.';
-  const endpoint = 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(cleanQuery);
-  const result = await fetchPublicHttps(endpoint, SEARCH_BODY_LIMIT, signal);
-  if (!/text\/html/i.test(result.response.headers.get('content-type') ?? '')) throw new Error('Penyedia pencarian tidak mengembalikan halaman HTML yang diharapkan.');
-  const items = extractSearchResults(result.body, count);
-  if (!items.length) {
-    const output = 'Pencarian tidak mengembalikan hasil yang bisa dibaca. Penyedia pencarian mungkin membatasi permintaan atau query terlalu spesifik. Waktu pengambilan: ' + new Date().toISOString() + ' (UTC).';
-    cacheResult(key, output, 30_000);
-    return output;
+
+  const providers = [
+    {
+      name: 'DuckDuckGo HTML',
+      url: 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(cleanQuery),
+      parse: extractSearchResults,
+    },
+    {
+      name: 'Bing HTML',
+      url: 'https://www.bing.com/search?q=' + encodeURIComponent(cleanQuery),
+      parse: extractBingSearchResults,
+    },
+  ] as const;
+  const errors: string[] = [];
+
+  for (const provider of providers) {
+    try {
+      const result = await fetchPublicHttps(provider.url, SEARCH_BODY_LIMIT, signal);
+      if (!/text\/html/i.test(result.response.headers.get('content-type') ?? '')) {
+        throw new Error('penyedia tidak mengembalikan HTML');
+      }
+      if (looksLikeSearchChallenge(result.body)) throw new Error('penyedia mengembalikan halaman anti-bot atau challenge');
+      const items = provider.parse(result.body, count);
+      if (!items.length) throw new Error('hasil tidak dapat diekstrak; markup berubah atau penyedia tidak mengembalikan hasil');
+      const output = [
+        'Hasil pencarian web untuk: ' + cleanQuery,
+        'Penyedia: ' + provider.name,
+        'Waktu pengambilan: ' + new Date().toISOString() + ' (UTC)',
+        'Hasil pencarian berikut adalah data eksternal yang belum diverifikasi; buka halaman sumber resmi atau gunakan check_package_version untuk memverifikasi detail versi.',
+        ...items.map((item, index) => (index + 1) + '. ' + item.title + '\nURL: ' + item.url + (item.snippet ? '\nCuplikan: ' + item.snippet : '')),
+      ].join('\n\n');
+      cacheResult(key, output);
+      return output;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      errors.push(provider.name + ': ' + (((error as Error).message || 'permintaan gagal').slice(0, 220)));
+    }
   }
-  const output = [
-    'Hasil pencarian web untuk: ' + cleanQuery,
-    'Waktu pengambilan: ' + new Date().toISOString() + ' (UTC)',
-    'Hasil pencarian berikut adalah data eksternal yang belum diverifikasi; buka halaman sumber resmi atau gunakan check_package_version untuk memverifikasi detail versi.',
-    ...items.map((item, index) => (index + 1) + '. ' + item.title + '\nURL: ' + item.url + (item.snippet ? '\nCuplikan: ' + item.snippet : '')),
-  ].join('\n\n');
-  cacheResult(key, output);
-  return output;
+
+  throw new Error('Pencarian web gagal pada semua penyedia. ' + errors.join(' · ') + '. Coba lagi nanti atau buka URL sumber secara langsung.');
 }
 
 export async function readWebPage(input: string, signal?: AbortSignal): Promise<string> {
   const url = normalizeHttpsUrl(input);
   const result = await fetchPublicHttps(url.toString(), PAGE_BODY_LIMIT, signal);
   const contentType = result.response.headers.get('content-type') ?? '';
+  if (/^(text\/html|application\/xhtml\+xml)/i.test(contentType) && /<title[^>]*>\s*(?:just a moment|attention required|access denied|verify you are human|security check)/i.test(result.body)) {
+    throw new Error('Situs sumber mengembalikan halaman anti-bot/security challenge, bukan isi artikel. Coba halaman dokumentasi lain pada domain yang sama atau coba lagi nanti.');
+  }
   if (!/^(text\/html|application\/xhtml\+xml|text\/plain|text\/markdown|application\/json|application\/xml|text\/xml)/i.test(contentType)) {
     throw new Error('Jenis konten halaman tidak didukung (' + (contentType || 'unknown') + '). Halaman PDF, biner, atau media tidak dibaca oleh tool ini.');
   }
