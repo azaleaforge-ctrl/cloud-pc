@@ -36,7 +36,19 @@ function options(command, extra = {}) {
   };
 }
 
-const nodeCommand = (code) => 'node -e "' + code.replace(/"/g, '\\"') + '"';
+function terminalCommand(mode) {
+  if (mode === 'streams') {
+    return process.platform === 'win32'
+      ? 'echo terminal-runtime-ok & echo stderr-ok 1>&2'
+      : "printf 'terminal-runtime-ok\\n'; printf 'stderr-ok\\n' >&2";
+  }
+  if (mode === 'fail') return process.platform === 'win32' ? 'exit /b 7' : 'exit 7';
+  if (mode === 'hang') return process.platform === 'win32' ? 'ping -n 30 127.0.0.1 > NUL' : 'sleep 30';
+  if (mode === 'large') return process.platform === 'win32'
+    ? 'for /l %i in (1,1,1000) do @echo x'
+    : 'yes x | head -n 1000';
+  throw new Error('Unknown terminal test mode: ' + mode);
+}
 
 try {
   const bundlePath = join(temp, 'terminalRuntime.cjs');
@@ -52,7 +64,7 @@ try {
 
   const outputEvents = [];
   const success = await startTerminalCommand(options(
-    nodeCommand("console.log('terminal-runtime-ok'); console.error('stderr-ok')"),
+    terminalCommand('streams'),
     { onOutput: (event) => outputEvents.push(event) },
   )).promise;
   test('captures stdout and stderr and reports successful exit', () => {
@@ -64,14 +76,14 @@ try {
     assert.ok(outputEvents.some((event) => event.stream === 'stderr'));
   });
 
-  const failedRun = await startTerminalCommand(options(nodeCommand('process.exit(7)'))).promise;
+  const failedRun = await startTerminalCommand(options(terminalCommand('fail'))).promise;
   test('preserves non-zero exit code as a failure', () => {
     assert.equal(failedRun.status, 'failed');
     assert.equal(failedRun.exitCode, 7);
   });
 
   const timeoutRun = await startTerminalCommand(options(
-    nodeCommand('setTimeout(() => {}, 30000)'),
+    terminalCommand('hang'),
     { timeoutMs: 350 },
   )).promise;
   test('terminates a command after its configured timeout', () => {
@@ -92,7 +104,7 @@ try {
   });
 
   const limitedRun = await startTerminalCommand(options(
-    nodeCommand("process.stdout.write('x'.repeat(5000))"),
+    terminalCommand('large'),
     { maxOutputChars: 500 },
   )).promise;
   test('bounds captured output while the output callback can stream chunks', () => {
