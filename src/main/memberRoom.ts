@@ -31,6 +31,7 @@ export interface MemberRoom {
   approveQueue(requesterId: string): ActionResult;
   deferQueue(requesterId: string): ActionResult;
   reportActivity(source: string): ActionResult;
+  setAgentBusy(busy: boolean): ActionResult;
   close(): Promise<void>;
 }
 
@@ -58,6 +59,7 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
   let holderLastActivity: number | null = null;
   let holderActivitySource: string | null = null;
   let holderStartedAt: number | null = null;
+  let agentBusy = false;
 
   let closed = false;
   let welcomed = false;
@@ -72,7 +74,7 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
   const pending = new Map<string, ReturnType<typeof setTimeout>>();
 
   const emitQueue = (): void => {
-    opts.emit({ members, queue: { holder, queue: [...queue], holderLastActivity, holderActivitySource, holderStartedAt }, server });
+    opts.emit({ members, queue: { holder, queue: [...queue], holderLastActivity, holderActivitySource, holderStartedAt, agentBusy }, server });
   };
 
   const scheduleSyncEmit = (): void => {
@@ -304,6 +306,7 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
         holderLastActivity = msg.holderLastActivity ?? null;
         holderActivitySource = msg.holderActivitySource ?? null;
         holderStartedAt = msg.holderStartedAt ?? null;
+        agentBusy = msg.agentBusy === true;
         server = msg.server ?? server;
         emitQueue();
         break;
@@ -316,6 +319,7 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
         holderLastActivity = msg.holderLastActivity ?? null;
         holderActivitySource = msg.holderActivitySource ?? null;
         holderStartedAt = msg.holderStartedAt ?? null;
+        agentBusy = msg.agentBusy === true;
         server = msg.server ?? server;
         emitQueue();
         if (previousHolder !== holder) {
@@ -528,6 +532,14 @@ export async function joinAsMember(opts: MemberRoomOptions): Promise<MemberRoom>
     reportActivity: (source: string): ActionResult => {
       if (closed || !isOpen(socket)) return { ok: false, error: LOST_MESSAGE };
       sendWire(socket, { t: 'activity', source });
+      return { ok: true };
+    },
+    setAgentBusy: (busy: boolean): ActionResult => {
+      if (closed || !isOpen(socket)) return { ok: false, error: LOST_MESSAGE };
+      if (agentBusy === busy) return { ok: true };
+      agentBusy = busy;
+      const sent = sendWire(socket, { t: 'agent-busy', busy });
+      if (!sent) return { ok: false, error: LOST_MESSAGE };
       return { ok: true };
     },
     close: async (): Promise<void> => {

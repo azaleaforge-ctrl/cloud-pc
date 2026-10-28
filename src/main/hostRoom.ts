@@ -36,6 +36,7 @@ export interface HostRoom {
   approveQueue(requesterId: string): ActionResult;
   deferQueue(requesterId: string): ActionResult;
   reportActivity(memberId: string, source: string): void;
+  setAgentBusy(memberId: string, busy: boolean): void;
   setServerState(state: ServerState): void;
   close(): Promise<void>;
 }
@@ -83,6 +84,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   let holderLastActivity: number | null = holder ? Date.now() : null;
   let holderActivitySource: string | null = holder ? 'room-start' : null;
   let holderStartedAt: number | null = holder ? Date.now() : null;
+  let agentBusyHolder: string | null = null;
   let pendingPrompt: { requesterId: string; requesterName: string; expiresAt: number } | null = null;
   const snoozedUntil = new Map<string, number>();
 
@@ -122,7 +124,11 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     holderLastActivity = Date.now();
     holderActivitySource = source;
     if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = null;
     clearWarnTimer();
+
+    // Running code-agent work must not be released just because no file was saved yet.
+    if (agentBusyHolder === holder) return;
 
     const idleTimeout = getIdleTimeout(source);
     const warnTimeout = getWarnTimeout(source);
@@ -157,7 +163,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   const port = (wsServer.address() as AddressInfo).port;
 
   const listMembers = (): Member[] => [...members.values()];
-  const queueState = () => ({ holder, queue: [...queue], holderLastActivity, holderActivitySource, holderStartedAt });
+  const queueState = () => ({ holder, queue: [...queue], holderLastActivity, holderActivitySource, holderStartedAt, agentBusy: agentBusyHolder === holder });
 
   const broadcast = (msg: WireMessage, exceptId?: string): void => {
     for (const client of clients.values()) {
@@ -180,7 +186,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   };
 
   const sendState = (): void => {
-    broadcast({ t: 'state', members: listMembers(), holder, queue: [...queue], holderLastActivity, holderActivitySource, holderStartedAt, server: serverState });
+    broadcast({ t: 'state', members: listMembers(), holder, queue: [...queue], holderLastActivity, holderActivitySource, holderStartedAt, agentBusy: agentBusyHolder === holder, server: serverState });
   };
 
   const scheduleSyncEmit = (): void => {
@@ -371,6 +377,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
 
   const internalReleaseTurn = (byId: string, idle = false): ActionResult => {
     if (holder !== byId) return { ok: false, error: 'Kamu tidak sedang memegang giliran.' };
+    if (agentBusyHolder === byId) return { ok: false, error: 'AI Coding Agent masih bekerja. Hentikan agent sebelum melepas giliran.' };
     const member = members.get(byId);
     const name = member?.name ?? 'Anggota';
 
@@ -433,6 +440,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     return { ok: true };
   };
   const approveQueue = (requesterId: string): ActionResult => {
+    if (holder && agentBusyHolder === holder) return { ok: false, error: 'AI Coding Agent masih bekerja. Keputusan antrian tersedia setelah agent selesai.' };
     if (!holder || !pendingPrompt || pendingPrompt.requesterId !== requesterId) return { ok: false, error: 'Permintaan giliran sudah tidak aktif.' };
     const idx = queue.indexOf(requesterId);
     if (idx < 0) return { ok: false, error: 'Anggota tidak lagi berada di antrian.' };
@@ -455,6 +463,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
   };
 
   const deferQueue = (requesterId: string): ActionResult => {
+    if (holder && agentBusyHolder === holder) return { ok: false, error: 'AI Coding Agent masih bekerja. Tunda permintaan setelah agent selesai.' };
     if (!holder || !pendingPrompt || pendingPrompt.requesterId !== requesterId) return { ok: false, error: 'Permintaan giliran sudah tidak aktif.' };
     const requester = members.get(requesterId);
     if (!requester) return { ok: false, error: 'Anggota tidak dikenal.' };
@@ -522,6 +531,63 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     }
     sendState();
   };
+  const setAgentBusy = (memberId: string, busy: boolean): void => {
+    if (closed || !members.has(memberId) || holder !== memberId) return;
+
+    if (busy) {
+      agentBusyHolder = memberId;
+      holderLastActivity = Date.now();
+      holderActivitySource = 'ai-agent';
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = null;
+      clearWarnTimer();
+
+      // Cancel any pending auto-approval while the coding agent is active.
+      const requesterId = pendingPrompt?.requesterId ?? queue[0];
+      clearPrompt();
+      if (requesterId && queue.includes(requesterId)) {
+        const requester = members.get(requesterId);
+        if (requester) {
+          const holderName = members.get(memberId)?.name ?? 'Anggota';
+          if (memberId === opts.hostId) {
+            opts.emit({ queueNotice: { mode: 'bar', requesterId, requesterName: requester.name, holderName, expiresAt: null, deferredUntil: null } });
+          } else {
+            const holderClient = clients.get(memberId);
+            if (holderClient) sendWire(holderClient.ws, { t: 'queue-prompt', requesterId, requesterName: requester.name, holderName, expiresAt: null, mode: 'bar' });
+          }
+        }
+      }
+      applyHolderChange();
+      return;
+    }
+
+    if (agentBusyHolder !== memberId) return;
+    agentBusyHolder = null;
+    if (holder === memberId) {
+      resetIdleTimer('ui');
+      if (queue.length > 0) {
+        const requesterId = queue[0];
+        const requester = members.get(requesterId);
+        if (requester) {
+          const holderName = members.get(memberId)?.name ?? 'Anggota';
+          pendingPrompt = { requesterId, requesterName: requester.name, expiresAt: Date.now() + 15_000 };
+          if (memberId === opts.hostId) {
+            opts.emit({ queueNotice: { mode: 'decision', requesterId, requesterName: requester.name, holderName, expiresAt: pendingPrompt.expiresAt, deferredUntil: null } });
+          } else {
+            const holderClient = clients.get(memberId);
+            if (holderClient) sendWire(holderClient.ws, { t: 'queue-prompt', requesterId, requesterName: requester.name, holderName, expiresAt: pendingPrompt.expiresAt, mode: 'decision' });
+          }
+          promptTimer = setTimeout(() => {
+            promptTimer = null;
+            if (pendingPrompt?.requesterId === requesterId) approveQueue(requesterId);
+          }, 15_000);
+          promptTimer.unref?.();
+        }
+      }
+    }
+    applyHolderChange();
+  };
+
   const publishLocalChange = async (event: 'add' | 'change' | 'unlink', relPath: string): Promise<void> => {
     if (closed) return;
     if (consumeSuppressed(relPath)) return;
@@ -628,6 +694,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     if (!members.has(client.id)) return;
 
     const wasHolder = holder === client.id;
+    if (wasHolder && agentBusyHolder === client.id) agentBusyHolder = null;
     members.delete(client.id);
     const queueIndex = queue.indexOf(client.id);
     if (queueIndex >= 0) queue.splice(queueIndex, 1);
@@ -717,6 +784,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
           holderLastActivity,
           holderActivitySource,
           holderStartedAt,
+          agentBusy: agentBusyHolder === holder,
           hostIp: getLanIp() ?? '127.0.0.1',
           server: serverState,
         });
@@ -747,6 +815,9 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
         }
         case 'activity':
           reportActivity(client.id, typeof msg.source === 'string' ? msg.source : 'ui');
+          break;
+        case 'agent-busy':
+          setAgentBusy(client.id, msg.busy === true);
           break;
         case 'request-turn': {
           const member = members.get(client.id);
@@ -889,6 +960,7 @@ export async function createHostRoom(opts: HostRoomOptions): Promise<HostRoom> {
     approveQueue: (requesterId: string) => approveQueue(requesterId),
     deferQueue: (requesterId: string) => deferQueue(requesterId),
     reportActivity: (memberId: string, source: string) => reportActivity(memberId, source),
+    setAgentBusy: (memberId: string, busy: boolean) => setAgentBusy(memberId, busy),
     setServerState: (state: ServerState) => {
       serverState = { ...state, logs: [] };
       sendState();

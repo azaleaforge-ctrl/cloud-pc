@@ -22,6 +22,8 @@ export interface QueueState {
   holderActivitySource: string | null;
   /** Waktu (epoch ms) saat holder mulai bekerja — untuk menampilkan durasi di UI. */
   holderStartedAt: number | null;
+  /** True while the current holder's integrated AI coding agent is executing. */
+  agentBusy?: boolean;
 }
 
 export type QueueNoticeMode = 'bar' | 'decision' | 'deferred' | 'conflict';
@@ -247,8 +249,8 @@ export interface RkApi {
 /** Payload mentah protokol WebSocket host <-> member. */
 export type WireMessage =
   | { t: 'hello'; name: string; clientId: string }
-  | { t: 'welcome'; selfId: string; code: string; roomName: string; hostName: string; members: Member[]; holder: string | null; queue: string[]; holderLastActivity: number | null; holderActivitySource: string | null; holderStartedAt: number | null; hostIp: string; server: ServerState }
-  | { t: 'state'; members: Member[]; holder: string | null; queue: string[]; holderLastActivity: number | null; holderActivitySource: string | null; holderStartedAt: number | null; server: ServerState }
+  | { t: 'welcome'; selfId: string; code: string; roomName: string; hostName: string; members: Member[]; holder: string | null; queue: string[]; holderLastActivity: number | null; holderActivitySource: string | null; holderStartedAt: number | null; agentBusy?: boolean; hostIp: string; server: ServerState }
+  | { t: 'state'; members: Member[]; holder: string | null; queue: string[]; holderLastActivity: number | null; holderActivitySource: string | null; holderStartedAt: number | null; agentBusy?: boolean; server: ServerState }
   | { t: 'tree-begin'; total: number }
   | { t: 'file'; path: string; b64: string; mtime: number }
   | { t: 'tree-end' }
@@ -262,6 +264,7 @@ export type WireMessage =
   | { t: 'queue-approve'; requesterId: string }
   | { t: 'queue-defer'; requesterId: string }
   | { t: 'activity'; source: string }
+  | { t: 'agent-busy'; busy: boolean }
   | { t: 'request-turn'; requesterId: string; requesterName: string }
   | { t: 'turn-conflict'; holderId: string; holderName: string; requesterId: string; requesterName: string }
   | { t: 'queue-notice-conflict'; requesterId: string; requesterName: string; holderName: string }

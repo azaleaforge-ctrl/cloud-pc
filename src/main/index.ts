@@ -17,7 +17,7 @@ import type {
   ServerState,
   UpdateState,
 } from '../shared/types';
-import type { AgentRouterStatus, AgentRouterTestResult, ChatMessage } from '../shared/agents';
+import type { AgentEvent, AgentRouterStatus, AgentRouterTestResult, ChatMessage } from '../shared/agents';
 import { APP_VERSION } from '../shared/types';
 import { StateStore } from './store';
 import { detectFramework } from './frameworkDetect';
@@ -1015,6 +1015,30 @@ function registerIpc(): void {
   ipcMain.handle('rk:editor:debug-eval', (_e, expression: string) => editorDebugger.evaluate(expression));
 
   // --- AI Agent IPC ---
+  const activeAgentSessions = new Set<string>();
+  let lastQueueAgentBusy: boolean | null = null;
+  let lastQueueRoomKey = '';
+  const updateQueueAgentBusy = (): void => {
+    const state = store.get();
+    const roomKey = state.role + ':' + (state.code ?? '');
+    const busy = activeAgentSessions.size > 0;
+    if (lastQueueAgentBusy === busy && lastQueueRoomKey === roomKey) return;
+    lastQueueAgentBusy = busy;
+    lastQueueRoomKey = roomKey;
+    if (state.role === 'host' && hostRoom) hostRoom.setAgentBusy(settings.selfId, busy);
+    else if (state.role === 'member' && memberRoom) memberRoom.setAgentBusy(busy);
+  };
+  const emitAgentSessionEvent = (event: AgentEvent, sessionId: string): void => {
+    const before = activeAgentSessions.size;
+    if (event.type === 'state') {
+      if (event.state.status === 'starting' || event.state.status === 'running') activeAgentSessions.add(sessionId);
+      else if (event.state.status === 'stopped' || event.state.status === 'error' || event.state.status === 'idle') activeAgentSessions.delete(sessionId);
+    } else if (event.type === 'error' || event.type === 'exit') {
+      activeAgentSessions.delete(sessionId);
+    }
+    if (activeAgentSessions.size !== before) updateQueueAgentBusy();
+    send('rk:agent:event', { sessionId, event });
+  };
   ipcMain.handle('rk:agent:list', () => agentService.listAgents());
   ipcMain.handle('rk:agent:get-config', () => getAgentRouterStatus());
   ipcMain.handle('rk:agent:save-config', (_e, apiKey: string) => saveAgentRouterKey(apiKey));
@@ -1035,7 +1059,7 @@ function registerIpc(): void {
         return { ok: false, error: 'AI Coding Agent hanya bisa mulai saat kamu memegang giliran kerja. Masuk antrian terlebih dahulu.' };
       }
       const sessionId = await agentService.startChat(agentId, projectPath, (event, eventSessionId) => {
-        send('rk:agent:event', { sessionId: eventSessionId, event });
+        emitAgentSessionEvent(event, eventSessionId);
       }, messages, activePath, conversationId);
       return { ok: true, sessionId };
     } catch (err) {
@@ -1043,11 +1067,15 @@ function registerIpc(): void {
     }
   });
   ipcMain.handle('rk:agent:start-cli', async (_e, agentId: string, cols: number, rows: number) => {
-    const projectPath = store.get().projectPath;
+    const state = store.get();
+    const projectPath = state.projectPath;
     if (!projectPath) return { ok: false, error: 'Belum ada folder project.' };
+    if (state.role !== 'none' && state.queue.holder !== settings.selfId) {
+      return { ok: false, error: 'Agent CLI hanya bisa dimulai saat kamu memegang giliran kerja.' };
+    }
     try {
       const sessionId = await agentService.startCli(agentId, projectPath, cols, rows, (event, eventSessionId) => {
-        send('rk:agent:event', { sessionId: eventSessionId, event });
+        emitAgentSessionEvent(event, eventSessionId);
       });
       return { ok: true, sessionId };
     } catch (err) {
