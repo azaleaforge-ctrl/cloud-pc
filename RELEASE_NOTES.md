@@ -1,3 +1,43 @@
+# Ruang Kerja v1.0.0
+
+## Agentic Coding AI — local session memory, skills, editor workbench, file icons, and queue-aware execution
+
+### AI session memory
+- **Memory tetap lokal:** catatan sesi AI disimpan di direktori data aplikasi Electron, bukan di folder proyek pengguna dan bukan di cloud.
+- **Isolasi setiap chat:** percakapan baru membuat memory sesi baru dan menghapus memory sesi sebelumnya. Riwayat chat tidak dipulihkan dari localStorage setelah aplikasi dibuka ulang.
+- **Catatan ringkas untuk konteks penting:** coding agent dapat membaca dan memperbarui memory Markdown yang pendek untuk menyimpan keputusan terverifikasi, progres, batasan, dan perubahan yang benar-benar sudah dilakukan.
+- **Kontrol rahasia:** memory memiliki batas ukuran dan pemeriksaan pola token/credential umum. Memory bukan backup kode; file asli dan diff tetap menjadi sumber utama untuk mengetahui perubahan.
+
+### 10 built-in coding skills
+- **Pemilihan sesuai tugas:** Lazy Dev, Context Engineering, Debugging & Error Recovery, Security & Hardening, Test-Driven Development, Safe Code Changes & Versioning, No AI Slop UI, UI/UX Pro Max, Frontend UI Engineering, dan Backend Development.
+- **Pemuatan seperlunya:** konteks proyek dibatasi dan instruksi skill terpilih dimuat berdasarkan tugas, alih-alih memasukkan semua instruksi skill pada setiap permintaan.
+- **Penanda skill aktif:** UI menampilkan skill yang dipilih untuk tugas saat ini.
+- **Penyimpanan lokal:** katalog skill berada di direktori data aplikasi dan tidak mencampuri source code proyek.
+- **Catatan sumber:** skill bawaan Ruang Kerja merupakan instruksi terkurasi yang merujuk ke proyek skill open-source terkait; bukan salinan verbatim seluruh repositori upstream.
+
+### Editor dan Agentic Coding Chat
+- **Chat tetap di area editor:** AI Coding Agent ditampilkan sebagai tab di dalam workbench, sementara Activity Bar, Explorer, dan Status Bar tetap tersedia. Chat tidak lagi menggantikan seluruh halaman editor.
+- **Ruang percakapan lebih lebar:** bubble pesan pengguna dan area composer diberi batas lebar yang lebih besar agar pesan panjang tidak terpotong menjadi banyak baris terlalu cepat.
+- **Akses kontrol tetap tersedia:** tombol pengaturan AI, hentikan agent, dan Chat baru tetap dapat diakses dari toolbar.
+- **Efisiensi konteks:** inventory proyek serta cuplikan file aktif dibatasi, dan hanya beberapa pesan terakhir yang diteruskan sebagai riwayat kerja.
+
+### Ikon file
+- **Penanda berdasarkan tipe file:** Explorer, tab editor, dan daftar file proyek menampilkan glyph berwarna sesuai ekstensi, termasuk HTML, CSS, JavaScript, TypeScript, JSON, Markdown, PHP, Python, SQL, YAML, gambar, serta tipe umum lainnya.
+- **Nama khusus dikenali:** Dockerfile, README, LICENSE, berkas .env, dan berkas lock mendapat penanda khusus.
+
+### Antrian kerja dan AI Agent
+- **Status AI aktif dipublikasikan ke ruang:** host dan anggota menerima status bahwa AI Coding Agent sedang mengerjakan tugas atas nama pemegang giliran.
+- **Timer idle ditangguhkan selama agent bekerja:** giliran tidak dilepas otomatis hanya karena agent belum menyentuh berkas selama dua menit.
+- **Giliran tidak dilepas saat agent aktif:** pelepasan manual dan keputusan antrian diblokir sampai agent dihentikan atau selesai.
+- **Antrian dilanjutkan setelah selesai:** ketika agent selesai, sistem kembali menjalankan mekanisme idle dan meminta keputusan antrian; auto-approve 15 detik tetap berlaku setelah prompt keputusan aktif.
+- **Status terlihat di UI antrian:** pemegang giliran ditandai sebagai AI Coding ketika agent berjalan.
+
+### Detail Version
+- **Panel Detail Version tetap tersedia.** Rilis ini mempertahankan komponen riwayat versi dalam aplikasi dan sumber catatan rilis yang digunakan untuk menampilkan tiga versi terbaru.
+- Catatan rilis v1.0.0 menjadi sumber detail versi terbaru setelah rilis dipublikasikan.
+
+---
+
 # Ruang Kerja v0.4.9
 
 ## Penyempurnaan Markdown di AI Coding Agent
