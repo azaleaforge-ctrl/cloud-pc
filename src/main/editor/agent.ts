@@ -662,6 +662,7 @@ function isWorkspaceTool(name: string): boolean {
 
 async function executeTool(
   session: LlmSession,
+  userDataDir: string,
   root: string | null,
   call: ToolCall,
   approvals: Map<string, PendingApproval>,
@@ -1227,7 +1228,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
             if (requiresTodoPlan && session.todos.length === 0 && call.name !== 'todo_write' && call.name !== 'todo_read') {
               result = 'Tool ditahan: buat Todo List dengan todo_write terlebih dahulu untuk tugas multi-langkah, lalu ulangi tool ini.';
             } else {
-              result = await executeTool(session, root, call, pendingApprovals);
+              result = await executeTool(session, userDataDir, root, call, pendingApprovals);
             }
           } catch (error) {
             result = 'Tool gagal: ' + ((error as Error).message || 'kesalahan tidak diketahui');
