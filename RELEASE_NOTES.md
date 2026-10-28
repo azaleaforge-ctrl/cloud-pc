@@ -1,4 +1,25 @@
-# Ruang Kerja v1.0.0
+# Ruang Kerja v1.0.1
+
+## Agentic Coding AI — katalog Skill dan Plugin
+
+### Navigasi
+- Menu Ekstensi pada navigasi utama diganti menjadi **Skills**.
+- Ditambahkan menu **Plugin** terpisah.
+- Kedua halaman memiliki pencarian katalog dan tautan ke repositori upstream.
+
+### Katalog sumber terbuka
+- Katalog Skills memuat 15 referensi workflow dan panduan coding.
+- Katalog Plugin memuat 10 referensi tool/MCP untuk browser, filesystem, Git, GitHub, dokumentasi, dan database.
+- Entri katalog membuka sumber GitHub agar pengguna dapat memeriksa lisensi, dokumentasi, dan izin yang diperlukan.
+
+### Batasan implementasi
+- Katalog pada versi ini masih berupa direktori referensi. Instalasi satu-klik, validasi manifest, sandbox/izin plugin, dan pemuatan otomatis ke runtime Agentic Coding AI belum tersedia.
+- Pengiriman gambar/PDF/DOCX, ekstraksi konten dokumen, serta vision multimodal belum diimplementasikan pada rilis ini.
+- Rewind chat dan perubahan file per pesan, pengelolaan sesi seperti perintah `/sessions`, serta menu aksi pesan lengkap masih memerlukan implementasi terpisah.
+- Versi Detail di dalam aplikasi tetap dipertahankan.
+
+---
+
 
 ## Agentic Coding AI — local session memory, skills, editor workbench, file icons, and queue-aware execution
 
