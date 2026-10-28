@@ -67,7 +67,7 @@ try {
   });
 
   test('terminal recovery prompt describes the selected shell and forbids exit-code wrappers', () => {
-    const hint = guard.getToolRecoveryHint('run_terminal', 'Status: failed\nExit code: 1\nsyntax error');
+    const hint = guard.getToolRecoveryHint('run_terminal', 'Status: failed\nExit code: 1\nThe filename, directory name, or volume label syntax is incorrect.');
     assert.match(hint, /Shell terminal aktif/);
     assert.match(hint, /exit code/i);
     assert.match(hint, /jangan mengubah source code/i);
