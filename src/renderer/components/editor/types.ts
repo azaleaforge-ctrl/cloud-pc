@@ -2,7 +2,7 @@
 // berat (Monaco/Terminal). Jangan ubah tanpa menyamakan kedua sisi.
 import type { DebugPausedFrame, DebugStatus, EditorFileEntry, InstalledExtension, TerminalSessionInfo, VsxExtension } from '../../../shared/editor';
 
-export type SideView = 'explorer' | 'search' | 'extensions';
+export type SideView = 'explorer' | 'search' | 'skills';
 
 export type PanelView = 'terminal' | 'problems' | 'output' | 'debug';
 
