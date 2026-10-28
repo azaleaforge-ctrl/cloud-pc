@@ -2,7 +2,7 @@
 // Semua tipe di file ini adalah satu-satunya sumber kebenaran untuk IPC.
 
 import type { EditorApi } from './editor';
-import type { AgentEntry, ChatMessage, AgentEvent, RouterConfig } from './agents';
+import type { AgentEntry, AgentRouterStatus, ChatMessage, AgentEvent } from './agents';
 
 export type Role = 'none' | 'host' | 'member';
 
@@ -229,6 +229,9 @@ export interface RkApi {
 
   // --- AI Agent ---
   agentList(): Promise<AgentEntry[]>;
+  agentGetConfig(): Promise<AgentRouterStatus>;
+  agentSaveConfig(apiKey: string): Promise<ActionResult>;
+  agentApproveTool(sessionId: string, requestId: string, approved: boolean): Promise<void>;
   agentStartChat(agentId: string, messages?: ChatMessage[]): Promise<{ ok: boolean; sessionId?: string; error?: string }>;
   agentStartCli(agentId: string, cols: number, rows: number): Promise<{ ok: boolean; sessionId?: string; error?: string }>;
   agentSendInput(sessionId: string, data: string): Promise<void>;
