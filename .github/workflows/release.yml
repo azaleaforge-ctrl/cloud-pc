@@ -144,6 +144,19 @@ jobs:
           Add-Content -LiteralPath RELEASE_NOTES.md -Value "`n## Link download alternatif`nInstaller: $baseUrl/$prefix/$assetName"
           Write-Host "Cloudflare R2 mirror published: $baseUrl/$prefix/$assetName"
 
+      - name: Prepare current release description
+        shell: pwsh
+        run: |
+          $notes = Get-Content RELEASE_NOTES.md -Raw
+          $sections = $notes -split '(?m)^---\s*
+
+          $currentNotes = $sections[0].Trim()
+          if ([string]::IsNullOrWhiteSpace($currentNotes)) {
+            throw 'Catatan untuk versi terbaru kosong.'
+          }
+          Set-Content -LiteralPath 'release/release-notes.md' -Value $currentNotes -Encoding utf8
+          Write-Host 'Prepared release description for the current version only.'
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -151,7 +164,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: Ruang Kerja ${{ steps.release_meta.outputs.tag }}
           generate_release_notes: false
-          body_path: RELEASE_NOTES.md
+          body_path: release/release-notes.md
           files: |
             release/*.exe
             release/*.blockmap
