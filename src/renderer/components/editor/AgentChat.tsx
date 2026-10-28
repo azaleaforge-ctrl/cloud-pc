@@ -779,7 +779,6 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setTerminalHistory([]);
     setLastRunResult(null);
     setError(null);
-    setConversationId(makeConversationId());
 
     void (async () => {
       try {
@@ -797,7 +796,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         const available = await window.rk.agentListSessions();
         setSessions(available);
         const workspaceSessions = available.filter((session) => sameWorkspacePath(session.projectPath, wb.root));
-        if (workspaceSessions.length > 0) setConversationId(workspaceSessions[0].id);
+        setConversationId(workspaceSessions.length > 0 ? workspaceSessions[0].id : makeConversationId());
       } catch (err) {
         setError('Gagal memulihkan sesi proyek: ' + ((err as Error).message || 'kesalahan tidak diketahui'));
       }
