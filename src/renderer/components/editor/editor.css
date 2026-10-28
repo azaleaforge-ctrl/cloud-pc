@@ -2034,3 +2034,127 @@ button.ed-status-item:hover {
 .ai-panel.minimized .ai-panel-actions button[title="Perbesar panel"] {
   display: inline-flex;
 }
+
+/* v0.4.6: 9router onboarding, inline diagnostics, and compact connection test */
+.ai-error {
+  position: static;
+  display: block;
+  flex: none;
+  max-width: 100%;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(251, 113, 133, 0.3);
+  border-radius: 8px;
+  background: var(--ed-red-dim);
+  color: var(--ed-red);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.ai-settings-connection-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 8px;
+}
+.ai-settings-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ed-text-3);
+  font-size: 10px;
+}
+.ai-settings-state::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ed-red, #fb7185);
+}
+.ai-settings-state.configured::before {
+  background: var(--ed-green, #34d399);
+}
+.ai-settings-test {
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--ed-border-strong);
+  border-radius: 6px;
+  background: rgba(148, 163, 184, 0.08);
+  color: var(--ed-text-2);
+  font-size: 10px;
+  cursor: pointer;
+}
+.ai-settings-test:hover:not(:disabled) {
+  border-color: var(--ed-accent);
+  color: var(--ed-text);
+}
+.ai-settings-test:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.ai-test-result {
+  display: grid;
+  gap: 3px;
+  margin-top: 8px;
+  padding: 8px 9px;
+  border: 1px solid var(--ed-border);
+  border-radius: 7px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.ai-test-result.success {
+  border-color: rgba(52, 211, 153, 0.35);
+  background: rgba(52, 211, 153, 0.07);
+  color: var(--ed-text);
+}
+.ai-test-result.success strong { color: var(--ed-green, #34d399); }
+.ai-test-result.failure {
+  border-color: rgba(251, 113, 133, 0.35);
+  background: rgba(251, 113, 133, 0.07);
+  color: var(--ed-text);
+}
+.ai-test-result.failure strong { color: var(--ed-red, #fb7185); }
+.ai-test-result small {
+  color: var(--ed-text-3);
+  overflow-wrap: anywhere;
+}
+.ai-setup-needed {
+  flex: none;
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  margin: 8px 10px 0;
+  padding: 10px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: 9px;
+  background: rgba(120, 83, 10, 0.12);
+  color: var(--ed-text);
+}
+.ai-setup-icon { font-size: 16px; }
+.ai-setup-needed strong { font-size: 11.5px; line-height: 1.35; }
+.ai-setup-needed p {
+  margin: 0;
+  color: var(--ed-text-2);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+.ai-setup-needed button {
+  min-height: 27px;
+  padding: 0 9px;
+  border: 1px solid var(--ed-accent);
+  border-radius: 6px;
+  background: var(--ed-accent);
+  color: #03211b;
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ai-input-row { position: relative; }
+.ai-input-row .ai-input { min-width: 0; }
+.ai-panel .ai-messages { overscroll-behavior: contain; }
+.ai-agent-activity { overflow-wrap: anywhere; }
