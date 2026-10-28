@@ -13,6 +13,7 @@ import type { IPty } from '@lydell/node-pty';
 import type { AgentEntry, AgentEvent, AgentRunResult, AgentSkillSelection, AgentTodo, AgentToolActivity, ChatMessage, RouterConfig } from '../../shared/agents';
 import { applyAgentTodoUpdate } from './agentTodo';
 import { installBuiltinSkills, loadAgentSkillInstructions, selectAgentSkills } from './skills';
+import { startTerminalCommand } from './terminalRuntime';
 
 type EmitAgentEvent = (event: AgentEvent, sessionId: string) => void;
 
@@ -49,6 +50,10 @@ interface LlmSession {
   saveTodos: (todos: AgentTodo[]) => void;
   runStartedAt: number;
   totalToolCalls: number;
+  cancelTerminal?: () => void;
+  lastCodeChangeAt?: number;
+  todoStartedAt: Map<string, number>;
+  successfulTerminalChecks: Array<{ command: string; startedAt: number; finishedAt: number; exitCode: 0 }>;
 }
 interface ToolCall { id: string; name: string; arguments: string }
 interface ToolDefinition {
@@ -77,11 +82,12 @@ const MAX_AGENT_RUN_MINUTES = boundedIntegerEnvironment('RK_AGENT_MAX_RUN_MINUTE
 const MAX_AGENT_RUN_MS = MAX_AGENT_RUN_MINUTES * 60 * 1000;
 const MAX_REPEATED_TOOL_FAILURES = boundedIntegerEnvironment('RK_AGENT_MAX_REPEATED_FAILURES', 3, 2, 10);
 const MAX_NO_PROGRESS_REPLIES = boundedIntegerEnvironment('RK_AGENT_MAX_NO_PROGRESS_REPLIES', 2, 1, 5);
+const DEFAULT_COMMAND_TIMEOUT_SECONDS = boundedIntegerEnvironment('RK_AGENT_DEFAULT_COMMAND_TIMEOUT_SECONDS', 600, 10, 3600);
+const MAX_COMMAND_TIMEOUT_SECONDS = 3600;
 const MAX_READ_BYTES = 1024 * 1024;
 const MAX_TOOL_OUTPUT = 18_000;
 const MAX_SESSION_MEMORY_CHARS = 8_000;
 const SESSION_MEMORY_START = '# AI Session Memory\n\nThis file contains short-lived notes for the current chat only. Never store credentials or secrets here.\n';
-const COMMAND_TIMEOUT_MS = 120_000;
 const IGNORED_DIRS = new Set([
   '.git', 'node_modules', 'dist', 'build', 'out', '.next', '.turbo',
   '.cache', 'coverage', '.venv', 'venv', '__pycache__', '.idea',
@@ -206,12 +212,13 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'run_terminal',
-      description: 'Jalankan command dalam root proyek. Jelaskan alasan. Sistem akan menampilkan command dan meminta persetujuan pengguna terlebih dahulu.',
+      description: 'Jalankan command foreground dari root proyek untuk instalasi dependency, build, test, lint, atau typecheck. Output stdout/stderr dikirim secara streaming dan exit code aktual dikembalikan. Command memerlukan persetujuan pengguna. Jangan menjalankan development server persisten sebagai foreground command kecuali pengguna memang meminta proses tersebut dijalankan sampai timeout.',
       parameters: {
         type: 'object',
         properties: {
           command: { type: 'string', description: 'Command lengkap yang ingin dijalankan.' },
           reason: { type: 'string', description: 'Alasan mengapa command dibutuhkan.' },
+          timeout_seconds: { type: 'integer', minimum: 10, maximum: 3600, description: 'Timeout command dalam detik; default 600. Maksimum 3600 detik.' },
         },
         required: ['command', 'reason'],
         additionalProperties: false,
@@ -488,48 +495,70 @@ function askForCommandApproval(session: LlmSession, command: string, reason: str
   });
 }
 
-async function executeTerminalCommand(root: string, command: string): Promise<string> {
-  const cleanCommand = command.trim();
-  if (!cleanCommand) throw new Error('Command kosong.');
-  if (cleanCommand.length > 2000) throw new Error('Command terlalu panjang (maksimum 2000 karakter).');
+function isSourceCodeOrBuildConfigPath(path: string): boolean {
+  return /\.(?:ts|tsx|js|jsx|mjs|cjs|json|jsonc|css|scss|sass|less|html|vue|svelte|astro|php|py|pyi|rs|go|java|kt|kts|cs|fs|cpp|cc|c|h|hpp|sql|sh|bash|ps1|psm1|bat|cmd|yml|yaml|toml|xml|gradle|properties|swift|rb|ex|exs|erl|hrl|dart)$/i.test(path);
+}
 
-  return await new Promise<string>((resolveOutput, rejectOutput) => {
-    const isWindows = process.platform === 'win32';
-    const executable = isWindows ? (process.env.ComSpec || 'cmd.exe') : '/bin/sh';
-    const args = isWindows ? ['/d', '/s', '/c', cleanCommand] : ['-lc', cleanCommand];
-    let output = '';
-    let settled = false;
-    const append = (value: unknown) => { output = (output + String(value ?? '')).slice(-MAX_TOOL_OUTPUT); };
-    const child = spawn(executable, args, {
-      cwd: root, env: buildAgentEnv(root), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      child.kill();
-      resolveOutput('Command dihentikan karena melewati batas 120 detik.\n' + output);
-    }, COMMAND_TIMEOUT_MS);
-    child.stdout.on('data', append);
-    child.stderr.on('data', append);
-    child.once('error', (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      rejectOutput(error);
-    });
-    child.once('close', (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolveOutput('Exit code: ' + (code ?? 'unknown') + '\n' + (output || '(tidak ada output)'));
-    });
+function isVerificationCommand(command: string): boolean {
+  return /\b(?:build|test|tests|testing|lint|typecheck|type-check|type\s*check|compile|compilation|verify|verification|validate|check)\b|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:build|test|lint|typecheck|type-check|check|verify|validate)\b|composer\s+(?:test|validate)\b|cargo\s+(?:test|check|build)\b|pytest\b|phpunit\b|php\s+artisan\s+test\b|dotnet\s+(?:test|build)\b|mvn\s+(?:test|package|verify)\b|gradle\s+(?:test|build|check)\b|go\s+(?:test|build|vet)\b/i.test(command);
+}
+
+function todoRequiresTerminalVerification(todo: AgentTodo): boolean {
+  return /\b(?:build|test|tests|testing|lint|typecheck|type-check|type\s*check|compile|compilation|verify|verification|validate|check|uji|tes|verifikasi|pemeriksaan)\b|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:build|test|lint|typecheck|type-check|check|verify|validate)\b|composer\s+(?:test|validate)\b|cargo\s+(?:test|check|build)\b|pytest\b|phpunit\b|php\s+artisan\s+test\b|dotnet\s+(?:test|build)\b|mvn\s+(?:test|package|verify)\b|gradle\s+(?:test|build|check)\b/i.test(todo.title + ' ' + todo.verification);
+}
+
+async function executeTerminalCommand(
+  session: LlmSession,
+  root: string,
+  command: string,
+  timeoutSeconds: number,
+): Promise<string> {
+  const commandId = randomUUID();
+  const remainingRunMs = MAX_AGENT_RUN_MS - (Date.now() - session.runStartedAt);
+  if (remainingRunMs <= 0) return 'Tool gagal: batas waktu keseluruhan run agent sudah tercapai sebelum command dimulai.';
+  const timeoutMs = Math.max(100, Math.min(timeoutSeconds * 1000, remainingRunMs));
+  const effectiveTimeoutSeconds = Math.ceil(timeoutMs / 1000);
+  const handle = startTerminalCommand({
+    commandId,
+    command,
+    cwd: root,
+    env: buildAgentEnv(root),
+    timeoutMs,
+    maxOutputChars: MAX_TOOL_OUTPUT,
+    onOutput: (output) => emit(session, { type: 'terminal-output', output }),
+    onState: (terminalProcess) => emit(session, { type: 'terminal-process', process: terminalProcess }),
   });
+  session.cancelTerminal = handle.cancel;
+  emit(session, { type: 'activity', message: 'Terminal berjalan · timeout maksimum ' + effectiveTimeoutSeconds + ' detik' });
+
+  try {
+    const result = await handle.promise;
+    if (result.status === 'completed' && result.exitCode === 0 && isVerificationCommand(command)) {
+      session.successfulTerminalChecks.push({
+        command,
+        startedAt: result.startedAt,
+        finishedAt: result.finishedAt,
+        exitCode: 0,
+      });
+      if (session.successfulTerminalChecks.length > 50) session.successfulTerminalChecks.splice(0, session.successfulTerminalChecks.length - 50);
+    }
+
+    const duration = 'Durasi: ' + (result.durationMs / 1000).toFixed(1) + ' detik';
+    const exit = 'Exit code: ' + (result.exitCode === null ? 'unknown' : result.exitCode);
+    const prefix = result.status === 'completed'
+      ? [exit, duration]
+      : ['Status: ' + result.status, exit, result.message || 'Command tidak selesai dengan sukses.', duration];
+    return [...prefix, result.output || '(tidak ada output)'].join('\n');
+  } finally {
+    if (session.cancelTerminal === handle.cancel) session.cancelTerminal = undefined;
+  }
 }
 
 function isToolFailureResult(result: string): boolean {
   if (/^(?:Tool gagal:|Tool ditahan:|Tool tidak dikenal:|Akses ditolak|Path ditolak|Memory ditolak|Pengguna menolak)/i.test(result.trim())) return true;
+  if (/^Status:\s*(?:failed|timed_out|cancelled)/im.test(result)) return true;
   if (/dihentikan karena melewati batas/i.test(result)) return true;
-  const exitCode = result.match(/^Exit code:\s*(-?\d+)/);
+  const exitCode = result.match(/(?:^|\n)Exit code:\s*(-?\d+)/);
   return exitCode ? Number(exitCode[1]) !== 0 : false;
 }
 
@@ -593,6 +622,7 @@ async function executeTool(
       emit(session, { type: 'activity', message: 'Menulis perubahan ke workspace: ' + path });
       const result = await writeProjectFile(root, path, args.content);
       if (result.change) {
+        if (isSourceCodeOrBuildConfigPath(result.change.path)) session.lastCodeChangeAt = Date.now();
         emit(session, {
           type: 'file-change',
           change: {
@@ -613,7 +643,21 @@ async function executeTool(
       return JSON.stringify(session.todos, null, 2);
     }
     case 'todo_write': {
+      const previousById = new Map(session.todos.map((todo): [string, AgentTodo] => [todo.id, todo]));
       const next = applyAgentTodoUpdate(session.todos, args.todos);
+      for (const todo of next) {
+        const previous = previousById.get(todo.id);
+        if (todo.status === 'in_progress' && previous?.status !== 'in_progress') {
+          session.todoStartedAt.set(todo.id, todo.updatedAt);
+        }
+        if (todo.status === 'completed' && previous?.status === 'in_progress' && todoRequiresTerminalVerification(todo)) {
+          const taskStartedAt = session.todoStartedAt.get(todo.id) ?? previous.updatedAt;
+          const verified = session.successfulTerminalChecks.some((check) => check.exitCode === 0 && check.finishedAt >= taskStartedAt);
+          if (!verified) {
+            throw new Error('Task belum bisa completed: "' + todo.title + '" membutuhkan build/test/lint/typecheck yang benar-benar berakhir dengan exit code 0 setelah task dimulai. Jalankan pemeriksaan yang sesuai lewat run_terminal, perbaiki error jika gagal, lalu coba lagi.');
+          }
+        }
+      }
       session.todos = next;
       session.saveTodos(next);
       emit(session, { type: 'todo-update', todos: next });
@@ -655,15 +699,21 @@ async function executeTool(
     case 'run_terminal': {
       const command = stringArg('command').trim();
       const reason = stringArg('reason', 'Agent meminta menjalankan command.');
-      if (!command) return 'Command kosong; tidak dijalankan.';
+      const requestedTimeout = args.timeout_seconds;
+      if (!command) return 'Tool gagal: command kosong; tidak dijalankan.';
+      if (requestedTimeout !== undefined && (!Number.isInteger(requestedTimeout) || Number(requestedTimeout) < 10 || Number(requestedTimeout) > MAX_COMMAND_TIMEOUT_SECONDS)) {
+        return 'Tool gagal: timeout_seconds harus bilangan bulat antara 10 dan ' + MAX_COMMAND_TIMEOUT_SECONDS + '.';
+      }
+      const timeoutSeconds = requestedTimeout === undefined ? DEFAULT_COMMAND_TIMEOUT_SECONDS : Number(requestedTimeout);
       emit(session, { type: 'activity', message: 'Menunggu persetujuan command terminal…' });
-      const approved = await askForCommandApproval(session, command, reason, approvals);
+      const approved = await askForCommandApproval(session, command, reason + ' · batas waktu ' + timeoutSeconds + ' detik', approvals);
       if (!approved) {
         emit(session, { type: 'activity', message: 'Command ditolak atau waktu persetujuan habis.' });
         return 'Pengguna menolak atau tidak menyetujui command dalam 2 menit. Jangan ulangi tanpa meminta persetujuan baru.';
       }
-      emit(session, { type: 'activity', message: 'Menjalankan command: ' + command });
-      return await executeTerminalCommand(root, command);
+      if (session.killed) return 'Command dibatalkan karena agent dihentikan sebelum eksekusi.';
+      emit(session, { type: 'activity', message: 'Menjalankan command terminal…' });
+      return await executeTerminalCommand(session, root, command, timeoutSeconds);
     }
     default:
       return 'Tool tidak dikenal: ' + call.name;
@@ -886,7 +936,8 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         'write_project_file benar-benar membuat file atau menulis file ke disk pada folder project aktif. Setelah memakai tool, hasilnya akan muncul sebagai daftar perubahan dengan diff lama/baru.',
         'Path tool harus relatif ke root proyek atau absolute path di dalam root tersebut. Jangan menulis di luar root workspace.',
         'Jangan mengakses file secret seperti .env, API token, credentials, atau private key. Folder dependency/build diabaikan dari inventory.',
-        'Gunakan run_terminal untuk build/test/lint jika diperlukan; command meminta persetujuan pengguna sebelum dijalankan. Jangan mengaku tes telah dijalankan jika tool belum dipanggil.',
+        'Gunakan run_terminal untuk instalasi dependency dan pemeriksaan project. Output stdout/stderr muncul secara streaming dan tool mengembalikan exit code asli. Timeout default 600 detik; tentukan timeout_seconds lebih tinggi bila instalasi/build besar memang memerlukannya. Command harus meminta persetujuan pengguna; jika ditolak/timeout, laporkan secara jujur dan jangan mengulang command yang sama tanpa persetujuan baru.',
+        'Setelah menulis atau mengubah source code/konfigurasi, wajib pilih pemeriksaan yang tersedia dari project (misalnya script build, test, lint, atau typecheck pada package.json, Composer/PHP, Python, Rust, Go, .NET, Java). Jalankan melalui run_terminal dan tunggu exit code 0. Jika gagal, baca output, perbaiki masalah yang relevan, lalu jalankan pemeriksaan ulang. Instalasi dependency yang sukses saja bukan bukti bahwa build/test lulus. Jangan tandai task verifikasi completed tanpa hasil command nyata yang sukses.',
         'Lakukan pekerjaan sampai benar-benar ada perubahan pada file jika perubahan kode diminta, lalu rangkum file yang diubah, alasan, dan hasil tes.',
         'Skills aktif untuk tugas ini:\n' + (skillInstructions || '(tidak ada skill khusus selain aturan inti agent)'),
       ].join('\n\n');
@@ -938,6 +989,20 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         if (session.killed) break;
 
         if (completion.toolCalls.length === 0) {
+          const needsPostChangeVerification = session.lastCodeChangeAt !== undefined &&
+            !session.successfulTerminalChecks.some((check) => check.exitCode === 0 && check.finishedAt >= (session.lastCodeChangeAt ?? Number.POSITIVE_INFINITY));
+          if (needsPostChangeVerification) {
+            if (noProgressReplies < MAX_NO_PROGRESS_REPLIES) {
+              noProgressReplies += 1;
+              conversation.push({
+                role: 'user',
+                content: 'Kode atau konfigurasi project telah berubah, tetapi belum ada build/test/lint/typecheck yang sukses setelah perubahan terakhir. Periksa package.json, lockfile, atau konfigurasi framework untuk memilih command verifikasi yang memang tersedia. Jalankan melalui run_terminal, baca stdout/stderr dan exit code, lalu perbaiki kode jika gagal. Jangan menyatakan selesai tanpa hasil verifikasi; jika tidak ada pemeriksaan yang bisa dijalankan, jelaskan hambatan secara spesifik.',
+              });
+              continue;
+            }
+            blockedReason = 'Kode atau konfigurasi project berubah, tetapi belum ada build/test/lint/typecheck yang sukses setelah perubahan terakhir. Implementasi belum diverifikasi.';
+            break;
+          }
           if (codingIntent && !hasUsedWorkspaceTools && !forcedToolRetryUsed) {
             forcedToolRetryUsed = true;
             conversation.push({
@@ -1039,6 +1104,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
             },
           });
           if (isWorkspaceTool(call.name) && !failed) hasUsedWorkspaceTools = true;
+          if (!failed) noProgressReplies = 0;
 
           const failureKey = repeatedFailureSignature(call, result);
           if (failureKey) {
@@ -1135,6 +1201,8 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         isConversationCurrent: () => isCurrentConversation(selectedConversation),
         todos: [...initialTodos],
         saveTodos: (todos) => conversationTodos.set(selectedConversation, [...todos]),
+        todoStartedAt: new Map(initialTodos.filter((todo) => todo.status === 'in_progress').map((todo): [string, number] => [todo.id, todo.updatedAt])),
+        successfulTerminalChecks: [],
         runStartedAt: Date.now(),
         totalToolCalls: 0,
       };
@@ -1203,6 +1271,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       const llm = llmSessions.get(sessionId);
       if (llm) {
         llm.killed = true;
+        llm.cancelTerminal?.();
         llm.controller.abort();
         settlePending(sessionId, false);
         return;
@@ -1232,6 +1301,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       cliSessions.clear();
       for (const session of llmSessions.values()) {
         session.killed = true;
+        session.cancelTerminal?.();
         session.controller.abort();
         settlePending(session.id, false);
       }

@@ -10,6 +10,7 @@ import type {
   AgentRunResult,
   AgentTodo,
   AgentToolActivity,
+  AgentTerminalProcess,
   ChatMessage,
 } from '../../../shared/agents';
 import { IconSend, Spinner, IconCopy, IconX, IconTrash, IconCheck } from '../icons';
@@ -441,6 +442,32 @@ function ToolActivityList({ activities }: { activities: AgentToolActivity[] }) {
   );
 }
 
+function TerminalRunPanel({ process, output }: { process: AgentTerminalProcess; output: string }) {
+  const statusLabel: Record<AgentTerminalProcess['status'], string> = {
+    starting: 'Memulai',
+    running: 'Berjalan',
+    completed: 'Berhasil',
+    failed: 'Gagal',
+    timed_out: 'Timeout',
+    cancelled: 'Dibatalkan',
+  };
+  const elapsed = Math.max(0, Math.round(((process.finishedAt ?? Date.now()) - process.startedAt) / 1000));
+  return (
+    <section className={'ai-terminal-run status-' + process.status} aria-label="Output terminal agent">
+      <header className="ai-terminal-run-header">
+        <div>
+          <strong>Terminal agent</strong>
+          <span className={'ai-terminal-status status-' + process.status}>{statusLabel[process.status]}</span>
+        </div>
+        <small>{process.exitCode === undefined ? 'Exit code menunggu' : 'Exit code: ' + (process.exitCode === null ? 'unknown' : process.exitCode)} · {elapsed} detik</small>
+      </header>
+      <code className="ai-terminal-command">{process.command}</code>
+      {process.message ? <p className="ai-terminal-message">{process.message}</p> : null}
+      <pre className="ai-terminal-output">{output || (process.status === 'running' ? 'Menunggu output dari command…' : '(tidak ada output)')}</pre>
+    </section>
+  );
+}
+
 function RunResultBanner({ result }: { result: AgentRunResult }) {
   const label: Record<AgentRunResult['outcome'], string> = {
     completed: 'Run selesai',
@@ -467,6 +494,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [todos, setTodos] = useState<AgentTodo[]>([]);
   const [toolActivities, setToolActivities] = useState<AgentToolActivity[]>([]);
   const [lastRunResult, setLastRunResult] = useState<AgentRunResult | null>(null);
+  const [terminalProcess, setTerminalProcess] = useState<AgentTerminalProcess | null>(null);
+  const [terminalOutput, setTerminalOutput] = useState('');
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -558,6 +587,11 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         });
       } else if (event.type === 'run-result') {
         setLastRunResult(event.result);
+      } else if (event.type === 'terminal-process') {
+        setTerminalProcess(event.process);
+        if (event.process.status === 'starting') setTerminalOutput('');
+      } else if (event.type === 'terminal-output') {
+        setTerminalOutput((previous) => (previous + event.output.data).slice(-12000));
       } else if (event.type === 'skills') {
         setActiveSkills(event.skills);
       } else if (event.type === 'output') {
@@ -607,7 +641,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading, activity, permission, changes, todos, toolActivities, lastRunResult]);
+  }, [messages, loading, activity, permission, changes, todos, toolActivities, lastRunResult, terminalProcess, terminalOutput]);
 
   const activeAgent = agents.find((agent) => agent.id === activeAgentId);
 
@@ -638,6 +672,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setError(null);
     setLastRunResult(null);
     setToolActivities([]);
+    setTerminalProcess(null);
+    setTerminalOutput('');
     setActivity('Mempersiapkan workspace…');
     const userMessage: ChatMessage = { id: 'user-' + Date.now(), role: 'user', content: text, ts: Date.now() };
     const assistantMessage: ChatMessage = { id: 'assistant-' + Date.now(), role: 'assistant', content: '', ts: Date.now(), streaming: true };
@@ -733,6 +769,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setTodos([]);
     setToolActivities([]);
     setLastRunResult(null);
+    setTerminalProcess(null);
+    setTerminalOutput('');
     setError(null);
     setActivity('');
     setPermission(null);
@@ -911,6 +949,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 </div>
               </div>
             ) : null}
+            {terminalProcess ? <TerminalRunPanel process={terminalProcess} output={terminalOutput} /> : null}
             <ToolActivityList activities={toolActivities} />
             {lastRunResult ? <RunResultBanner result={lastRunResult} /> : null}
             {error ? <div className="ai-error" role="alert">{error}</div> : null}

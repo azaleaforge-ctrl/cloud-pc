@@ -25,8 +25,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Test Todo Orchestrator
-        run: npm run test:agent-todo
+      - name: Test Agent Runtime
+        run: npm run test:agent-runtime
 
       - name: Typecheck
         run: npm run typecheck
