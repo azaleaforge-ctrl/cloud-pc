@@ -702,6 +702,27 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       } else if (event.type === 'file-change') {
         setChanges((previous) => [event.change, ...previous.filter((item) => item.id !== event.change.id)].slice(0, 30));
         setActivity('Perubahan file tersimpan: ' + event.change.path);
+        if (event.change.checkpointId) {
+          setCheckpoints(previous => {
+            const existing = previous.find(item => item.id === event.change.checkpointId);
+            if (existing) {
+              return previous.map(item => item.id === event.change.checkpointId
+                ? { ...item, paths: Array.from(new Set([...item.paths, event.change.path])) }
+                : item);
+            }
+            return [{
+              id: event.change.checkpointId!,
+              runId: sessionId,
+              createdAt: event.change.changedAt,
+              projectPath: '',
+              status: 'applied',
+              paths: [event.change.path],
+            }, ...previous].slice(0, 50);
+          });
+        }
+        if (event.change.checkpointError) {
+          setError('File sudah ditulis, tetapi checkpoint tidak dapat disimpan: ' + event.change.checkpointError);
+        }
       } else if (event.type === 'error') {
         setError(event.message);
         setLoading(false);
