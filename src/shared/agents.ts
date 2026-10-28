@@ -120,6 +120,8 @@ export interface AgentFileChange {
   addedLines: number;
   removedLines: number;
   changedAt: number;
+  checkpointId?: string;
+  checkpointError?: string;
 }
 
 export type AgentEvent =
