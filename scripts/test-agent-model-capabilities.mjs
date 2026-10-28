@@ -26,14 +26,14 @@ try{
   });
   const api=require(bundle);
 
-  test('normalizes common provider model IDs and rejects unsafe/ambiguous IDs',()=>{
+  await test('normalizes common provider model IDs and rejects unsafe/ambiguous IDs',()=>{
     assert.equal(api.normalizeModelId('  provider/model-v2:thinking(high)  '),'provider/model-v2:thinking(high)');
     for(const id of ['', ' model with spaces ', '../etc/passwd', 'x'.repeat(201), 'model?admin=true', 'model\\nname']) {
       assert.throws(()=>api.normalizeModelId(id));
     }
   });
 
-  test('parses OpenAI-compatible catalog, removes invalid/duplicate IDs, sorts and bounds it',()=>{
+  await test('parses OpenAI-compatible catalog, removes invalid/duplicate IDs, sorts and bounds it',()=>{
     const input={data:[
       {id:'zeta-model',owned_by:'team-z'},
       {id:'alpha-model',name:'Alpha',owned_by:'team-a'},
@@ -47,7 +47,7 @@ try{
     assert.equal(models[0].name,'Alpha');
   });
 
-  test('lists models from the primary endpoint and normalizes metadata',async()=>{
+  await test('lists models from the primary endpoint and normalizes metadata',async()=>{
     globalThis.fetch=async url=>{
       assert.equal(String(url),'https://primary.example/v1/models');
       return json({data:[{id:'model-z'},{id:'model-a',owned_by:'provider'}]});
@@ -62,7 +62,7 @@ try{
     assert.ok(result.retrievedAt);
   });
 
-  test('falls back to the secondary endpoint when primary model listing fails',async()=>{
+  await test('falls back to the secondary endpoint when primary model listing fails',async()=>{
     globalThis.fetch=async url=>{
       if(String(url)==='https://primary.example/v1/models') return json({error:{message:'unavailable'}},503);
       assert.equal(String(url),'https://fallback.example/v1/models');
@@ -77,7 +77,7 @@ try{
     assert.equal(result.models[0].id,'fallback-model');
   });
 
-  test('reports chat, actual function tool-calling and image-input checks',async()=>{
+  await test('reports chat, actual function tool-calling and image-input checks',async()=>{
     const requests=[];
     globalThis.fetch=async (url,init)=>{
       const body=JSON.parse(init.body);
@@ -99,7 +99,7 @@ try{
     assert.equal(requests.length,3);
   });
 
-  test('labels function-calling and image input as unsupported when provider rejects them',async()=>{
+  await test('labels function-calling and image input as unsupported when provider rejects them',async()=>{
     globalThis.fetch=async (url,init)=>{
       const body=JSON.parse(init.body);
       if(body.tools?.length) return json({error:{message:'tool calling not supported'}},400);
@@ -116,7 +116,7 @@ try{
     assert.equal(report.checks[2].status,'unsupported');
   });
 
-  test('returns unknown for tool-calling when request succeeds but no tool call is returned',async()=>{
+  await test('returns unknown for tool-calling when request succeeds but no tool call is returned',async()=>{
     globalThis.fetch=async (_url,init)=>{
       const body=JSON.parse(init.body);
       if(body.tools?.length) return json({choices:[{message:{content:'I cannot call tools'}}]});
@@ -127,7 +127,7 @@ try{
     assert.equal(report.checks[2].status,'supported');
   });
 
-  test('fails cleanly when the API key is missing or the model ID is invalid',async()=>{
+  await test('fails cleanly when the API key is missing or the model ID is invalid',async()=>{
     const noKey=await api.listAvailableModels({apiKey:'',endpoint:'https://primary.example/v1',models:['model']});
     assert.equal(noKey.ok,false);
     assert.match(noKey.message,/API key/);
