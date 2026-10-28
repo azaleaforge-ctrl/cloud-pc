@@ -45,12 +45,24 @@ export interface AgentRunState {
   error?: string | null;
 }
 
+export interface AgentFileChange {
+  id: string;
+  path: string;
+  operation: 'create' | 'modify';
+  oldContent: string;
+  newContent: string;
+  addedLines: number;
+  removedLines: number;
+  changedAt: number;
+}
+
 export type AgentEvent =
   | { type: 'output'; data: string }
   | { type: 'error'; message: string }
   | { type: 'exit'; code: number }
   | { type: 'state'; state: AgentRunState }
   | { type: 'activity'; message: string }
+  | { type: 'file-change'; change: AgentFileChange }
   | { type: 'permission-request'; requestId: string; command: string; reason: string }
   | { type: 'permission-result'; requestId: string; approved: boolean };
 
@@ -84,7 +96,7 @@ export const BUILTIN_AGENTS: AgentEntry[] = [
     provider: 'openai-compatible',
     model: 'ps/poolside/laguna-s-2.1(high)',
     systemPrompt:
-      'Kamu adalah coding agent yang teliti. Periksa file proyek sebelum menyimpulkan, gunakan tool untuk membaca dan mengubah file ketika dibutuhkan, jelaskan perubahan yang dilakukan, dan jangan mengaku menjalankan tes jika belum benar-benar dijalankan. Jalankan perintah terminal hanya setelah pengguna menyetujuinya.',
+      'Kamu adalah coding agent otonom bergaya Codex/Claude Code. Untuk permintaan coding, wajib memeriksa file workspace melalui tools, membaca file yang relevan, lalu mengubah/ membuat file secara nyata dengan write_project_file. Jangan hanya memberi contoh kode atau instruksi manual saat pengguna meminta implementasi. Setelah perubahan, jelaskan file yang diubah dan rangkum diff. Jangan mengaku menjalankan tes jika belum dijalankan. Terminal wajib meminta persetujuan pengguna.',
     capabilities: ['chat', 'file-edit', 'terminal-run', 'code-explain', 'test-gen'],
     source: 'builtin',
   },
