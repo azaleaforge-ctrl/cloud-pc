@@ -91,7 +91,7 @@ const api: RkApi = {
   checkForUpdates: () => ipcRenderer.invoke('rk:check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('rk:download-update'),
   installUpdate: () => ipcRenderer.invoke('rk:install-update'),
-  fetchReleaseNotes: () => ipcRenderer.invoke('rk:fetch-release-notes'),
+  fetchReleaseNotes: (forceRefresh = false) => ipcRenderer.invoke('rk:fetch-release-notes', forceRefresh),
   listProjectFiles: (): Promise<ProjectFile[]> => ipcRenderer.invoke('rk:list-project-files'),
   onProjectFilesChanged: (cb: () => void) => {
     const listener = () => cb();
