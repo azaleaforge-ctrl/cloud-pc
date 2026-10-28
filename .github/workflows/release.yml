@@ -2,8 +2,10 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
+    paths:
+      - 'RELEASE_NOTES.md'
 
 permissions:
   contents: write
@@ -24,13 +26,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Set version from tag
-        shell: bash
+      - name: Read release version from notes
+        id: release_meta
+        shell: pwsh
         run: |
-          tag=${GITHUB_REF#refs/tags/}
-          version=${tag#v}
-          echo "Setting version to $version"
-          npm pkg set version="$version"
+          $notes = Get-Content RELEASE_NOTES.md -Raw
+          $match = [regex]::Match($notes, '(?m)^#\s*Ruang Kerja v?(\d+\.\d+\.\d+)')
+          if (-not $match.Success) {
+            throw "RELEASE_NOTES.md harus diawali dengan '# Ruang Kerja vX.Y.Z'."
+          }
+          $version = $match.Groups[1].Value
+          $tag = "v$version"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          Write-Host "Prepared release $tag"
+
+      - name: Set package version
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
+        run: |
+          npm pkg set version="$env:RELEASE_VERSION"
 
       - name: Typecheck
         run: npm run typecheck
@@ -73,6 +89,7 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
           R2_PUBLIC_BASE_URL: ${{ secrets.CLOUDFLARE_R2_PUBLIC_BASE_URL }}
+          RELEASE_TAG: ${{ steps.release_meta.outputs.tag }}
         run: |
           $required = @($env:R2_ACCOUNT_ID, $env:R2_BUCKET, $env:R2_ACCESS_KEY_ID, $env:R2_SECRET_ACCESS_KEY, $env:R2_PUBLIC_BASE_URL)
           $missing = @($required | Where-Object { [string]::IsNullOrWhiteSpace($_) })
@@ -85,7 +102,7 @@ jobs:
             throw 'AWS CLI is not installed on the runner; cannot publish the configured Cloudflare R2 mirror.'
           }
 
-          $tag = $env:GITHUB_REF_NAME
+          $tag = $env:RELEASE_TAG
           $version = $tag.TrimStart('v')
           $prefix = "v$version"
           $baseUrl = $env:R2_PUBLIC_BASE_URL.TrimEnd('/')
@@ -130,6 +147,9 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.release_meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Ruang Kerja ${{ steps.release_meta.outputs.tag }}
           generate_release_notes: false
           body_path: RELEASE_NOTES.md
           files: |
