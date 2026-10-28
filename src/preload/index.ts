@@ -118,6 +118,7 @@ const api: RkApi = {
   agentList: (): Promise<AgentEntry[]> => ipcRenderer.invoke('rk:agent:list'),
   agentGetConfig: () => ipcRenderer.invoke('rk:agent:get-config'),
   agentSaveConfig: (apiKey: string) => ipcRenderer.invoke('rk:agent:save-config', apiKey),
+  agentTestConfig: () => ipcRenderer.invoke('rk:agent:test-config'),
   agentApproveTool: (sessionId: string, requestId: string, approved: boolean) => ipcRenderer.invoke('rk:agent:approve-tool', sessionId, requestId, approved),
   agentStartChat: (agentId: string, messages?: ChatMessage[]) => ipcRenderer.invoke('rk:agent:start-chat', agentId, messages ?? []),
   agentStartCli: (agentId: string, cols: number, rows: number) => ipcRenderer.invoke('rk:agent:start-cli', agentId, cols, rows),
