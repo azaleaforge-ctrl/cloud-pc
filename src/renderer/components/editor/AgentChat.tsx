@@ -723,8 +723,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
               id: event.change.checkpointId!,
               runId: sessionId,
               createdAt: event.change.changedAt,
-              projectPath: '',
-              status: 'applied',
+              projectPath: sessionProjectPath ?? wb.root ?? '',
+              status: 'applied' as const,
               paths: [event.change.path],
             }, ...previous].slice(0, 50);
           });
