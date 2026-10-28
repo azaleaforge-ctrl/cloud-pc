@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { buildTerminalCommandInvocation } from './terminalShell';
 
 export type TerminalStream = 'stdout' | 'stderr';
 export type TerminalProcessStatus = 'starting' | 'running' | 'completed' | 'failed' | 'timed_out' | 'cancelled';
@@ -101,6 +102,7 @@ export function startTerminalCommand(options: StartTerminalCommandOptions): Term
   }
 
   const commandId = options.commandId;
+  const invocation = buildTerminalCommandInvocation(command);
   const startedAt = Date.now();
   let output = '';
   let settled = false;
@@ -157,11 +159,9 @@ export function startTerminalCommand(options: StartTerminalCommandOptions): Term
 
     emitState({ commandId, command, status: 'starting', startedAt, timeoutMs: options.timeoutMs });
     const isWindows = process.platform === 'win32';
-    const executable = isWindows ? (process.env.ComSpec || 'cmd.exe') : '/bin/sh';
-    const args = isWindows ? ['/d', '/s', '/c', command] : ['-lc', command];
 
     try {
-      child = spawn(executable, args, {
+      child = spawn(invocation.file, invocation.args, {
         cwd: options.cwd,
         env: options.env,
         windowsHide: true,

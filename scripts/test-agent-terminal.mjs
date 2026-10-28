@@ -36,18 +36,32 @@ function options(command, extra = {}) {
   };
 }
 
-function terminalCommand(mode) {
-  if (mode === 'streams') {
-    return process.platform === 'win32'
-      ? 'echo terminal-runtime-ok & echo stderr-ok 1>&2'
-      : "printf 'terminal-runtime-ok\\n'; printf 'stderr-ok\\n' >&2";
+function terminalCommand(mode, shell) {
+  if (shell.family === 'powershell') {
+    if (mode === 'streams') return "[Console]::Out.WriteLine('terminal-runtime-ok'); [Console]::Error.WriteLine('stderr-ok')";
+    if (mode === 'fail') return 'exit 7';
+    if (mode === 'native-fail') return 'node -e "process.exit(7)"';
+    if (mode === 'location') return 'Get-Location | Select-Object -ExpandProperty Path';
+    if (mode === 'hang') return 'Start-Sleep -Seconds 30';
+    if (mode === 'large') return "1..1000 | ForEach-Object { 'x' }";
   }
-  if (mode === 'fail') return process.platform === 'win32' ? 'exit /b 7' : 'exit 7';
-  if (mode === 'hang') return process.platform === 'win32' ? 'ping -n 30 127.0.0.1 > NUL' : 'sleep 30';
-  if (mode === 'large') return process.platform === 'win32'
-    ? 'for /l %i in (1,1,1000) do @echo x'
-    : 'yes x | head -n 1000';
-  throw new Error('Unknown terminal test mode: ' + mode);
+  if (shell.family === 'cmd') {
+    if (mode === 'streams') return 'echo terminal-runtime-ok & echo stderr-ok 1>&2';
+    if (mode === 'fail') return 'exit /b 7';
+    if (mode === 'native-fail') return 'node -e "process.exit(7)"';
+    if (mode === 'location') return 'cd';
+    if (mode === 'hang') return 'ping -n 30 127.0.0.1 > NUL';
+    if (mode === 'large') return 'for /l %i in (1,1,1000) do @echo x';
+  }
+  if (shell.family === 'posix') {
+    if (mode === 'streams') return "printf 'terminal-runtime-ok\\n'; printf 'stderr-ok\\n' >&2";
+    if (mode === 'fail') return 'exit 7';
+    if (mode === 'native-fail') return 'node -e "process.exit(7)"';
+    if (mode === 'location') return 'pwd';
+    if (mode === 'hang') return 'sleep 30';
+    if (mode === 'large') return 'yes x | head -n 1000';
+  }
+  throw new Error('Unknown terminal test mode: ' + mode + ' (' + shell.family + ')');
 }
 
 try {
@@ -60,11 +74,47 @@ try {
     outfile: bundlePath,
     logLevel: 'silent',
   });
+  const shellBundlePath = join(temp, 'terminalShell.cjs');
+  await build({
+    entryPoints: [join(ROOT, 'src', 'main', 'editor', 'terminalShell.ts')],
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    outfile: shellBundlePath,
+    logLevel: 'silent',
+  });
   const { startTerminalCommand } = require(bundlePath);
+  const { resolveTerminalShell, buildTerminalCommandInvocation, getAgentTerminalGuidance } = require(shellBundlePath);
+  const shell = resolveTerminalShell();
+
+  test('resolves one explicit shell profile and describes its command language', () => {
+    assert.ok(shell.file);
+    assert.ok(shell.name);
+    assert.ok(['powershell', 'cmd', 'posix'].includes(shell.family));
+    assert.match(getAgentTerminalGuidance(shell), /Shell terminal aktif/);
+    if (process.platform === 'win32') {
+      assert.ok(['powershell', 'cmd'].includes(shell.family));
+    } else {
+      assert.equal(shell.family, 'posix');
+    }
+  });
+
+  test('builds a shell-consistent command invocation without echoing shell-specific exit-code snippets', () => {
+    const invocation = buildTerminalCommandInvocation(terminalCommand('streams', shell), shell);
+    assert.equal(invocation.file, shell.file);
+    assert.equal(invocation.shellName, shell.name);
+    if (shell.family === 'powershell') {
+      assert.ok(invocation.args.includes('-Command'));
+      assert.match(invocation.args.at(-1), /FromBase64String/);
+      assert.doesNotMatch(invocation.args.at(-1), /EXIT_CODE:\s*\$\?/i);
+    } else {
+      assert.equal(invocation.args.at(-1), terminalCommand('streams', shell));
+    }
+  });
 
   const outputEvents = [];
   const success = await startTerminalCommand(options(
-    terminalCommand('streams'),
+    terminalCommand('streams', shell),
     { onOutput: (event) => outputEvents.push(event) },
   )).promise;
   test('captures stdout and stderr and reports successful exit', () => {
@@ -76,14 +126,27 @@ try {
     assert.ok(outputEvents.some((event) => event.stream === 'stderr'));
   });
 
-  const failedRun = await startTerminalCommand(options(terminalCommand('fail'))).promise;
-  test('preserves non-zero exit code as a failure', () => {
+  const failedRun = await startTerminalCommand(options(terminalCommand('fail', shell))).promise;
+  test('preserves a shell-level non-zero exit code as a failure', () => {
     assert.equal(failedRun.status, 'failed');
     assert.equal(failedRun.exitCode, 7);
   });
 
+  const nativeFailedRun = await startTerminalCommand(options(terminalCommand('native-fail', shell))).promise;
+  test('propagates non-zero exit codes from native programs through the selected shell', () => {
+    assert.equal(nativeFailedRun.status, 'failed');
+    assert.equal(nativeFailedRun.exitCode, 7);
+  });
+
+  const locationRun = await startTerminalCommand(options(terminalCommand('location', shell))).promise;
+  test('executes the shell-language probe using the selected command interpreter', () => {
+    assert.equal(locationRun.status, 'completed');
+    assert.equal(locationRun.exitCode, 0);
+    assert.match(locationRun.output, /.+/);
+  });
+
   const timeoutRun = await startTerminalCommand(options(
-    terminalCommand('hang'),
+    terminalCommand('hang', shell),
     { timeoutMs: 350 },
   )).promise;
   test('terminates a command after its configured timeout', () => {
@@ -93,7 +156,7 @@ try {
   });
 
   const cancelHandle = startTerminalCommand(options(
-    terminalCommand('hang'),
+    terminalCommand('hang', shell),
     { timeoutMs: 5000 },
   ));
   setTimeout(() => cancelHandle.cancel(), 120);
@@ -104,7 +167,7 @@ try {
   });
 
   const limitedRun = await startTerminalCommand(options(
-    terminalCommand('large'),
+    terminalCommand('large', shell),
     { maxOutputChars: 500 },
   )).promise;
   test('bounds captured output while the output callback can stream chunks', () => {

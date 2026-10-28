@@ -2,7 +2,7 @@
 // Coding agent memakai OpenAI-compatible tool calling melalui 9router.
 // File tools dikunci pada workspace; command terminal wajib disetujui pengguna.
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
 import { app } from 'electron';
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
@@ -14,6 +14,8 @@ import type { AgentAttachmentRef, AgentEntry, AgentEvent, AgentFileChange, Agent
 import { applyAgentTodoUpdate } from './agentTodo';
 import { installBuiltinSkills, loadAgentSkillInstructions, selectAgentSkills } from './skills';
 import { startTerminalCommand } from './terminalRuntime';
+import { getAgentTerminalGuidance, resolveTerminalShell } from './terminalShell';
+import { getToolRecoveryHint, isToolFailureResult, repeatedFailureSignature } from './agentFailureGuard';
 import { listBuiltinAgentSkills } from './skills';
 import { prepareAgentAttachments, resolveAgentAttachments } from './agentAttachments';
 import { checkPackageVersion, getCurrentTime, readWebPage, searchWeb, type PackageEcosystem } from './agentResearch';
@@ -218,7 +220,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'run_terminal',
-      description: 'Jalankan command foreground dari root proyek untuk instalasi dependency, build, test, lint, atau typecheck. Output stdout/stderr dikirim secara streaming dan exit code aktual dikembalikan. Command memerlukan persetujuan pengguna. Jangan menjalankan development server persisten sebagai foreground command kecuali pengguna memang meminta proses tersebut dijalankan sampai timeout.',
+      description: 'Jalankan command foreground dari root proyek untuk instalasi dependency, build, test, lint, atau typecheck. Output stdout/stderr dikirim secara streaming dan exit code aktual dikembalikan. Command memerlukan persetujuan pengguna. Jangan menjalankan development server persisten sebagai foreground command kecuali pengguna memang meminta proses tersebut dijalankan sampai timeout. ' + getAgentTerminalGuidance(),
       parameters: {
         type: 'object',
         properties: {
@@ -611,26 +613,10 @@ async function executeTerminalCommand(
     const prefix = result.status === 'completed'
       ? [exit, duration]
       : ['Status: ' + result.status, exit, result.message || 'Command tidak selesai dengan sukses.', duration];
-    return [...prefix, result.output || '(tidak ada output)'].join('\n');
+    return ['Shell: ' + resolveTerminalShell().name, ...prefix, result.output || '(tidak ada output)'].join('\n');
   } finally {
     if (session.cancelTerminal === handle.cancel) session.cancelTerminal = undefined;
   }
-}
-
-function isToolFailureResult(result: string): boolean {
-  if (/^(?:Tool gagal:|Tool ditahan:|Tool tidak dikenal:|Akses ditolak|Path ditolak|Memory ditolak|Pengguna menolak)/i.test(result.trim())) return true;
-  if (/^Status:\s*(?:failed|timed_out|cancelled)/im.test(result)) return true;
-  if (/dihentikan karena melewati batas/i.test(result)) return true;
-  const exitCode = result.match(/(?:^|\n)Exit code:\s*(-?\d+)/);
-  return exitCode ? Number(exitCode[1]) !== 0 : false;
-}
-
-function repeatedFailureSignature(call: ToolCall, result: string): string | null {
-  if (!isToolFailureResult(result)) return null;
-  // Hash arguments/output so paths or credentials are not included in diagnostic events.
-  return createHash('sha256')
-    .update(call.name + '\0' + call.arguments + '\0' + result.slice(0, 1600))
-    .digest('hex');
 }
 
 function toolActivityLabel(call: ToolCall): string {
@@ -1052,14 +1038,14 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         'Todo List saat ini (gunakan todo_read untuk detail lengkap):\n' + (session.todos.length ? JSON.stringify(session.todos.map(({ id, title, status, blockedBy, verification, blockedReason }) => ({ id, title, status, blockedBy, verification, blockedReason }))) : '(belum ada; buat untuk tugas multi-langkah)'),
         'Jika ada keputusan, batasan, progres lintas-turn, atau perubahan bermakna yang perlu diingat untuk turn berikutnya, perbarui dengan write_session_memory. Ringkas, tulis ulang bukan append, maksimal sekitar 3 KB bila memungkinkan. Jangan simpan secret/credential. Chat Baru menghapus memory ini.',
         'WAJIB untuk permintaan membaca, memperbaiki, membuat, mengubah, menghapus, refactor, implementasi, atau debugging kode: gunakan tools. Jangan hanya memberikan potongan contoh atau menyuruh pengguna mengedit manual.',
-        'Untuk tugas multi-langkah atau perubahan kode yang substantif, buat Todo List dahulu menggunakan todo_write sebelum membaca/menulis/mengubah file atau menjalankan terminal. Pada rencana awal, mulai satu task sebagai in_progress dan sisanya pending dengan blockedBy bila berurutan. Saat melanjutkan pekerjaan, satu todo_write boleh menandai task aktif completed dengan completionEvidence spesifik dan sekaligus mengaktifkan task dependen berikutnya jika prasyaratnya juga ditandai completed dalam pembaruan yang sama atau sudah completed sebelumnya. Jangan mulai task dependen jika prasyaratnya masih pending, blocked, atau in_progress. Panggil todo_read jika status tidak jelas.',
+        'Untuk tugas multi-langkah atau perubahan kode yang substantif, buat Todo List dahulu menggunakan todo_write sebelum membaca/menulis/mengubah file atau menjalankan terminal. Pada rencana awal, mulai satu task sebagai in_progress dan sisanya pending dengan blockedBy bila berurutan. JANGAN menandai task pending sebagai completed pada pembaruan yang sama saat task itu baru diaktifkan. Sebelum mengerjakan task, pastikan status task sudah in_progress melalui pembaruan todo_write yang berhasil diterima. Setelah pekerjaan dan kriteria verification benar-benar diperiksa, tandai completed pada panggilan todo_write berikutnya dengan completionEvidence spesifik. Jika todo_write gagal, jangan ulangi payload yang sama: panggil todo_read, ikuti validator, perbaiki status yang benar-benar tersimpan, lalu lanjutkan. Jangan mulai task dependen sebelum prasyarat completed. Jangan mengubah ID, judul, atau dependensi task selesai.',
         'Jangan tandai task completed hanya agar bisa maju. Setelah pekerjaan task dilakukan, verifikasi sesuai field verification dan berikan completionEvidence spesifik pada todo_write. Jika terhambat, tandai blocked dengan blockedReason dan jelaskan hambatan; jangan mengarang keberhasilan. Todo List adalah kontrak eksekusi, bukan dekorasi.',
-        'Lanjutkan agent loop selama pekerjaan masih dapat dilanjutkan. Jangan berhenti karena jumlah putaran tertentu. Sistem menghentikan run hanya jika pengguna membatalkan, ada error fatal, run mencapai safety budget, terjadi kegagalan identik berulang, atau agent tidak menunjukkan kemajuan setelah instruksi koreksi.',
+        'Lanjutkan agent loop selama pekerjaan masih dapat dilanjutkan, tetapi jangan mengulang kegagalan dengan variasi argumen kecil. Setelah tool gagal, analisis hasilnya dan ubah pendekatan. Untuk error todo_write, wajib todo_read sebelum pembaruan berikutnya. Untuk error terminal, perbaiki sintaks sesuai shell aktif; jangan mengubah source code yang tidak terkait untuk menutupi error shell. Sistem menghentikan run jika pengguna membatalkan, ada error fatal, run mencapai safety budget, akar kegagalan tool yang sama berulang, atau tidak ada kemajuan setelah instruksi koreksi.',
         'Mulai dengan inventory workspace yang disediakan, lalu gunakan read_project_file untuk membaca file relevan sebelum menulisnya. Gunakan search_project_files untuk mencari simbol/bug.',
         'write_project_file benar-benar membuat file atau menulis file ke disk pada folder project aktif. Setelah memakai tool, hasilnya akan muncul sebagai daftar perubahan dengan diff lama/baru.',
         'Path tool harus relatif ke root proyek atau absolute path di dalam root tersebut. Jangan menulis di luar root workspace.',
         'Jangan mengakses file secret seperti .env, API token, credentials, atau private key. Folder dependency/build diabaikan dari inventory.',
-        'Gunakan run_terminal untuk instalasi dependency dan pemeriksaan project. Output stdout/stderr muncul secara streaming dan tool mengembalikan exit code asli. Timeout default 600 detik; tentukan timeout_seconds lebih tinggi bila instalasi/build besar memang memerlukannya. Command harus meminta persetujuan pengguna; jika ditolak/timeout, laporkan secara jujur dan jangan mengulang command yang sama tanpa persetujuan baru.',
+        'Gunakan run_terminal untuk instalasi dependency dan pemeriksaan project. ' + getAgentTerminalGuidance() + ' Output stdout/stderr muncul secara streaming dan tool mengembalikan exit code proses tanpa wrapper shell tambahan. Timeout default 600 detik; tentukan timeout_seconds lebih tinggi bila instalasi/build besar memang memerlukannya. Command harus meminta persetujuan pengguna; jika ditolak/timeout, laporkan secara jujur dan jangan mengulang command yang sama tanpa persetujuan baru.',
         'Setelah menulis atau mengubah source code/konfigurasi, wajib pilih pemeriksaan yang tersedia dari project (misalnya script build, test, lint, atau typecheck pada package.json, Composer/PHP, Python, Rust, Go, .NET, Java). Jalankan melalui run_terminal dan tunggu exit code 0. Jika gagal, baca output, perbaiki masalah yang relevan, lalu jalankan pemeriksaan ulang. Instalasi dependency yang sukses saja bukan bukti bahwa build/test lulus. Jangan tandai task verifikasi completed tanpa hasil command nyata yang sukses.',
         'Lakukan pekerjaan sampai benar-benar ada perubahan pada file jika perubahan kode diminta, lalu rangkum file yang diubah, alasan, dan hasil tes.',
         'Skills aktif untuk tugas ini:\n' + (skillInstructions || '(tidak ada skill khusus selain aturan inti agent)'),
@@ -1234,25 +1220,38 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
             result = 'Tool gagal: ' + ((error as Error).message || 'kesalahan tidak diketahui');
           }
 
-          const failed = isToolFailureResult(result);
+          const rawResult = result;
+          const failed = isToolFailureResult(rawResult);
+          const failureKey = repeatedFailureSignature(call.name, rawResult);
+
+          if (failed) {
+            result = rawResult + '\n\n' + getToolRecoveryHint(call.name, rawResult);
+          }
+
           emit(session, {
             type: 'tool-status',
             activity: {
               ...startedActivity,
               status: failed ? 'failed' : 'completed',
-              detail: failed ? activityLabel + ' · ' + result.replace(/\s+/g, ' ').slice(0, 180) : activityLabel + ' · selesai',
+              detail: failed ? activityLabel + ' · ' + rawResult.replace(/\s+/g, ' ').slice(0, 180) : activityLabel + ' · selesai',
               ts: Date.now(),
             },
           });
           if (isWorkspaceTool(call.name) && !failed) hasUsedWorkspaceTools = true;
-          if (!failed) noProgressReplies = 0;
+          if (!failed) {
+            noProgressReplies = 0;
+            // A successful call to this tool proves that the same tool-level
+            // failure was recovered; unrelated reads must not reset the counter.
+            for (const key of repeatedFailures.keys()) {
+              if (key.startsWith(call.name + ':')) repeatedFailures.delete(key);
+            }
+          }
 
-          const failureKey = repeatedFailureSignature(call, result);
           if (failureKey) {
             const failureCount = (repeatedFailures.get(failureKey) ?? 0) + 1;
             repeatedFailures.set(failureKey, failureCount);
             if (failureCount >= MAX_REPEATED_TOOL_FAILURES) {
-              blockedReason = 'Tool "' + call.name + '" mengulang kegagalan identik ' + failureCount + ' kali. Agent dihentikan agar tidak berputar tanpa kemajuan.';
+              blockedReason = 'Tool "' + call.name + '" mengulang akar kegagalan yang sama ' + failureCount + ' kali walaupun detail argumen berubah. Agent dihentikan agar tidak berputar tanpa kemajuan. Error terakhir: ' + rawResult.replace(/\s+/g, ' ').slice(0, 220);
             }
           }
 
