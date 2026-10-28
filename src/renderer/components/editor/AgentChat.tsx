@@ -1044,7 +1044,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setSelectedChange(null);
     setActiveSkills([]);
     try { localStorage.removeItem(HISTORY_KEY); } catch { /* ignore */ }
-    // A new ID erases the prior session-memory directory in the main process.
+    // A new ID creates a separate session; the prior chat and memory remain available in History.
     setConversationId(makeConversationId());
   }, [activeSessionId]);
 
