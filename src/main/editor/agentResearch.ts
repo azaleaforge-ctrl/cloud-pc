@@ -220,7 +220,15 @@ export function extractBingSearchResults(html: string, maxResults = 5): WebSearc
     const href = getAttribute(heading[1], 'href');
     if (!href) continue;
     try {
-      const target = new URL(href);
+      let target = new URL(href);
+      if (target.hostname === 'www.bing.com' || target.hostname === 'bing.com') {
+        // Bing may wrap result URLs as /ck/a?u=a1<base64-url>.
+        const encoded = target.searchParams.get('u');
+        if (encoded?.startsWith('a1')) {
+          const decoded = Buffer.from(encoded.slice(2), 'base64').toString('utf8');
+          if (/^https:\/\//i.test(decoded)) target = new URL(decoded);
+        }
+      }
       if (target.protocol !== 'https:' || !target.hostname.includes('.') || target.hostname.endsWith('.bing.com')) continue;
       const title = stripTags(heading[2]);
       if (!title || output.some(item => item.url === target.toString())) continue;
