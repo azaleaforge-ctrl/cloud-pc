@@ -16,7 +16,7 @@ type EmitAgentEvent = (event: AgentEvent, sessionId: string) => void;
 export interface AgentService {
   listAgents(): AgentEntry[];
   getAgent(id: string): AgentEntry | null;
-  startChat(agentId: string, projectPath: string | null, onEvent: EmitAgentEvent, messages?: ChatMessage[]): Promise<string>;
+  startChat(agentId: string, projectPath: string | null, onEvent: EmitAgentEvent, messages?: ChatMessage[], activePath?: string | null): Promise<string>;
   startCli(agentId: string, projectPath: string, cols: number, rows: number, onEvent: EmitAgentEvent): Promise<string>;
   sendInput(sessionId: string, data: string): Promise<void>;
   resizeTerminal(sessionId: string, cols: number, rows: number): Promise<void>;
