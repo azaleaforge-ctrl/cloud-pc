@@ -1157,7 +1157,18 @@ function registerIpc(): void {
     const projectPath = store.get().projectPath!;
     const result = await rewindAgentCheckpoint(app.getPath('userData'), sessionId, projectPath, checkpointId);
     if (result.ok) send('rk:project-files-changed', { changedAt: Date.now() });
-    return result;
+    return {
+      ok: result.ok,
+      message: result.message,
+      ...(result.checkpoint ? { checkpoint: {
+        id: result.checkpoint.id,
+        runId: result.checkpoint.runId,
+        createdAt: result.checkpoint.createdAt,
+        projectPath: result.checkpoint.projectPath,
+        status: result.checkpoint.status,
+        paths: result.checkpoint.files.map(file => file.path),
+      } } : {}),
+    };
   });
   ipcMain.handle('rk:agent:redo-checkpoint', async (_e, sessionId: string, checkpointId: string): Promise<AgentCheckpointActionResult> => {
     const permission = canMutateAgentWorkspace();
@@ -1165,7 +1176,18 @@ function registerIpc(): void {
     const projectPath = store.get().projectPath!;
     const result = await redoAgentCheckpoint(app.getPath('userData'), sessionId, projectPath, checkpointId);
     if (result.ok) send('rk:project-files-changed', { changedAt: Date.now() });
-    return result;
+    return {
+      ok: result.ok,
+      message: result.message,
+      ...(result.checkpoint ? { checkpoint: {
+        id: result.checkpoint.id,
+        runId: result.checkpoint.runId,
+        createdAt: result.checkpoint.createdAt,
+        projectPath: result.checkpoint.projectPath,
+        status: result.checkpoint.status,
+        paths: result.checkpoint.files.map(file => file.path),
+      } } : {}),
+    };
   });
   ipcMain.handle('rk:agent:list-models', async () => {
     const config = getRouterConfig();
