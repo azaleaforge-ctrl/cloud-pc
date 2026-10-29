@@ -73,6 +73,24 @@ try {
     assert.match(hint, /jangan mengubah source code/i);
   });
 
+  test('creates a stable signature for semantically identical tool arguments', () => {
+    assert.equal(
+      guard.repeatedNoProgressActionSignature('write_project_file', '{"path":"src/a.ts","content":"x"}'),
+      guard.repeatedNoProgressActionSignature('write_project_file', '{"content":"x","path":"src/a.ts"}'),
+    );
+  });
+
+  test('keeps different tool arguments in separate no-progress groups', () => {
+    assert.notEqual(
+      guard.repeatedNoProgressActionSignature('run_terminal', '{"command":"npm run build"}'),
+      guard.repeatedNoProgressActionSignature('run_terminal', '{"command":"npm test"}'),
+    );
+  });
+
+  test('does not treat interactive user questions as repeatable no-progress actions', () => {
+    assert.equal(guard.repeatedNoProgressActionSignature('ask_user', '{"question":"Choose"}'), null);
+  });
+
   test('does not assign a repeated-failure signature to a successful result', () => {
     assert.equal(guard.repeatedFailureSignature('todo_write', 'Todo List diperbarui: 2/2 task completed.'), null);
   });
