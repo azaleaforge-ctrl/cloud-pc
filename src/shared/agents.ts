@@ -53,6 +53,36 @@ export interface AgentSkillInstallResult {
   cancelled?: boolean;
   skill?: InstalledAgentSkill;
 }
+
+export interface McpPluginSummary {
+  id: string;
+  name: string;
+  command: string;
+  enabled: boolean;
+  environmentKeys: string[];
+}
+
+export interface McpPluginImportResult {
+  ok: boolean;
+  error?: string;
+  cancelled?: boolean;
+  imported?: number;
+}
+
+export interface McpPluginProbeResult {
+  ok: boolean;
+  error?: string;
+  tools: string[];
+}
+
+export interface McpExposedTool {
+  pluginId: string;
+  pluginName: string;
+  remoteName: string;
+  exposedName: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
 export interface ChatMessage {
   id: string;
   role: 'system' | 'user' | 'assistant';
