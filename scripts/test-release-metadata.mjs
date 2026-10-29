@@ -31,7 +31,7 @@ assert.ok(separatorMatch, 'release notes must separate current notes from releas
 const separatorIndex = separatorMatch.index ?? -1;
 const currentNotes = notes.slice(0, separatorIndex);
 assert.match(currentNotes, /^## .{8,}$/m, 'current release must have a descriptive subtitle');
-const detailedBullets = currentNotes.match(/^\\s*[-*]\\s+\\S.{20,}$/gm) ?? [];
+const detailedBullets = currentNotes.match(/^\s*[-*]\s+\S.{20,}$/gm) ?? [];
 assert.ok(detailedBullets.length >= 5, 'current release must contain at least five descriptive change bullets');
 assert.match(currentNotes, /### Detail Version di dalam aplikasi/, 'current release must describe the in-app version history');
 assert.match(currentNotes, /Muat Ulang Versi/, 'current release must explain how to refresh version details');
