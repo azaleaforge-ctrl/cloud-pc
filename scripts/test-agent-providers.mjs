@@ -155,6 +155,36 @@ try {
     assert.deepEqual(JSON.parse(message.tool_calls[0].function.arguments), { path: 'README.md' });
   });
 
+  await test('preserves Gemini 3 thought signatures and function IDs during history replay', () => {
+    const response = providers.normalizeGeminiResponse({
+      candidates: [{ content: { role: 'model', parts: [{
+        functionCall: { name: 'read_file', id: 'google-call-123', args: { path: 'README.md' } },
+        thoughtSignature: 'gemini-signature',
+      }] }, finishReason: 'STOP' }],
+    });
+    const call = response.choices[0].message.tool_calls[0];
+    assert.equal(call.thought_signature, 'gemini-signature');
+    assert.equal(call.gemini_function_call_id, 'google-call-123');
+    const request = providers.buildGeminiRequestBody({
+      model: 'gemini-3.8-flash',
+      messages: [
+        { role: 'user', content: 'Read README.md.' },
+        { role: 'assistant', content: '', tool_calls: [{
+          id: call.id,
+          geminiThoughtSignature: call.thought_signature,
+          geminiFunctionCallId: call.gemini_function_call_id,
+          function: call.function,
+        }] },
+        { role: 'tool', tool_call_id: call.id, geminiFunctionCallId: call.gemini_function_call_id, name: 'read_file', content: 'file text' },
+      ],
+      tools: [],
+      temperature: 0.2,
+    });
+    assert.equal(request.contents[1].parts[0].thoughtSignature, 'gemini-signature');
+    assert.equal(request.contents[1].parts[0].functionCall.id, 'google-call-123');
+    assert.equal(request.contents[2].parts[0].functionResponse.id, 'google-call-123');
+    assert.equal(request.generationConfig.temperature, 1);
+  });
   await test('streams Gemini responses as OpenAI-shaped SSE and keeps the key out of the URL', async () => {
     let observedUrl = '';
     let observedHeaders;
@@ -164,7 +194,7 @@ try {
       observedHeaders = new Headers(init.headers);
       observedBody = JSON.parse(init.body);
       const first = { candidates: [{ content: { role: 'model', parts: [{ text: 'Hello from Gemini.' }] } }] };
-      const second = { candidates: [{ content: { role: 'model', parts: [{ functionCall: { name: 'read_file', args: { path: 'README.md' } } }] }, finishReason: 'STOP' }] };
+      const second = { candidates: [{ content: { role: 'model', parts: [{ functionCall: { name: 'read_file', id: 'google-call-123', args: { path: 'README.md' } }, thoughtSignature: 'gemini-thought-signature' }] }, finishReason: 'STOP' }] };
       return new Response('data: ' + JSON.stringify(first) + '\n\n' + 'data: ' + JSON.stringify(second) + '\n\n', {
         status: 200,
         headers: { 'content-type': 'text/event-stream' },
@@ -193,6 +223,8 @@ try {
     const toolPayload = payloads.find(payload => payload.choices?.[0]?.delta?.tool_calls?.length);
     assert.ok(toolPayload);
     assert.equal(toolPayload.choices[0].delta.tool_calls[0].function.name, 'read_file');
+    assert.equal(toolPayload.choices[0].delta.tool_calls[0].thought_signature, 'gemini-thought-signature');
+    assert.equal(toolPayload.choices[0].delta.tool_calls[0].gemini_function_call_id, 'google-call-123');
     assert.deepEqual(JSON.parse(toolPayload.choices[0].delta.tool_calls[0].function.arguments), { path: 'README.md' });
     assert.match(stream, /data: \[DONE\]/);
   });
