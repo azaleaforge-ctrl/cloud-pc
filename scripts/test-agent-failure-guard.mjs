@@ -58,6 +58,58 @@ try {
     assert.notEqual(shell, missing);
   });
 
+  test('groups the same TypeScript build diagnostic across changed file paths and line numbers', () => {
+    const first = [
+      'Status: failed',
+      'Exit code: 1',
+      "src/components/ui/button.tsx(18,7): error TS2322: Type 'DragHandler' is not assignable to type 'MouseHandler'.",
+    ].join('\n');
+    const second = [
+      'Status: failed',
+      'Exit code: 1',
+      "src/components/ui/card.tsx(91,22): error TS2322: Type 'DragHandler' is not assignable to type 'MouseHandler'.",
+    ].join('\n');
+    assert.equal(
+      guard.repeatedFailureSignature('run_terminal', first),
+      guard.repeatedFailureSignature('run_terminal', second),
+    );
+  });
+
+  test('keeps different TypeScript build diagnostics in different failure groups', () => {
+    const first = 'Status: failed\nExit code: 1\nsrc/button.tsx(18,7): error TS2322: Type A is not assignable to type B.';
+    const second = 'Status: failed\nExit code: 1\nsrc/button.tsx(18,7): error TS2304: Cannot find name X.';
+    assert.notEqual(
+      guard.repeatedFailureSignature('run_terminal', first),
+      guard.repeatedFailureSignature('run_terminal', second),
+    );
+  });
+
+  test('groups repeated lint diagnostics when only file locations change', () => {
+    const first = [
+      'Status: failed',
+      'Exit code: 1',
+      "src/app/profile/page.tsx:232:18 - Error: ' character must be escaped (react/no-unescaped-entities)",
+    ].join('\n');
+    const second = [
+      'Status: failed',
+      'Exit code: 1',
+      "src/app/posts/page.tsx:87:3 - Error: ' character must be escaped (react/no-unescaped-entities)",
+    ].join('\n');
+    assert.equal(
+      guard.repeatedFailureSignature('run_terminal', first),
+      guard.repeatedFailureSignature('run_terminal', second),
+    );
+  });
+
+  test('classifies recurring npm network failures consistently', () => {
+    const first = 'Status: failed\nExit code: 1\nnpm ERR! code ECONNRESET\nrequest reset';
+    const second = 'Status: failed\nExit code: 1\nnpm ERR! code ECONNRESET\nconnection lost';
+    assert.equal(
+      guard.repeatedFailureSignature('run_terminal', first),
+      guard.repeatedFailureSignature('run_terminal', second),
+    );
+  });
+
   test('recovery prompt requires reading Todo state and not repeating the same payload', () => {
     const hint = guard.getToolRecoveryHint('todo_write', 'Tool gagal: Task hanya bisa menjadi completed setelah berstatus in_progress.');
     assert.match(hint, /todo_read/);

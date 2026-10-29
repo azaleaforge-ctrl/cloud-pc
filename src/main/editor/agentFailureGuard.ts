@@ -44,10 +44,38 @@ export function repeatedFailureSignature(toolName: string, result: string): stri
       category = 'terminal-shell-syntax';
     } else if (/ParserError|Unexpected token|Missing expression|The string is missing the terminator/i.test(result)) {
       category = 'terminal-parser-error';
-    } else if (/npm ERR!.*ERESOLVE|ERESOLVE unable to resolve dependency tree/i.test(result)) {
+    } else if (/npm ERR!.*ERESOLVE|ERESOLVE unable to resolve dependency tree|\bcode ERESOLVE\b/i.test(result)) {
       category = 'terminal-npm-dependency-conflict';
     } else if (/ENOENT.*(?:package\.json|package-lock\.json)|Could not read package\.json/i.test(result)) {
       category = 'terminal-missing-package-manifest';
+    } else if (/\b(?:ECONNRESET|ETIMEDOUT|ENETUNREACH|EAI_AGAIN)\b/i.test(result)) {
+      category = 'terminal-network-failure';
+    } else if (/\b(?:MODULE_NOT_FOUND|Cannot find module)\b/i.test(result)) {
+      category = 'terminal-missing-module';
+    } else {
+      const plain = result.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
+      const compilerDiagnostics = [...plain.matchAll(/\b(TS\d{3,5})\s*:\s*([^\r\n]+)/g)]
+        .map((match) => match[1] + ': ' + match[2].replace(/\s+/g, ' ').trim())
+        .sort()
+        .slice(0, 30);
+      const diagnosticLines = plain.split(/\r?\n/)
+        .filter((line) => /\b(?:error|warning|failed|Failed to compile|Build failed|Cannot find|not assignable|no-unescaped-entities|set-state-in-effect|eslint|vite|rollup|webpack)\b/i.test(line))
+        .map((line) => line
+          .replace(/\b[A-Za-z0-9_@./\\-]+\.(?:tsx?|jsx?|mjs|cjs|vue|svelte|astro|css|json)\b/gi, '<file>')
+          .replace(/\(\d+(?:,\s*\d+)?\)/g, '(<loc>)')
+          .replace(/:\d+:\d+/g, ':<loc>')
+          .replace(/\b\d+:\d+\b/g, '<loc>')
+          .replace(/\s+/g, ' ')
+          .trim())
+        .filter(Boolean)
+        .sort()
+        .slice(0, 30);
+      const diagnostics = compilerDiagnostics.length ? compilerDiagnostics : diagnosticLines;
+      if (diagnostics.length) {
+        // Paths and line/column numbers may shift after attempted edits; group the
+        // same underlying diagnostic so iterative writes cannot evade the loop guard.
+        category = 'terminal-diagnostics:' + createHash('sha256').update(diagnostics.join('\n')).digest('hex');
+      }
     }
   }
 
