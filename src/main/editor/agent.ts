@@ -21,6 +21,7 @@ import { getToolRecoveryHint, isToolFailureResult, repeatedFailureSignature, rep
 import { listBuiltinAgentSkills } from './skills';
 import { hasSuccessfulTerminalVerification } from './agentVerification';
 import { openGeminiCompletionStream } from './agentProviders';
+import { providerHttpErrorMessage, redactSecretValues } from './providerSecurity';
 import { prepareAgentAttachments, resolveAgentAttachments } from './agentAttachments';
 import { checkPackageVersion, getCurrentTime, readWebPage, searchWeb, type PackageEcosystem } from './agentResearch';
 import { loadAgentSession, recordAgentFileCheckpoint, saveAgentSession } from './agentSessionStore';
@@ -1001,11 +1002,11 @@ async function openCompletionStream(
       });
       if (response.ok) return response;
       const body = (await response.text()).slice(0, 500);
-      lastError = 'HTTP ' + response.status + (body ? ': ' + body : '');
+      lastError = providerHttpErrorMessage(response.status, body, config.apiKey);
       // Only the historical provider has a configured fallback endpoint.
     } catch (error) {
       if (session.controller.signal.aborted || session.killed) throw error;
-      lastError = (error as Error).message || 'Koneksi gagal.';
+      lastError = redactSecretValues((error as Error).message || 'Koneksi gagal.', [config.apiKey]);
     }
   }
 

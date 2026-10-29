@@ -1,4 +1,5 @@
 import type { RouterConfig } from '../../shared/agents';
+import { providerHttpErrorMessage, redactSecretValues } from './providerSecurity';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -321,11 +322,11 @@ export async function openGeminiCompletionStream(
       signal: AbortSignal.any([signal, AbortSignal.timeout(120_000)]),
     });
   } catch (error) {
-    throw new Error('Koneksi ke Gemini API gagal: ' + ((error as Error).message || 'kesalahan jaringan'));
+    throw new Error('Koneksi ke Gemini API gagal: ' + redactSecretValues((error as Error).message || 'kesalahan jaringan', [config.apiKey]));
   }
   if (!response.ok) {
     const detail = (await response.text().catch(() => '')).slice(0, 500);
-    throw new Error('Gemini API HTTP ' + response.status + (detail ? ': ' + detail : ''));
+    throw new Error(providerHttpErrorMessage(response.status, detail, config.apiKey));
   }
   if (!response.body) throw new Error('Gemini API tidak mengembalikan stream body.');
 
@@ -346,7 +347,7 @@ export async function openGeminiCompletionStream(
           try { parsed = JSON.parse(match[1]); } catch { continue; }
           if (isRecord(parsed) && isRecord(parsed.error)) {
             const message = asText(parsed.error.message) || 'Gemini API mengembalikan error.';
-            throw new Error(message.slice(0, 400));
+            throw new Error(redactSecretValues(message, [config.apiKey]).slice(0, 400));
           }
           const candidates = isRecord(parsed) && Array.isArray(parsed.candidates) ? parsed.candidates : [];
           for (const candidate of candidates) for (const line of candidateToSse(candidate, toolCounter)) emit(line);

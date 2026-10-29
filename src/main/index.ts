@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { autoUpdater } from 'electron-updater';
@@ -48,6 +48,7 @@ import { scanProjectEntries } from './fsScan';
 import { watchProjectFileChanges, type ProjectFileWatch } from './projectFileWatcher';
 import { openEmbeddedIde, closeEmbeddedIde, resizeEmbeddedIde, focusEmbeddedIde } from './nativeHost';
 import { startActivityMonitor } from './activityMonitor';
+import { canPersistProviderKeySafely } from './editor/providerSecurity';
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
@@ -318,11 +319,26 @@ function isAgentProvider(value: unknown): value is AgentProviderId {
   return value === 'openrouter' || value === 'gemini' || value === 'legacy';
 }
 
+function providerKeyEncryptionAvailable(): boolean {
+  let backend: string | undefined;
+  if (process.platform === 'linux') {
+    try {
+      const storage = safeStorage as unknown as { getSelectedStorageBackend?: () => string };
+      backend = storage.getSelectedStorageBackend?.();
+    } catch {
+      return false;
+    }
+  }
+  return canPersistProviderKeySafely(process.platform, safeStorage.isEncryptionAvailable(), backend);
+}
+
 function readStoredProviderKey(provider: AgentProviderId): string {
   try {
-    if (!safeStorage.isEncryptionAvailable()) return '';
+    if (!providerKeyEncryptionAvailable()) return '';
     const path = providerKeyPath(provider);
     if (!existsSync(path)) return '';
+    // Tighten permissions for keys written by older releases on POSIX systems.
+    if (process.platform !== 'win32') chmodSync(path, 0o600);
     return safeStorage.decryptString(readFileSync(path));
   } catch {
     return '';
@@ -461,12 +477,19 @@ function saveAgentRouterKey(input: unknown): { ok: boolean; error?: string } {
       : 'RK_ROUTER_API_KEY';
     return { ok: false, error: 'API key provider diatur melalui environment ' + envName + '; ubah konfigurasi environment untuk menggantinya.' };
   }
-  if (!safeStorage.isEncryptionAvailable()) {
-    return { ok: false, error: 'Penyimpanan terenkripsi tidak tersedia di perangkat ini. API key tidak disimpan.' };
+  if (!providerKeyEncryptionAvailable()) {
+    return {
+      ok: false,
+      error: process.platform === 'linux'
+        ? 'Keyring sistem tidak tersedia atau memakai backend basic_text. Aktifkan GNOME Keyring/KWallet agar API key dapat disimpan dengan aman.'
+        : 'Penyimpanan kunci aman sistem operasi tidak tersedia. API key tidak disimpan.',
+    };
   }
   try {
     mkdirSync(dirname(providerKeyPath(provider)), { recursive: true });
-    writeFileSync(providerKeyPath(provider), safeStorage.encryptString(clean));
+    const keyPath = providerKeyPath(provider);
+    writeFileSync(keyPath, safeStorage.encryptString(clean), { mode: 0o600 });
+    if (process.platform !== 'win32') chmodSync(keyPath, 0o600);
     const selected = saveAgentProviderSelection(provider);
     if (!selected.ok) return selected;
     return { ok: true };

@@ -581,7 +581,7 @@
   gap: 13px;
   width: min(920px, calc(100vw - 32px));
   max-height: min(90vh, 920px);
-  min-height: 300px;
+  min-height: min(300px, calc(100vh - 48px));
   overflow: hidden;
   box-sizing: border-box;
   padding: 20px;
