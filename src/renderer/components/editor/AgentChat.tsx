@@ -481,22 +481,44 @@ function TodoPanel({ todos }: { todos: AgentTodo[] }) {
   );
 }
 
-function ToolActivityList({ activities }: { activities: AgentToolActivity[] }) {
-  if (activities.length === 0) return null;
+const AGENT_TOOL_DISPLAY_NAMES: Record<string, string> = {
+  todo_read: 'Todo List',
+  todo_write: 'Todo List',
+  list_project_files: 'Jelajahi struktur proyek',
+  read_project_file: 'Baca file',
+  write_project_file: 'Tulis kode',
+  search_project_files: 'Cari dalam proyek',
+  read_session_memory: 'Baca konteks sesi',
+  write_session_memory: 'Simpan konteks sesi',
+  run_terminal: 'Terminal',
+  search_web: 'Cari di web',
+  read_web_page: 'Baca halaman web',
+  check_package_version: 'Periksa versi package',
+  get_current_time: 'Periksa waktu',
+};
+
+function ToolActivityList({ activity }: { activity: AgentToolActivity }) {
+  const statusLabel: Record<AgentToolActivity['status'], string> = {
+    running: 'Berjalan',
+    completed: 'Selesai',
+    failed: 'Gagal',
+  };
+  const mark = activity.status === 'running' ? '◌' : activity.status === 'completed' ? '✓' : '×';
   return (
-    <section className="ai-tool-activities" aria-label="Aktivitas tool agent" aria-live="polite">
-      <header>Aktivitas agent</header>
-      <div className="ai-tool-activity-list">
-        {activities.slice(-6).map((activity) => (
-          <div className={'ai-tool-activity status-' + activity.status} key={activity.id}>
-            <span className="ai-tool-activity-mark" aria-hidden="true">
-              {activity.status === 'running' ? '◌' : activity.status === 'completed' ? '✓' : '!'}
-            </span>
-            <span className="ai-tool-activity-name">{activity.name}</span>
-            <span className="ai-tool-activity-detail">{activity.detail}</span>
-          </div>
-        ))}
-      </div>
+    <section
+      className={'ai-tool-activities status-' + activity.status}
+      aria-label={AGENT_TOOL_DISPLAY_NAMES[activity.name] || activity.name}
+      aria-live={activity.status === 'running' ? 'polite' : undefined}
+      role={activity.status === 'failed' ? 'alert' : 'status'}
+      key={activity.id}
+    >
+      <header>
+        <span className="ai-tool-activity-mark" aria-hidden="true">{mark}</span>
+        <strong className="ai-tool-activity-name">{AGENT_TOOL_DISPLAY_NAMES[activity.name] || activity.name}</strong>
+        <span className={'ai-tool-activity-status status-' + activity.status}>{statusLabel[activity.status]}</span>
+      </header>
+      <p className="ai-tool-activity-detail">{activity.detail}</p>
+      <small className="ai-tool-activity-time">{new Date(activity.ts).toLocaleTimeString()}</small>
     </section>
   );
 }
@@ -505,12 +527,10 @@ function TerminalRunPanel({
   entry,
   copied,
   onCopy,
-  outputOverride,
 }: {
   entry: AgentTerminalHistoryEntry;
   copied: boolean;
   onCopy: (entry: AgentTerminalHistoryEntry) => void;
-  outputOverride?: string;
 }) {
   const process = entry.process;
   const statusLabel: Record<AgentTerminalProcess['status'], string> = {
@@ -521,13 +541,19 @@ function TerminalRunPanel({
     timed_out: 'Timeout',
     cancelled: 'Dibatalkan',
   };
+  const statusMark = process.status === 'completed'
+    ? '✓'
+    : process.status === 'failed' || process.status === 'timed_out'
+      ? '×'
+      : process.status === 'cancelled' ? '!' : '◌';
   const elapsed = Math.max(0, Math.round(((process.finishedAt ?? Date.now()) - process.startedAt) / 1000));
-  const output = entry.outputs.length ? formatAgentTerminalOutput(entry.outputs) : (outputOverride ?? '');
+  const output = entry.outputs.length ? formatAgentTerminalOutput(entry.outputs) : '';
   return (
-    <section className={'ai-terminal-run status-' + process.status} aria-label="Detail proses terminal agent">
+    <section className={'ai-terminal-run status-' + process.status} aria-label={'Hasil terminal: ' + statusLabel[process.status]}>
       <header className="ai-terminal-run-header">
         <div>
-          <strong>Terminal agent</strong>
+          <span className={'ai-terminal-status-mark status-' + process.status} aria-hidden="true">{statusMark}</span>
+          <strong>Terminal</strong>
           <span className={'ai-terminal-status status-' + process.status}>{statusLabel[process.status]}</span>
         </div>
         <small>{process.exitCode === undefined ? 'Exit code menunggu' : 'Exit code: ' + (process.exitCode === null ? 'unknown' : process.exitCode)} · {elapsed} detik</small>
@@ -542,46 +568,84 @@ function TerminalRunPanel({
         <small>{new Date(process.startedAt).toLocaleString()}{process.finishedAt ? ' · selesai ' + new Date(process.finishedAt).toLocaleTimeString() : ' · masih berjalan'}</small>
         <button type="button" onClick={() => onCopy(entry)}>{copied ? 'Detail tersalin' : 'Salin detail diagnostik'}</button>
       </div>
-      <pre className="ai-terminal-output">{output || (process.status === 'running' ? 'Menunggu output dari command…' : '(tidak ada output)')}</pre>
+      <pre className="ai-terminal-output">{output || (process.status === 'running' || process.status === 'starting' ? 'Menunggu output dari command…' : '(tidak ada output)')}</pre>
     </section>
   );
 }
 
-function TerminalRunHistory({
-  history,
-  copiedId,
-  onCopy,
-  currentProcess,
-  currentOutput,
+
+
+type AgentWorkTimelineItem =
+  | { kind: 'message'; key: string; ts: number; message: ChatMessage }
+  | { kind: 'tool'; key: string; ts: number; activity: AgentToolActivity }
+  | { kind: 'terminal'; key: string; ts: number; entry: AgentTerminalHistoryEntry };
+
+function AgentWorkTimeline({
+  messages,
+  activities,
+  terminalHistory,
+  lastRunResult,
+  copiedMessage,
+  copiedTerminalId,
+  onMessageCopy,
+  onTerminalCopy,
 }: {
-  history: AgentTerminalHistoryEntry[];
-  copiedId: string | null;
-  onCopy: (entry: AgentTerminalHistoryEntry) => void;
-  currentProcess: AgentTerminalProcess | null;
-  currentOutput: string;
+  messages: ChatMessage[];
+  activities: AgentToolActivity[];
+  terminalHistory: AgentTerminalHistoryEntry[];
+  lastRunResult: AgentRunResult | null;
+  copiedMessage: string | null;
+  copiedTerminalId: string | null;
+  onMessageCopy: (text: string) => void;
+  onTerminalCopy: (entry: AgentTerminalHistoryEntry) => void;
 }) {
-  if (history.length === 0) return null;
-  const latest = history[history.length - 1];
-  const previous = history.slice(0, -1).reverse();
+  // A terminal tool call and its terminal-process event describe the same job.
+  // Match them so the chat shows one complete terminal card, not two duplicates.
+  const terminalToolIds = new Set<string>();
+  const terminalActivities = activities
+    .filter((activity) => activity.name === 'run_terminal')
+    .slice()
+    .sort((left, right) => left.ts - right.ts);
+  for (const entry of terminalHistory) {
+    const processStart = entry.process.startedAt;
+    const candidate = terminalActivities
+      .filter((activity) => !terminalToolIds.has(activity.id) && activity.ts <= processStart && processStart - activity.ts <= 120_000)
+      .sort((left, right) => right.ts - left.ts)[0];
+    if (candidate) terminalToolIds.add(candidate.id);
+  }
+
+  const items: AgentWorkTimelineItem[] = [
+    ...messages
+      .filter((message) => message.role !== 'system' && Boolean(message.content))
+      .map((message) => ({ kind: 'message' as const, key: 'message-' + message.id, ts: message.ts, message })),
+    ...activities
+      .filter((activity) => activity.name !== 'run_terminal' || !terminalToolIds.has(activity.id))
+      .map((activity) => ({ kind: 'tool' as const, key: 'tool-' + activity.id, ts: activity.ts, activity })),
+    ...terminalHistory.map((entry) => ({
+      kind: 'terminal' as const,
+      key: 'terminal-' + entry.process.commandId,
+      ts: entry.process.startedAt,
+      entry,
+    })),
+  ].sort((left, right) => left.ts - right.ts);
+
   return (
     <>
-      {previous.length > 0 ? (
-        <details className="ai-terminal-history">
-          <summary>Riwayat terminal sebelumnya ({previous.length})</summary>
-          <div className="ai-terminal-history-list">
-            {previous.map((entry) => (
-              <TerminalRunPanel key={entry.process.commandId} entry={entry} copied={copiedId === entry.process.commandId} onCopy={onCopy} />
-            ))}
-          </div>
-        </details>
-      ) : null}
-      <TerminalRunPanel
-        key={latest.process.commandId}
-        entry={latest}
-        copied={copiedId === latest.process.commandId}
-        onCopy={onCopy}
-        outputOverride={currentProcess?.commandId === latest.process.commandId ? currentOutput : undefined}
-      />
+      {items.map((item) => {
+        if (item.kind === 'message') {
+          return <MessageBubble key={item.key} msg={item.message} onCopy={onMessageCopy} copied={copiedMessage === item.message.content} />;
+        }
+        if (item.kind === 'tool') {
+          return <ToolActivityList key={item.key} activity={item.activity} />;
+        }
+        return <TerminalRunPanel
+          key={item.key}
+          entry={item.entry}
+          copied={copiedTerminalId === item.entry.process.commandId}
+          onCopy={onTerminalCopy}
+        />;
+      })}
+      {lastRunResult ? <RunResultBanner result={lastRunResult} /> : null}
     </>
   );
 }
@@ -624,8 +688,6 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [todos, setTodos] = useState<AgentTodo[]>([]);
   const [toolActivities, setToolActivities] = useState<AgentToolActivity[]>([]);
   const [lastRunResult, setLastRunResult] = useState<AgentRunResult | null>(null);
-  const [terminalProcess, setTerminalProcess] = useState<AgentTerminalProcess | null>(null);
-  const [terminalOutput, setTerminalOutput] = useState('');
   const [terminalHistory, setTerminalHistory] = useState<AgentTerminalHistoryEntry[]>([]);
   const [terminalCopiedId, setTerminalCopiedId] = useState<string | null>(null);
   const [input, setInput] = useState('');
@@ -702,6 +764,17 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     stickToBottomRef.current = true;
     forceScrollToBottomRef.current = true;
     setSessionReady(false);
+    // Activity is run-scoped and is not persisted with a restored chat session.
+    setToolActivities([]);
+    setTerminalHistory([]);
+    setTerminalCopiedId(null);
+    setLastRunResult(null);
+    setActiveSkills([]);
+    setPermission(null);
+    setAgentQuestion(null);
+    setSelectedQuestionOption(null);
+    setCustomQuestionAnswer('');
+    setSubmittingQuestion(false);
     void (async () => {
       try {
         if (firstSessionLoadRef.current) {
@@ -776,8 +849,6 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setSelectedChange(null);
     setActiveSkills([]);
     setToolActivities([]);
-    setTerminalProcess(null);
-    setTerminalOutput('');
     setTerminalHistory([]);
     setLastRunResult(null);
     setError(null);
@@ -836,33 +907,60 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       if (event.type === 'todo-update') {
         setTodos(event.todos);
       } else if (event.type === 'tool-status') {
+        if (event.activity.status === 'running') {
+          // Finish the current assistant text segment before showing this tool card.
+          // New model text after the tool result will start a fresh bubble.
+          setMessages((previous) => {
+            const index = previous.map((item) => item.role).lastIndexOf('assistant');
+            if (index < 0 || !previous[index].streaming) return previous;
+            // If a model immediately calls a tool without explanatory text, do not
+            // persist an empty assistant bubble.
+            if (!previous[index].content.trim()) return previous.filter((_, currentIndex) => currentIndex !== index);
+            const next = [...previous];
+            next[index] = { ...next[index], streaming: false };
+            return next;
+          });
+        }
         setToolActivities((previous) => {
           const index = previous.findIndex((item) => item.id === event.activity.id);
-          if (index < 0) return [...previous, event.activity].slice(-8);
+          if (index < 0) return [...previous, event.activity];
           const next = [...previous];
-          next[index] = event.activity;
+          // Keep the original start time so updates do not move a job to the end
+          // of the timeline when it finishes.
+          next[index] = { ...event.activity, ts: previous[index].ts };
           return next;
         });
       } else if (event.type === 'run-result') {
         setLastRunResult(event.result);
         if (event.result.outcome === 'completed' || event.result.outcome === 'cancelled') setTodos([]);
       } else if (event.type === 'terminal-process') {
-        setTerminalProcess(event.process);
-        setTerminalHistory((previous) => upsertAgentTerminalProcess(previous, event.process));
-        if (event.process.status === 'starting') setTerminalOutput('');
+        setTerminalHistory((previous) => upsertAgentTerminalProcess(previous, event.process, 100));
       } else if (event.type === 'terminal-output') {
-        setTerminalOutput((previous) => (previous + event.output.data).slice(-12000));
         setTerminalHistory((previous) => appendAgentTerminalOutput(previous, event.output));
       } else if (event.type === 'skills') {
         setActiveSkills(event.skills);
       } else if (event.type === 'output') {
         setMessages((previous) => {
           const index = previous.map((item) => item.role).lastIndexOf('assistant');
-          if (index < 0) return previous;
-          const next = [...previous];
-          const last = next[index];
-          next[index] = { ...last, content: last.content + event.data, streaming: true };
-          return next;
+          if (index >= 0 && previous[index].streaming) {
+            const next = [...previous];
+            const last = next[index];
+            next[index] = { ...last, content: last.content + event.data, streaming: true };
+            return next;
+          }
+
+          // The previous assistant segment ended when a tool started. Keep
+          // post-tool commentary in its own chat bubble instead of merging it
+          // into text shown before that tool ran.
+          const ts = Date.now();
+          const nextMessage: ChatMessage = {
+            id: 'assistant-' + ts.toString(36) + '-' + Math.random().toString(36).slice(2, 8),
+            role: 'assistant',
+            content: event.data,
+            ts,
+            streaming: true,
+          };
+          return [...previous, nextMessage];
         });
       } else if (event.type === 'file-change') {
         setChanges((previous) => [event.change, ...previous.filter((item) => item.id !== event.change.id)].slice(0, 30));
@@ -958,7 +1056,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     viewport.scrollTop = viewport.scrollHeight;
     forceScrollToBottomRef.current = false;
     stickToBottomRef.current = true;
-  }, [messages]);
+  }, [messages, toolActivities, terminalHistory, lastRunResult]);
 
   const activeAgent = agents.find((agent) => agent.id === activeAgentId);
   const workspaceSessions = sessions.filter((session) => sameWorkspacePath(session.projectPath, wb.root));
@@ -1019,11 +1117,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setChanges([]);
     setSelectedChange(null);
     setToolActivities([]);
-    setTerminalProcess(null);
-    setTerminalOutput('');
+    setActiveSkills([]);
     setTerminalHistory([]);
     setTerminalCopiedId(null);
-    setActivity('Mempersiapkan workspace…');
     const userMessage: ChatMessage = {
       id: 'user-' + Date.now(), role: 'user',
       content: text || 'Tolong analisis lampiran yang saya kirim dan rangkum informasi pentingnya.',
@@ -1357,8 +1453,6 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setTodos([]);
     setToolActivities([]);
     setLastRunResult(null);
-    setTerminalProcess(null);
-    setTerminalOutput('');
     setTerminalHistory([]);
     setTerminalCopiedId(null);
     setError(null);
@@ -1619,15 +1713,6 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         </button>
       </div>
 
-      {activeSkills.length > 0 ? (
-        <div className="ai-active-skills" aria-label="Skills aktif untuk tugas ini">
-          <span className="ai-active-skills-label">Skills aktif</span>
-          {activeSkills.map((skill) => (
-            <span className="ai-active-skill" key={skill.id} title={skill.reason}>{skill.name}</span>
-          ))}
-        </div>
-      ) : null}
-
       {!routerStatus?.configured ? (
         <section className="ai-setup-needed">
           <div className="ai-setup-icon">⚙</div>
@@ -1654,25 +1739,31 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 </div>
               </div>
             ) : (
-              messages.filter((message) => message.role !== 'system' && message.content).map((message) => (
-                <MessageBubble key={message.id} msg={message} onCopy={saveCopied} copied={copiedMsg === message.content} />
-              ))
+              <AgentWorkTimeline
+                messages={messages}
+                activities={toolActivities}
+                terminalHistory={terminalHistory}
+                lastRunResult={lastRunResult}
+                copiedMessage={copiedMsg}
+                copiedTerminalId={terminalCopiedId}
+                onMessageCopy={saveCopied}
+                onTerminalCopy={(entry) => void copyTerminalDiagnostics(entry)}
+              />
             )}
-
             <div ref={bottomRef} />
           </div>
 
           <div
             className="ai-run-dock"
-            data-active={Boolean(loading || activity || permission || agentQuestion || terminalProcess || toolActivities.length || lastRunResult || error)}
+            data-active={Boolean(loading || permission || agentQuestion || error)}
             data-awaiting-response={Boolean(permission || agentQuestion)}
           >
-            {loading || activity ? (
+            {loading || permission || agentQuestion ? (
               <div className="ai-run-status-row" role="status">
-                {loading ? <Spinner size={15} /> : <span className="ai-run-status-dot" />}
+                {loading && !permission && !agentQuestion ? <Spinner size={15} /> : <span className="ai-run-status-dot" />}
                 <div>
-                  <strong>{activity || 'Agent sedang bekerja…'}</strong>
-                  <small>{loading ? 'Agent berjalan · Escape untuk membatalkan' : 'Status terbaru agent'}</small>
+                  <strong>{permission ? 'Menunggu persetujuan terminal' : agentQuestion ? 'Menunggu jawabanmu' : 'AI sedang bekerja…'}</strong>
+                  <small title={activity || undefined}>{permission || agentQuestion ? 'Agent melanjutkan setelah keputusanmu dikirim' : 'Setiap langkah dan hasil tampil sebagai item di percakapan'}</small>
                 </div>
                 {loading ? <button type="button" className="ai-dock-stop" onClick={() => void stopAgent()}>Hentikan</button> : null}
               </div>
@@ -1773,17 +1864,6 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             ) : null}
 
             {error ? <div className="ai-error ai-run-dock-error" role="alert">{error}</div> : null}
-            <div className="ai-run-details-scroll">
-              <TerminalRunHistory
-                history={terminalHistory}
-                copiedId={terminalCopiedId}
-                onCopy={(entry) => void copyTerminalDiagnostics(entry)}
-                currentProcess={terminalProcess}
-                currentOutput={terminalOutput}
-              />
-              <ToolActivityList activities={toolActivities} />
-              {lastRunResult ? <RunResultBanner result={lastRunResult} /> : null}
-            </div>
           </div>
 
           <div className={'ai-composer' + (permission || agentQuestion ? ' has-interaction' : '')}>
@@ -1837,6 +1917,41 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             <div className="ai-side-card-title"><strong>Workspace aktif</strong><span className="ai-side-dot" /></div>
             <div className="ai-root-path">{wb.root ?? 'Belum ada folder project'}</div>
             {wb.activePath ? <div className="ai-active-file"><span>File terpilih di editor</span><code>{wb.activePath}</code></div> : null}
+          </section>
+
+          <section className="ai-side-card ai-side-skills-card">
+            <div className="ai-side-card-title">
+              <strong>Skill aktif</strong>
+              <span>{activeSkills.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-skills-scroll">
+              {activeSkills.length ? activeSkills.map((skill) => (
+                <div className="ai-side-skill" key={skill.id} title={skill.reason}>
+                  <strong>{skill.name}</strong>
+                  {skill.reason ? <small>{skill.reason}</small> : null}
+                </div>
+              )) : <p className="ai-side-empty">Skill yang digunakan selama tugas akan muncul di sini.</p>}
+            </div>
+          </section>
+
+          <section className="ai-side-card ai-side-tools-card">
+            <div className="ai-side-card-title">
+              <strong>Tool yang dipakai</strong>
+              <span>{toolActivities.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-tools-scroll">
+              {toolActivities.length ? toolActivities.slice(-12).slice().reverse().map((item) => (
+                <div className="ai-side-tool" key={item.id}>
+                  <span className={'ai-side-tool-mark status-' + item.status} aria-hidden="true">
+                    {item.status === 'running' ? '◌' : item.status === 'completed' ? '✓' : '×'}
+                  </span>
+                  <div>
+                    <strong>{AGENT_TOOL_DISPLAY_NAMES[item.name] || item.name}</strong>
+                    <small>{item.detail}</small>
+                  </div>
+                </div>
+              )) : <p className="ai-side-empty">Tool yang digunakan agent pada run ini akan tampil di sini.</p>}
+            </div>
           </section>
 
           <section className="ai-side-card ai-side-todo-card">
