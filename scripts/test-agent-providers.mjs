@@ -140,6 +140,43 @@ try {
     assert.deepEqual(JSON.parse(message.tool_calls[0].function.arguments), { path: 'README.md' });
   });
 
+  await test('preserves Gemini 3 thought signatures on the original function-call part and echoes API call IDs', () => {
+    const signature = 'signature-from-gemini';
+    const originalId = 'google-call-123';
+    const response = providers.normalizeGeminiResponse({
+      candidates: [{
+        content: { role: 'model', parts: [{
+          functionCall: { name: 'read_file', id: originalId, args: { path: 'README.md' } },
+          thoughtSignature: signature,
+        }] },
+        finishReason: 'STOP',
+      }],
+    });
+    const call = response.choices[0].message.tool_calls[0];
+    assert.equal(call.thought_signature, signature);
+    assert.equal(call.gemini_function_call_id, originalId);
+    const request = providers.buildGeminiRequestBody({
+      model: 'gemini-3.8-flash',
+      messages: [
+        { role: 'user', content: 'Read README.md.' },
+        { role: 'assistant', content: '', tool_calls: [{
+          id: call.id,
+          geminiThoughtSignature: call.thought_signature,
+          geminiFunctionCallId: call.gemini_function_call_id,
+          function: call.function,
+        }] },
+        { role: 'tool', tool_call_id: call.id, geminiFunctionCallId: call.gemini_function_call_id, name: 'read_file', content: 'file text' },
+      ],
+      tools: [],
+      temperature: 0.2,
+    });
+    const modelPart = request.contents[1].parts[0];
+    assert.equal(modelPart.thoughtSignature, signature);
+    assert.equal(modelPart.functionCall.id, originalId);
+    assert.equal(request.contents[2].parts[0].functionResponse.id, originalId);
+    assert.equal(request.generationConfig.temperature, 1);
+  });
+
   await test('streams Gemini responses as OpenAI-shaped SSE and keeps the key out of the URL', async () => {
     let observedUrl = '';
     let observedHeaders;
