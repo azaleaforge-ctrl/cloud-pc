@@ -330,7 +330,7 @@ function readStoredProviderKey(provider: AgentProviderId): string {
 function getProviderEnvironmentKey(provider: AgentProviderId): string {
   switch (provider) {
     case 'openrouter': return (process.env.OPENROUTER_API_KEY ?? '').trim();
-    case 'gemini': return (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? '').trim();
+    case 'gemini': return (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
     case 'legacy': return (process.env.RK_ROUTER_API_KEY ?? '').trim();
   }
 }
