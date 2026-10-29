@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type Mode = 'skills' | 'plugins';
 
@@ -14,7 +14,7 @@ const SKILLS = [
   ['Laravel Best Practices', 'Praktik framework dan struktur Laravel.', 'https://github.com/laravel/laravel'],
   ['Security Review', 'Checklist review keamanan kode.', 'https://github.com/anthropics/skills'],
   ['Debugging', 'Diagnosis akar masalah dan verifikasi perbaikan.', 'https://github.com/obra/superpowers'],
-  ['Test-Driven Development', 'Siklus tes, implementasi, dan refactor.', 'https://github.com/obra/superpowers'],
+  ['Test-Driven Development', 'Siklus tes, implementasi, dan verifikasi.', 'https://github.com/obra/superpowers'],
   ['Git Workflows', 'Praktik perubahan aman dan review diff.', 'https://github.com/anthropics/skills'],
   ['Documentation', 'Workflow dokumentasi teknis.', 'https://github.com/anthropics/skills'],
   ['Database Design', 'Panduan schema, migrasi, dan integritas data.', 'https://github.com/laravel/laravel'],
@@ -35,8 +35,43 @@ const PLUGINS = [
 
 export function SkillsPluginsTab({ mode, onError }: { mode: Mode; onError: (message: string) => void }) {
   const [query, setQuery] = useState('');
+  const [installedSkills, setInstalledSkills] = useState<Array<{ id: string; name: string; fileName: string; size: number }>>([]);
+  const [busy, setBusy] = useState(false);
   const items = mode === 'skills' ? SKILLS : PLUGINS;
   const filtered = useMemo(() => items.filter(([name, description]) => (name + ' ' + description).toLowerCase().includes(query.toLowerCase())), [items, query]);
+
+  const refreshInstalledSkills = async () => {
+    try { setInstalledSkills(await window.rk.agentListInstalledSkills()); }
+    catch (error) { onError((error as Error).message || 'Gagal memuat skill terpasang.'); }
+  };
+  useEffect(() => {
+    if (mode !== 'skills') return;
+    let alive = true;
+    void window.rk.agentListInstalledSkills().then(items => { if (alive) setInstalledSkills(items); })
+      .catch(error => { if (alive) onError((error as Error).message || 'Gagal memuat skill terpasang.'); });
+    return () => { alive = false; };
+  }, [mode]);
+
+  const importSkill = async () => {
+    setBusy(true);
+    try {
+      const result = await window.rk.agentImportSkill();
+      if (result.cancelled) return;
+      if (!result.ok || !result.skill) { onError(result.error || 'Skill gagal diimpor.'); return; }
+      await refreshInstalledSkills();
+    } catch (error) { onError((error as Error).message || 'Skill gagal diimpor.'); }
+    finally { setBusy(false); }
+  };
+  const removeSkill = async (id: string) => {
+    setBusy(true);
+    try {
+      const result = await window.rk.agentUninstallSkill(id);
+      if (!result.ok) { onError(result.error || 'Skill gagal dihapus.'); return; }
+      await refreshInstalledSkills();
+    } catch (error) { onError((error as Error).message || 'Skill gagal dihapus.'); }
+    finally { setBusy(false); }
+  };
+
   return (
     <section className="page">
       <header className="page-header">
@@ -45,11 +80,30 @@ export function SkillsPluginsTab({ mode, onError }: { mode: Mode; onError: (mess
           <p>{mode === 'skills' ? 'Workflow dan instruksi untuk meningkatkan kualitas coding agent.' : 'Integrasi tool eksternal untuk browser, repositori, dokumentasi, dan sumber data.'}</p>
         </div>
       </header>
+      {mode === 'skills' ? (
+        <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div><h2 style={{ margin: 0 }}>Skill terpasang ({installedSkills.length})</h2><p className="muted" style={{ marginBottom: 0 }}>Skill impor ditambahkan ke konteks AI agent. File Markdown tidak dijalankan sebagai kode.</p></div>
+            <button type="button" className="btn btn-primary" onClick={() => void importSkill()} disabled={busy}>{busy ? 'Memproses…' : 'Impor SKILL.md'}</button>
+          </div>
+          {installedSkills.length ? <div style={{ display: 'grid', gap: 8, marginTop: 14 }}>
+            {installedSkills.map(skill => <article key={skill.id} className="card" style={{ padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div><strong>{skill.name}</strong><div className="muted"><code>{skill.fileName}</code> · {(skill.size / 1024).toFixed(1)} KB</div></div>
+              <button type="button" className="btn btn-secondary" onClick={() => void removeSkill(skill.id)} disabled={busy}>Hapus</button>
+            </article>)}
+          </div> : <p className="muted" style={{ marginBottom: 0, marginTop: 14 }}>Belum ada skill impor.</p>}
+        </div>
+      ) : (
+        <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+          <strong>Plugin MCP belum diaktifkan</strong>
+          <p className="muted" style={{ marginBottom: 0, marginTop: 8 }}>Katalog ini hanya referensi. Instalasi dan eksekusi server MCP memerlukan konfigurasi izin, isolasi, dan manajemen rahasia; entri yang tampil belum terpasang atau aktif.</p>
+        </div>
+      )}
       <div className="card" style={{ padding: 16, marginBottom: 16 }}>
         <label htmlFor="agent-catalog-search" className="field-label">Cari katalog</label>
         <input id="agent-catalog-search" className="input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={mode === 'skills' ? 'Cari skill...' : 'Cari plugin...'} />
         <p className="muted" style={{ marginBottom: 0, marginTop: 10 }}>
-          Katalog sumber open-source. Instalasi otomatis ke runtime agent belum aktif pada build ini; entri di bawah belum terpasang hanya karena tercantum di katalog.
+          {mode === 'skills' ? 'Sumber eksternal hanya menjadi referensi. Untuk memasang skill, impor file SKILL.md yang sudah kamu tinjau.' : 'Pilih sumber resmi dan tinjau izin akses sebelum mengadopsi plugin pihak ketiga.'}
         </p>
       </div>
       <div className="grid-cards">
