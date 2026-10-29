@@ -22,6 +22,8 @@ const TTL = 60 * 60 * 1000;
 const STORE_MAX = 100 * 1024 * 1024;
 const ZIP_ENTRY_COUNT_MAX = 2000;
 const ZIP_UNPACKED_MAX = 50 * 1024 * 1024;
+const PDF_STREAM_COUNT_MAX = 2000;
+const PDF_UNPACKED_MAX = 50 * 1024 * 1024;
 
 const MIME: Record<string, string> = {
   '.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.webp':'image/webp', '.gif':'image/gif',
@@ -158,28 +160,64 @@ function decodePdfLiteral(raw: string): string {
 }
 function pdfOperators(source: string): string {
   const chunks: string[] = [];
-  for (const match of source.matchAll(/\(((?:\\.|[^\\)])*)\)\s*Tj\b/g)) chunks.push(decodePdfLiteral(match[1]));
-  for (const match of source.matchAll(/\[((?:.|\r|\n)*?)\]\s*TJ\b/g)) {
-    for (const literal of match[1].matchAll(/\(((?:\\.|[^\\)])*)\)/g)) chunks.push(decodePdfLiteral(literal[1]));
+  let characters = 0;
+  const append = (value: string) => {
+    if (characters >= TEXT_MAX || !value) return;
+    const bounded = value.slice(0, TEXT_MAX - characters);
+    if (bounded) {
+      chunks.push(bounded);
+      characters += bounded.length;
+    }
+  };
+  for (const match of source.matchAll(/\(((?:\\.|[^\\)])*)\)\s*Tj\b/g)) {
+    append(decodePdfLiteral(match[1]));
+    if (characters >= TEXT_MAX) break;
   }
-  return chunks.join(' ').replace(/\s+/g, ' ').trim();
+  if (characters < TEXT_MAX) {
+    for (const match of source.matchAll(/\[((?:.|\r|\n)*?)\]\s*TJ\b/g)) {
+      for (const literal of match[1].matchAll(/\(((?:\\.|[^\\)])*)\)/g)) {
+        append(decodePdfLiteral(literal[1]));
+        if (characters >= TEXT_MAX) break;
+      }
+      if (characters >= TEXT_MAX) break;
+    }
+  }
+  return chunks.join(' ').replace(/\s+/g, ' ').trim().slice(0, TEXT_MAX);
 }
 function extractPdf(buffer: Buffer): string {
   const source = buffer.toString('latin1');
   const results: string[] = [];
+  let streamCount = 0;
+  let unpackedBytes = 0;
+  let extractedCharacters = 0;
   for (const match of source.matchAll(/<<(.*?)>>\s*stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
+    streamCount++;
+    if (streamCount > PDF_STREAM_COUNT_MAX) {
+      throw new Error('PDF memiliki terlalu banyak stream untuk diproses dengan aman (maksimal 2.000).');
+    }
     let data = Buffer.from(match[2], 'latin1');
     if (/\/FlateDecode\b/.test(match[1])) {
       try { data = inflateSync(data, { maxOutputLength: PART_MAX }); } catch { continue; }
     } else if (/\/Filter\b/.test(match[1])) continue;
+    unpackedBytes += data.length;
+    if (unpackedBytes > PDF_UNPACKED_MAX) {
+      throw new Error('Total dekompresi PDF melebihi batas aman 50 MiB. Gunakan PDF lebih kecil.');
+    }
+    // Continue counting/decompressing streams after text extraction reaches its
+    // output budget so a PDF cannot evade the aggregate decompression limit.
+    if (extractedCharacters >= TEXT_MAX) continue;
     const text = pdfOperators(data.toString('latin1'));
-    if (text) results.push(text);
+    if (text) {
+      const bounded = text.slice(0, TEXT_MAX - extractedCharacters);
+      results.push(bounded);
+      extractedCharacters += bounded.length;
+    }
   }
   if (!results.length) {
     const fallback = pdfOperators(source);
     if (fallback) results.push(fallback);
   }
-  return results.join('\n');
+  return results.join('\n').slice(0, TEXT_MAX);
 }
 function hasMediaSignature(ext: string, buffer: Buffer): boolean {
   switch (ext) {
@@ -296,9 +334,19 @@ export async function prepareAgentAttachments(filePaths: string[]): Promise<Agen
 }
 export function resolveAgentAttachments(refs: AgentAttachmentRef[]): ResolvedAgentAttachment[] {
   prune();
-  return refs.flatMap((ref) => {
+  const unresolved = refs.filter((ref) => {
     const item = records.get(ref.id);
-    if (!item || item.name !== ref.name || item.size !== ref.size) return [];
-    return [{ id: item.id, name: item.name, mimeType: item.mimeType, size: item.size, text: item.text, dataUrl: item.dataUrl }];
+    return !item || item.name !== ref.name || item.size !== ref.size;
+  });
+  if (unresolved.length) {
+    const names = unresolved.map(ref => ref.name).filter(Boolean).slice(0, 5).join(', ');
+    throw new Error(
+      'Lampiran tidak tersedia lagi di memori lokal' + (names ? ': ' + names : '') +
+      '. Pilih ulang file dan kirim kembali prompt; analisis tanpa berkas asli dibatalkan.',
+    );
+  }
+  return refs.map((ref) => {
+    const item = records.get(ref.id)!;
+    return { id: item.id, name: item.name, mimeType: item.mimeType, size: item.size, text: item.text, dataUrl: item.dataUrl };
   });
 }
