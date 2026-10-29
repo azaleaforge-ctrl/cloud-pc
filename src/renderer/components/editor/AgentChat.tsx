@@ -577,21 +577,28 @@ function TerminalRunPanel({
 
 
 type AgentWorkTimelineItem =
+  | { kind: 'message'; key: string; ts: number; message: ChatMessage }
   | { kind: 'tool'; key: string; ts: number; activity: AgentToolActivity }
   | { kind: 'terminal'; key: string; ts: number; entry: AgentTerminalHistoryEntry };
 
 function AgentWorkTimeline({
+  messages,
   activities,
   terminalHistory,
   lastRunResult,
-  copiedId,
-  onCopy,
+  copiedMessage,
+  copiedTerminalId,
+  onMessageCopy,
+  onTerminalCopy,
 }: {
+  messages: ChatMessage[];
   activities: AgentToolActivity[];
   terminalHistory: AgentTerminalHistoryEntry[];
   lastRunResult: AgentRunResult | null;
-  copiedId: string | null;
-  onCopy: (entry: AgentTerminalHistoryEntry) => void;
+  copiedMessage: string | null;
+  copiedTerminalId: string | null;
+  onMessageCopy: (text: string) => void;
+  onTerminalCopy: (entry: AgentTerminalHistoryEntry) => void;
 }) {
   // A terminal tool call and its terminal-process event describe the same job.
   // Match them so the chat shows one complete terminal card, not two duplicates.
@@ -609,6 +616,9 @@ function AgentWorkTimeline({
   }
 
   const items: AgentWorkTimelineItem[] = [
+    ...messages
+      .filter((message) => message.role !== 'system' && Boolean(message.content))
+      .map((message) => ({ kind: 'message' as const, key: 'message-' + message.id, ts: message.ts, message })),
     ...activities
       .filter((activity) => activity.name !== 'run_terminal' || !terminalToolIds.has(activity.id))
       .map((activity) => ({ kind: 'tool' as const, key: 'tool-' + activity.id, ts: activity.ts, activity })),
@@ -622,14 +632,20 @@ function AgentWorkTimeline({
 
   return (
     <>
-      {items.map((item) => item.kind === 'tool'
-        ? <ToolActivityList key={item.key} activity={item.activity} />
-        : <TerminalRunPanel
-            key={item.key}
-            entry={item.entry}
-            copied={copiedId === item.entry.process.commandId}
-            onCopy={onCopy}
-          />)}
+      {items.map((item) => {
+        if (item.kind === 'message') {
+          return <MessageBubble key={item.key} msg={item.message} onCopy={onMessageCopy} copied={copiedMessage === item.message.content} />;
+        }
+        if (item.kind === 'tool') {
+          return <ToolActivityList key={item.key} activity={item.activity} />;
+        }
+        return <TerminalRunPanel
+          key={item.key}
+          entry={item.entry}
+          copied={copiedTerminalId === item.entry.process.commandId}
+          onCopy={onTerminalCopy}
+        />;
+      })}
       {lastRunResult ? <RunResultBanner result={lastRunResult} /> : null}
     </>
   );
@@ -1683,18 +1699,17 @@ remove terminal reset duplicate    setTerminalHistory([]);
                 </div>
               </div>
             ) : (
-              messages.filter((message) => message.role !== 'system' && message.content).map((message) => (
-                <MessageBubble key={message.id} msg={message} onCopy={saveCopied} copied={copiedMsg === message.content} />
-              ))
+              <AgentWorkTimeline
+                messages={messages}
+                activities={toolActivities}
+                terminalHistory={terminalHistory}
+                lastRunResult={lastRunResult}
+                copiedMessage={copiedMsg}
+                copiedTerminalId={terminalCopiedId}
+                onMessageCopy={saveCopied}
+                onTerminalCopy={(entry) => void copyTerminalDiagnostics(entry)}
+              />
             )}
-
-            <AgentWorkTimeline
-              activities={toolActivities}
-              terminalHistory={terminalHistory}
-              lastRunResult={lastRunResult}
-              copiedId={terminalCopiedId}
-              onCopy={(entry) => void copyTerminalDiagnostics(entry)}
-            />
             <div ref={bottomRef} />
           </div>
 
