@@ -21,7 +21,34 @@ function parseFunctionArguments(value: unknown): unknown {
   }
 }
 
-function toGeminiParts(content: unknown): JsonRecord[] {
+interface GeminiMediaBudget { bytes: number; }
+const GEMINI_INLINE_MEDIA_MAX = 14 * 1024 * 1024;
+
+function geminiInlineData(url: string, mediaBudget: GeminiMediaBudget, expectedType: 'image' | 'media'): JsonRecord {
+  const match = /^data:([^;,]+);base64,([A-Za-z0-9+/=\r\n]+)$/.exec(url);
+  if (!match) {
+    throw new Error('Media untuk Gemini harus berupa data URL base64 lokal; URL media eksternal tidak diteruskan otomatis.');
+  }
+  const mimeType = match[1].toLowerCase();
+  const isImage = mimeType.startsWith('image/');
+  const allowed = isImage || mimeType.startsWith('audio/') || mimeType.startsWith('video/') || mimeType === 'application/pdf';
+  if ((expectedType === 'image' && !isImage) || (expectedType === 'media' && !allowed)) {
+    throw new Error('Jenis media tidak didukung pada jalur Gemini: ' + mimeType);
+  }
+  const data = match[2].replace(/\s+/g, '');
+  if (data.length === 0 || data.length % 4 !== 0 ||
+      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data)) {
+    throw new Error('Encoding base64 media tidak valid.');
+  }
+  const decodedBytes = Buffer.from(data, 'base64').byteLength;
+  mediaBudget.bytes += decodedBytes;
+  if (mediaBudget.bytes > GEMINI_INLINE_MEDIA_MAX) {
+    throw new Error('Total gambar/audio/video/PDF yang dikirim langsung ke Gemini maksimal 14 MiB per permintaan. Kurangi jumlah atau ukuran media.');
+  }
+  return { inlineData: { mimeType, data } };
+}
+
+function toGeminiParts(content: unknown, mediaBudget: GeminiMediaBudget): JsonRecord[] {
   if (typeof content === 'string') return content ? [{ text: content }] : [];
   if (!Array.isArray(content)) return [];
 
@@ -35,16 +62,18 @@ function toGeminiParts(content: unknown): JsonRecord[] {
     if (item.type === 'image_url') {
       const descriptor = isRecord(item.image_url) ? item.image_url : null;
       const url = typeof item.image_url === 'string' ? item.image_url : asText(descriptor?.url);
-      const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\r\n]+)$/.exec(url);
-      if (!match) {
-        throw new Error('Gemini API memerlukan gambar tersemat sebagai data URL base64. URL gambar eksternal tidak diteruskan otomatis.');
+      parts.push(geminiInlineData(url, mediaBudget, 'image'));
+      continue;
+    }
+    if (item.type === 'media_url') {
+      const descriptor = isRecord(item.media_url) ? item.media_url : null;
+      const url = typeof item.media_url === 'string' ? item.media_url : asText(descriptor?.url);
+      const declaredMime = asText(descriptor?.mimeType).toLowerCase();
+      const dataUrlMime = /^data:([^;,]+);base64,/.exec(url)?.[1]?.toLowerCase() ?? '';
+      if (declaredMime && dataUrlMime && declaredMime !== dataUrlMime) {
+        throw new Error('MIME media tidak cocok dengan data URL. Lampiran ditolak.');
       }
-      parts.push({
-        inlineData: {
-          mimeType: match[1],
-          data: match[2].replace(/\s+/g, ''),
-        },
-      });
+      parts.push(geminiInlineData(url, mediaBudget, 'media'));
     }
   }
   return parts;
@@ -113,9 +142,10 @@ export interface GeminiRequestOptions {
 export function buildGeminiRequestBody(options: GeminiRequestOptions): JsonRecord {
   const systemParts: JsonRecord[] = [];
   const contents: JsonRecord[] = [];
+  const mediaBudget: GeminiMediaBudget = { bytes: 0 };
   for (const message of options.messages) {
     const role = asText(message.role);
-    const parts = toGeminiParts(message.content);
+    const parts = toGeminiParts(message.content, mediaBudget);
     if (role === 'system' || role === 'developer') {
       systemParts.push(...parts);
       continue;

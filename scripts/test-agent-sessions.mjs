@@ -27,7 +27,7 @@ try{
 
   await test('saves and reloads full session data without localStorage',async()=>{
     const messages=[
-      {id:'u1',role:'user',content:'Buat komponen dashboard',ts:100},
+      {id:'u1',role:'user',content:'Buat komponen dashboard',ts:100,runId:'llm_run_123'},
       {id:'a1',role:'assistant',content:'Saya akan memeriksa project dahulu.',ts:101},
     ];
     const saved=await api.saveAgentSession(userData,{id:'chat-one',messages,projectPath:workspace,activeAgentId:'poolside',todos:[]});
@@ -36,6 +36,8 @@ try{
     assert.ok(loaded);
     assert.equal(loaded.messages.length,2);
     assert.equal(loaded.messages[0].content,'Buat komponen dashboard');
+    assert.equal(loaded.messages[0].runId,'llm_run_123');
+    assert.equal(loaded.messages[1].runId,undefined);
     assert.equal(loaded.projectPath,workspace);
     assert.equal(loaded.activeAgentId,'poolside');
     assert.equal(loaded.schemaVersion,1);
@@ -118,6 +120,29 @@ try{
     assert.equal(result.ok,false);
     assert.match(result.message,/berubah/i);
     assert.equal(await readFile(file,'utf8'),'manual user edit');
+  });
+
+  await test('validates every file in a multi-file rewind before changing any file',async()=>{
+    const first=join(workspace,'multi-first.txt');
+    const second=join(workspace,'multi-second.txt');
+    await writeFile(first,'before first','utf8');
+    await writeFile(second,'before second','utf8');
+    await api.saveAgentSession(userData,{id:'chat-multi-conflict',messages:[],projectPath:workspace});
+    await writeFile(first,'agent first','utf8');
+    await api.recordAgentFileCheckpoint(userData,'chat-multi-conflict','run-multi',workspace,{
+      id:'change-first',path:'multi-first.txt',operation:'modify',oldContent:'before first',newContent:'agent first',
+      addedLines:1,removedLines:1,changedAt:Date.now(),
+    });
+    await writeFile(second,'agent second','utf8');
+    const checkpoint=await api.recordAgentFileCheckpoint(userData,'chat-multi-conflict','run-multi',workspace,{
+      id:'change-second',path:'multi-second.txt',operation:'modify',oldContent:'before second',newContent:'agent second',
+      addedLines:1,removedLines:1,changedAt:Date.now(),
+    });
+    await writeFile(second,'manual second','utf8');
+    const result=await api.rewindAgentCheckpoint(userData,'chat-multi-conflict',workspace,checkpoint.id);
+    assert.equal(result.ok,false);
+    assert.equal(await readFile(first,'utf8'),'agent first');
+    assert.equal(await readFile(second,'utf8'),'manual second');
   });
 
   await test('refuses checkpoint paths outside the workspace and workspace mismatch',async()=>{

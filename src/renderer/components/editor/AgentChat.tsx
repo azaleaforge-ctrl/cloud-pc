@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { createAgentReforkPlan, findCheckpointForMessage } from '../../../shared/agentMessageActions';
 import type {
   AgentEntry,
   AgentEvent,
@@ -263,10 +264,18 @@ function MessageBubble({
   msg,
   onCopy,
   copied,
+  checkpoint,
+  onRefork,
+  onRewind,
+  actionsDisabled,
 }: {
   msg: ChatMessage;
   onCopy: (content: string) => void;
   copied: boolean;
+  checkpoint?: AgentCheckpointSummary;
+  onRefork: (message: ChatMessage) => void;
+  onRewind: (message: ChatMessage) => void;
+  actionsDisabled: boolean;
 }) {
   const isUser = msg.role === 'user';
   if (msg.role === 'system' || !msg.content) return null;
@@ -291,6 +300,27 @@ function MessageBubble({
           </button>
         ) : null}
       </div>
+      {isUser ? (
+        <details className="ai-message-actions">
+          <summary aria-label="Buka aksi pesan" title="Aksi pesan">•••</summary>
+          <div className="ai-message-actions-menu" role="group" aria-label="Aksi pesan pengguna">
+            <button type="button" onClick={() => onCopy(msg.content)}>
+              {copied ? <IconCheck size={13} /> : <IconCopy size={13} />} {copied ? 'Prompt tersalin' : 'Salin prompt'}
+            </button>
+            <button type="button" disabled={actionsDisabled} onClick={() => onRefork(msg)}>
+              Revert / Refork
+            </button>
+            {checkpoint?.status === 'applied' ? (
+              <button type="button" disabled={actionsDisabled} onClick={() => onRewind(msg)}>
+                Rewind perubahan
+              </button>
+            ) : null}
+            {checkpoint?.status === 'rewound' ? (
+              <span className="ai-message-actions-note">Checkpoint sudah di-rewind. Gunakan Ctrl+R untuk memulihkan.</span>
+            ) : null}
+          </div>
+        </details>
+      ) : null}
       {msg.streaming ? <span className="ai-streaming-dot" aria-label="Jawaban sedang ditulis" /> : null}
     </article>
   );
@@ -603,7 +633,11 @@ function AgentWorkTimeline({
   lastRunResult,
   copiedMessage,
   copiedTerminalId,
+  checkpoints,
   onMessageCopy,
+  onMessageRefork,
+  onMessageRewind,
+  messageActionsDisabled,
   onTerminalCopy,
 }: {
   messages: ChatMessage[];
@@ -612,7 +646,11 @@ function AgentWorkTimeline({
   lastRunResult: AgentRunResult | null;
   copiedMessage: string | null;
   copiedTerminalId: string | null;
+  checkpoints: AgentCheckpointSummary[];
   onMessageCopy: (text: string) => void;
+  onMessageRefork: (message: ChatMessage) => void;
+  onMessageRewind: (message: ChatMessage) => void;
+  messageActionsDisabled: boolean;
   onTerminalCopy: (entry: AgentTerminalHistoryEntry) => void;
 }) {
   // A terminal tool call and its terminal-process event describe the same job.
@@ -649,7 +687,17 @@ function AgentWorkTimeline({
     <>
       {items.map((item) => {
         if (item.kind === 'message') {
-          return <MessageBubble key={item.key} msg={item.message} onCopy={onMessageCopy} copied={copiedMessage === item.message.content} />;
+          const checkpoint = findCheckpointForMessage(item.message, messages, checkpoints);
+          return <MessageBubble
+            key={item.key}
+            msg={item.message}
+            onCopy={onMessageCopy}
+            copied={copiedMessage === item.message.content}
+            checkpoint={checkpoint}
+            onRefork={onMessageRefork}
+            onRewind={onMessageRewind}
+            actionsDisabled={messageActionsDisabled}
+          />;
         }
         if (item.kind === 'tool') {
           return <ToolActivityList key={item.key} activity={item.activity} />;
@@ -701,6 +749,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [checkpoints, setCheckpoints] = useState<AgentCheckpointSummary[]>([]);
   const [checkpointsOpen, setCheckpointsOpen] = useState(false);
   const [checkpointActionBusy, setCheckpointActionBusy] = useState<string | null>(null);
+  const checkpointActionInFlightRef = useRef<string | null>(null);
   const firstSessionLoadRef = useRef(true);
   const [activeSkills, setActiveSkills] = useState<AgentSkillSelection[]>([]);
   const [todos, setTodos] = useState<AgentTodo[]>([]);
@@ -1029,6 +1078,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             role: 'assistant',
             content: event.data,
             ts,
+            runId: sessionId,
             streaming: true,
           };
           return [...previous, nextMessage];
@@ -1147,10 +1197,16 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     return () => window.clearTimeout(timer);
   }, [testResult]);
 
-  const saveCopied = useCallback((text: string) => {
-    void navigator.clipboard?.writeText(text).catch(() => undefined);
-    setCopiedMsg(text);
-    window.setTimeout(() => setCopiedMsg(null), 1800);
+  const saveCopied = useCallback(async (text: string) => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard browser tidak tersedia.');
+      await navigator.clipboard.writeText(text);
+      setCopiedMsg(text);
+      setError(null);
+      window.setTimeout(() => setCopiedMsg(current => current === text ? null : current), 1800);
+    } catch {
+      setError('Tidak dapat menyalin pesan. Periksa izin clipboard aplikasi lalu coba lagi.');
+    }
   }, []);
 
   const pickAttachments = useCallback(async () => {
@@ -1227,6 +1283,13 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       if (!result.ok || !result.sessionId) throw new Error(result.error ?? 'Agent gagal dimulai.');
       activeSessionRef.current = result.sessionId;
       setActiveSessionId(result.sessionId);
+      // The returned ID is also the checkpoint runId recorded by write_project_file.
+      // Persist it on both sides of this user turn so actions stay available after reload.
+      setMessages(previous => previous.map(message =>
+        message.id === userMessage.id || message.id === assistantMessage.id
+          ? { ...message, runId: result.sessionId }
+          : message,
+      ));
       setPendingAttachments([]);
       if (cancelRequestedRef.current) {
         setActivity('Membatalkan agent…');
@@ -1510,7 +1573,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   }, [sessions, conversationId, wb.root]);
 
   const runCheckpointAction = useCallback(async (checkpointId: string, action: 'rewind' | 'redo') => {
-    if (loading || checkpointActionBusy) return;
+    if (loading || checkpointActionInFlightRef.current !== null) return;
+    checkpointActionInFlightRef.current = checkpointId;
     setCheckpointActionBusy(checkpointId);
     setError(null);
     try {
@@ -1528,9 +1592,104 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     } catch (error) {
       setError((error as Error).message || 'Operasi checkpoint gagal.');
     } finally {
+      if (checkpointActionInFlightRef.current === checkpointId) checkpointActionInFlightRef.current = null;
       setCheckpointActionBusy(null);
     }
-  }, [loading, checkpointActionBusy, conversationId]);
+  }, [loading, conversationId]);
+
+  const reforkFromMessage = useCallback(async (message: ChatMessage) => {
+    if (loading || !sessionReady || !wb.root) return;
+    if (pendingAttachments.length) {
+      setError('Kirim atau hapus lampiran yang masih ada di composer sebelum membuat cabang percakapan.');
+      return;
+    }
+    if (sessionProjectPath && !sameWorkspacePath(sessionProjectPath, wb.root)) {
+      setError('Workspace sesi tidak cocok dengan workspace aktif; cabang tidak dibuat.');
+      return;
+    }
+    const plan = createAgentReforkPlan(messages, message.id);
+    if (!plan) {
+      setError('Prompt pengguna yang dipilih tidak ditemukan pada sesi aktif.');
+      return;
+    }
+    const prefix = plan.messages;
+    const branchId = makeConversationId();
+    setError(null);
+    try {
+      const saved = await window.rk.agentSaveSession({
+        id: branchId,
+        projectPath: wb.root,
+        activeAgentId,
+        messages: prefix,
+        summary: '',
+        summaryThroughTs: 0,
+        todos: [],
+      });
+      if (!saved.ok) throw new Error(saved.error || 'Gagal menyimpan cabang sesi.');
+      setConversationId(branchId);
+      setMessages(prefix);
+      setSessionProjectPath(wb.root);
+      setConversationSummary('');
+      setSummaryThroughTs(0);
+      setTodos([]);
+      setCheckpoints([]);
+      setChanges([]);
+      setSelectedChange(null);
+      setToolActivities([]);
+      setTerminalHistory([]);
+      setLastRunResult(null);
+      setInput(plan.prompt);
+      setHistoryOpen(false);
+      setCheckpointsOpen(false);
+      setActivity('Cabang percakapan dibuat sebelum prompt terpilih. Prompt siap diedit atau dikirim ulang.');
+      if (plan.requiresAttachmentReselect) {
+        setError('Prompt berhasil disalin ke composer, tetapi lampiran lama tidak disalin ke cabang. Lampirkan ulang media sebelum mengirim.');
+      }
+      setSessions(await window.rk.agentListSessions());
+    } catch (error) {
+      setError((error as Error).message || 'Gagal membuat cabang percakapan.');
+    }
+  }, [loading, sessionReady, wb.root, sessionProjectPath, pendingAttachments.length, messages, activeAgentId]);
+
+  const rewindFromMessage = useCallback((message: ChatMessage) => {
+    if (!message.runId) {
+      setError('Checkpoint tidak tertaut ke pesan ini. Pesan dari versi lama mungkin belum menyimpan ID run.');
+      return;
+    }
+    const checkpoint = checkpoints.find(item => item.runId === message.runId && item.status === 'applied');
+    if (!checkpoint) {
+      setError('Tidak ada checkpoint aktif untuk perubahan yang terkait dengan prompt ini.');
+      return;
+    }
+    void runCheckpointAction(checkpoint.id, 'rewind');
+  }, [checkpoints, runCheckpointAction]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const onRestoreShortcut = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || event.key.toLowerCase() !== 'r') return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      // Reserve Ctrl+R while the Agentic Coding panel is visible so it can never
+      // accidentally reload the application. Modal workflows keep focus instead.
+      if (settingsOpen || modelPickerOpen || historyOpen || checkpointsOpen) return;
+      if (loading || checkpointActionBusy) {
+        setActivity('Tunggu agent atau operasi checkpoint selesai sebelum memulihkan.');
+        return;
+      }
+      const checkpoint = checkpoints
+        .filter(item => item.status === 'rewound')
+        .sort((a, b) => b.createdAt - a.createdAt)[0];
+      if (!checkpoint) {
+        setActivity('Belum ada checkpoint yang di-rewind untuk dipulihkan.');
+        return;
+      }
+      void runCheckpointAction(checkpoint.id, 'redo');
+    };
+    window.addEventListener('keydown', onRestoreShortcut, true);
+    return () => window.removeEventListener('keydown', onRestoreShortcut, true);
+  }, [visible, settingsOpen, modelPickerOpen, historyOpen, checkpointsOpen, loading, checkpointActionBusy, checkpoints, runCheckpointAction]);
 
   useEffect(() => {
     if (!historyOpen) return;
@@ -2102,7 +2261,11 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 lastRunResult={lastRunResult}
                 copiedMessage={copiedMsg}
                 copiedTerminalId={terminalCopiedId}
+                checkpoints={checkpoints}
                 onMessageCopy={saveCopied}
+                onMessageRefork={(message) => void reforkFromMessage(message)}
+                onMessageRewind={rewindFromMessage}
+                messageActionsDisabled={loading || !sessionReady || !wb.root || pendingAttachments.length > 0}
                 onTerminalCopy={(entry) => void copyTerminalDiagnostics(entry)}
               />
             )}
@@ -2265,7 +2428,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             ) : null}
             <div className="ai-input-row">
               <button type="button" className="ai-attach-btn" aria-label="Lampirkan file"
-                title="Lampirkan foto, dokumen, atau file teks"
+                title="Lampirkan gambar, dokumen, audio, video, atau file teks"
                 disabled={loading || selectingAttachments || !sessionReady || !wb.root}
                 onClick={() => void pickAttachments()}>
                 {selectingAttachments ? <Spinner size={16} /> : <IconPlus size={17} />}

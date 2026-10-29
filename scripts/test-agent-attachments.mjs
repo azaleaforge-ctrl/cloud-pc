@@ -21,7 +21,7 @@ try{
  test('text extraction returns opaque refs, not filesystem paths',()=>{assert.equal(txtRefs[0].name,'notes.txt');assert.equal('path' in txtRefs[0],false);assert.match(resolveAgentAttachments(txtRefs)[0].text,/Second line/);});
  const pdf=await make('sample.pdf','%PDF-1.4\nBT (Invoice total 250) Tj ET\n%%EOF');
  const pdfRefs=await prepareAgentAttachments([pdf]);
- test('basic selectable PDF text extraction',()=>assert.match(resolveAgentAttachments(pdfRefs)[0].text,/Invoice total 250/));
+ test('selectable PDF keeps extracted text and a bounded original for mixed-page OCR',()=>{const item=resolveAgentAttachments(pdfRefs)[0];assert.match(item.text,/Invoice total 250/);assert.match(item.dataUrl,/^data:application\/pdf;base64,/);});
  const AdmZip=require('adm-zip'),zip=new AdmZip();
  zip.addFile('word/document.xml',Buffer.from('<w:document xmlns:w="urn:w"><w:body><w:p><w:r><w:t>DOCX content</w:t></w:r></w:p></w:body></w:document>'));
  const docx=await make('spec.docx',zip.toBuffer()),docxRefs=await prepareAgentAttachments([docx]);
@@ -35,12 +35,41 @@ try{
  slideZip.addFile('ppt/slides/slide1.xml',Buffer.from('<p:sld xmlns:p="urn:p" xmlns:a="urn:a"><a:t>Quarterly Report</a:t></p:sld>'));
  const slide=await make('slides.pptx',slideZip.toBuffer()),slideRefs=await prepareAgentAttachments([slide]);
  test('PPTX extraction reads slide text',()=>assert.match(resolveAgentAttachments(slideRefs)[0].text,/Quarterly Report/));
- const image=await make('photo.png',Buffer.from([137,80,78,71,13,10,26,10]));
+ const image=await make('photo.png',Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC','base64'));
  const imageRefs=await prepareAgentAttachments([image]);
  test('image data stays in main-process payload, not renderer ref',()=>{assert.equal('dataUrl' in imageRefs[0],false);assert.match(resolveAgentAttachments(imageRefs)[0].dataUrl,/^data:image\/png;base64,/);});
+ const scannedPdf=await make('scan.pdf',Buffer.from('%PDF-1.4\\n%%EOF','utf8'));
+ const scannedRefs=await prepareAgentAttachments([scannedPdf]);
+ test('scanned PDF retains its original file for provider-side OCR fallback',()=>{const item=resolveAgentAttachments(scannedRefs)[0];assert.match(item.text,/OCR/i);assert.match(item.dataUrl,/^data:application\/pdf;base64,/);});
+ const mp3=await make('recording.mp3',Buffer.from([0x49,0x44,0x33,0x04,0x00,0x00,0x00,0x00,0x00,0x00]));
+ const mp3Refs=await prepareAgentAttachments([mp3]);
+ test('audio attachments retain MIME-tagged main-process payloads',()=>{const item=resolveAgentAttachments(mp3Refs)[0];assert.equal(item.mimeType,'audio/mpeg');assert.match(item.dataUrl,/^data:audio\/mpeg;base64,/);});
+ const mp4=await make('clip.mp4',(() => { const b=Buffer.alloc(24); b.writeUInt32BE(24,0); b.write('ftyp',4); b.write('isom',8); b.write('isom',16); return b; })());
+ const mp4Refs=await prepareAgentAttachments([mp4]);
+ test('video attachments retain MIME-tagged main-process payloads',()=>{const item=resolveAgentAttachments(mp4Refs)[0];assert.equal(item.mimeType,'video/mp4');assert.match(item.dataUrl,/^data:video\/mp4;base64,/);});
+ const malformedImage=await make('fake.png',Buffer.from([137,80,78,71,13,10,26,10]));
+ let malformedImageRejected=false;
+ try{await prepareAgentAttachments([malformedImage]);}catch(error){malformedImageRejected=/signature|header/i.test(error.message);}
+ test('rejects image files that contain only a PNG signature without a valid header',()=>assert.equal(malformedImageRejected,true));
+ const malformedAudio=await make('fake.mp3',Buffer.from('not audio'));
+ let malformedAudioRejected=false;
+ try{await prepareAgentAttachments([malformedAudio]);}catch(error){malformedAudioRejected=/signature/i.test(error.message);}
+ test('rejects audio files with invalid signatures',()=>assert.equal(malformedAudioRejected,true));
  const bad=await make('legacy.doc',Buffer.from('binary'));let rejected=false;
  try{await prepareAgentAttachments([bad]);}catch(error){rejected=/belum didukung/i.test(error.message);}
  test('unsupported document type is rejected',()=>assert.equal(rejected,true));
+ const invalidEntityZip=new AdmZip();
+ invalidEntityZip.addFile('word/document.xml',Buffer.from('<w:document xmlns:w="urn:w"><w:body><w:p><w:r><w:t>safe &#x110000; text</w:t></w:r></w:p></w:body></w:document>'));
+ const invalidEntityDocx=await make('invalid-xml-entity.docx',invalidEntityZip.toBuffer());
+ let invalidEntityHandled=false;
+ try { const refs=await prepareAgentAttachments([invalidEntityDocx]); invalidEntityHandled=/safe/.test(resolveAgentAttachments(refs)[0].text); } catch {}
+ test('malformed numeric XML entities do not crash document extraction',()=>assert.equal(invalidEntityHandled,true));
+ const bombZip=new AdmZip();
+ bombZip.addFile('word/document.xml',Buffer.from('A'.repeat(30*1024*1024+1)));
+ const bombDocx=await make('compressed-bomb.docx',bombZip.toBuffer());
+ let bombRejected=false;
+ try { await prepareAgentAttachments([bombDocx]); } catch(error) { bombRejected=/terlalu besar|dekompresi/i.test(error.message); }
+ test('rejects Office archives whose decompressed content exceeds limits',()=>assert.equal(bombRejected,true));
  console.log('\nAgent attachment tests: '+passed+' passed, '+failed+' failed');
  if(failed)process.exitCode=1;
 }finally{await rm(dir,{recursive:true,force:true});}

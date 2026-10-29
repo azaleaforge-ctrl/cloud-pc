@@ -26,7 +26,7 @@
     "test:agent-failure-guard": "node scripts/test-agent-failure-guard.mjs",
     "test:agent-skills": "node scripts/test-agent-skills.mjs",
     "test:agent-verification": "node scripts/test-agent-verification.mjs",
-    "test:agent-runtime": "npm run test:agent-todo && npm run test:agent-terminal && npm run test:agent-terminal-history && npm run test:agent-failure-guard && npm run test:agent-attachments && npm run test:agent-research && npm run test:agent-model-capabilities && npm run test:agent-model-picker && npm run test:agent-installed-skills && npm run test:agent-mcp-plugins && npm run test:stage6-vision-browser && npm run test:stage7-integration && npm run test:agent-providers && npm run test:agent-sessions && npm run test:release-metadata && npm run test:agent-skills && npm run test:agent-verification && npm run test:agent-sidepanel && npm run test:agent-slash-commands && node scripts/test-agent-markdown-queue.mjs",
+    "test:agent-runtime": "npm run test:agent-todo && npm run test:agent-terminal && npm run test:agent-terminal-history && npm run test:agent-failure-guard && npm run test:agent-attachments && npm run test:agent-research && npm run test:agent-model-capabilities && npm run test:agent-model-picker && npm run test:agent-installed-skills && npm run test:agent-mcp-plugins && npm run test:stage6-vision-browser && npm run test:stage5-6-actions && npm run test:stage7-integration && npm run test:agent-providers && npm run test:agent-sessions && npm run test:release-metadata && npm run test:agent-skills && npm run test:agent-verification && npm run test:agent-sidepanel && npm run test:agent-slash-commands && node scripts/test-agent-markdown-queue.mjs",
     "test:release-metadata": "node scripts/test-release-metadata.mjs",
     "test:agent-sidepanel": "node scripts/test-agent-sidepanel.mjs",
     "test:agent-slash-commands": "node scripts/test-agent-slash-commands.mjs",
@@ -35,6 +35,7 @@
     "test:agent-installed-skills": "node scripts/test-agent-installed-skills.mjs",
     "test:agent-mcp-plugins": "node scripts/test-agent-mcp-plugins.mjs",
     "test:stage6-vision-browser": "node scripts/test-stage6-vision-browser.mjs",
+    "test:stage5-6-actions": "node scripts/test-agent-message-actions.mjs",
     "test:stage7-integration": "node scripts/test-stage7-integration.mjs"
   },
   "build": {

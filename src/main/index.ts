@@ -1341,7 +1341,8 @@ function registerIpc(): void {
         properties: ['openFile', 'multiSelections'],
         filters: [{ name: 'Lampiran AI', extensions: [
           'png','jpg','jpeg','webp','gif','pdf','docx','xlsx','pptx','txt','md','markdown','csv','tsv','json','jsonl',
-          'xml','html','htm','css','js','jsx','ts','tsx','mjs','cjs','py','php','sql','yaml','yml','log','ini','toml','sh','ps1'
+          'xml','html','htm','css','js','jsx','ts','tsx','mjs','cjs','py','php','sql','yaml','yml','log','ini','toml','sh','ps1',
+          'mp3','wav','m4a','aac','flac','ogg','mp4','mov','avi','webm','mpeg','mpg','wmv'
         ] }],
       });
       if (selected.canceled || selected.filePaths.length === 0) return { ok: true, attachments: [] };
