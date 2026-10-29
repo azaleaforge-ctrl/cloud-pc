@@ -29,6 +29,12 @@ assert.ok(headings.length >= 3, 'historical version descriptions must be preserv
 const separatorMatch = notes.match(/^---[ \t]*$/m);
 assert.ok(separatorMatch, 'release notes must separate current notes from release history');
 const separatorIndex = separatorMatch.index ?? -1;
+const currentNotes = notes.slice(0, separatorIndex);
+assert.match(currentNotes, /^## .{8,}$/m, 'current release must have a descriptive subtitle');
+const detailedBullets = currentNotes.match(/^\\s*[-*]\\s+\\S.{20,}$/gm) ?? [];
+assert.ok(detailedBullets.length >= 5, 'current release must contain at least five descriptive change bullets');
+assert.match(currentNotes, /### Detail Version di dalam aplikasi/, 'current release must describe the in-app version history');
+assert.match(currentNotes, /Muat Ulang Versi/, 'current release must explain how to refresh version details');
 const currentReleaseHeadings = notes.slice(0, separatorIndex).match(/^# Ruang Kerja v?\d+\.\d+\.\d+\s*$/gm) || [];
 assert.equal(currentReleaseHeadings.length, 1, 'the release description before the first separator must contain only the current version');
 
