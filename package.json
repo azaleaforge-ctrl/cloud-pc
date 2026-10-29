@@ -24,7 +24,8 @@
     "test:agent-model-capabilities": "node scripts/test-agent-model-capabilities.mjs",
     "test:agent-sessions": "node scripts/test-agent-sessions.mjs",
     "test:agent-failure-guard": "node scripts/test-agent-failure-guard.mjs",
-    "test:agent-runtime": "npm run test:agent-todo && npm run test:agent-terminal && npm run test:agent-terminal-history && npm run test:agent-failure-guard && npm run test:agent-attachments && npm run test:agent-research && npm run test:agent-model-capabilities && npm run test:agent-sessions && npm run test:release-metadata && node scripts/test-agent-markdown-queue.mjs",
+    "test:agent-skills": "node scripts/test-agent-skills.mjs",
+    "test:agent-runtime": "npm run test:agent-todo && npm run test:agent-terminal && npm run test:agent-terminal-history && npm run test:agent-failure-guard && npm run test:agent-attachments && npm run test:agent-research && npm run test:agent-model-capabilities && npm run test:agent-sessions && npm run test:release-metadata && npm run test:agent-skills && node scripts/test-agent-markdown-queue.mjs",
     "test:release-metadata": "node scripts/test-release-metadata.mjs"
   },
   "build": {
