@@ -33,7 +33,7 @@ Ruang Kerja v1.0.7 menyelesaikan putaran hardening untuk lampiran AI dan kontrol
 - Jika checkpoint terkait masih dalam status diterapkan, aksi menjalankan Rewind; jika checkpoint sudah di-rewind, aksi menjalankan Redo.
 - Handler mengikuti daftar pesan terbaru setelah pesan baru, Refork, atau pergantian sesi agar tidak menggunakan state React yang sudah kedaluwarsa.
 
-### 5. Detail Version dan deskripsi langsung di aplikasi
+### Detail Version di dalam aplikasi
 
 - Klik nomor versi pada bilah status bawah aplikasi untuk membuka **Riwayat Versi & Perubahan**. Fitur tersedia dari layar awal maupun saat berada di dalam ruangan kerja.
 - Setiap entri menampilkan tag/nomor versi, nama rilis bila tersedia, tanggal publikasi, dan isi deskripsi rilis. Catatan v1.0.7 ini menjadi sumber deskripsi perubahan yang ditampilkan di aplikasi.
