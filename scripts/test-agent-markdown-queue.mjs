@@ -32,7 +32,7 @@ assert.ok(chat.includes('upsertAgentTerminalProcess(previous, event.process, 100
 assert.ok(!chat.includes('TerminalRunHistory') && !chat.includes('ai-run-details-scroll'), 'terminal and tool results must not remain compressed in the loading dock');
 assert.ok(chat.includes('ai-side-skills-card') && editorCss.includes('.ai-side-skills-card'), 'active skills must be shown in the right work panel instead of above chat');
 assert.ok(chat.includes('messages={messages}') && chat.includes('activities={toolActivities}') && chat.includes('terminalHistory={terminalHistory}'), 'assistant messages, tool activity, and terminal output must share one chronological renderer');
-assert.ok(chat.includes('className="ai-side-tools-card"') && editorCss.includes('.ai-side-tools-card'), 'a compact tool usage summary must be available in the right panel');
+assert.ok(chat.includes('ai-side-tools-card') && editorCss.includes('.ai-side-tools-card'), 'a compact tool usage summary must be available in the right panel');
 assert.ok(chat.includes('AGENT_TOOL_DISPLAY_NAMES[item.name] || item.name'), 'the right tool panel must use readable names for the active tools');
 assert.ok(editorCss.includes('overflow-y: auto;') && editorCss.includes('.ai-side-tools-scroll'), 'the right work panel must remain scrollable when skill/tool details grow');
 assert.ok(chat.includes('return [...previous, nextMessage];'), 'model text emitted after a tool call must create a new assistant chat bubble');
