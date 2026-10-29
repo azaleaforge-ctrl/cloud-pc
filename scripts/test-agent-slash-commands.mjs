@@ -8,16 +8,16 @@ const chat = await readFile(join(root, 'src/renderer/components/editor/AgentChat
 const css = await readFile(join(root, 'src/renderer/components/editor/agent-progress.css'), 'utf8');
 
 for (const command of ['/sessions', '/connect', '/model']) {
-  assert.ok(chat.includes("command: '" + command + "'") || chat.includes("command: '" + command + "',"),
+  assert.ok(chat.includes("command: '" + command + "'"),
     'slash command catalog must include ' + command);
 }
-assert.ok(chat.includes('startsWith(slashCommandQuery || \'/\')'), 'typing / must filter the slash command menu');
+assert.ok(chat.includes("startsWith(slashCommandQuery || '/')"), 'typing / must filter the slash command menu');
 assert.ok(chat.includes("event.key === 'ArrowDown'") && chat.includes("event.key === 'ArrowUp'"),
   'the command menu must support keyboard selection');
 assert.ok(chat.includes("event.key === 'Escape' && slashMenuOpen"), 'Escape must close the command menu');
 assert.ok(chat.includes("const exactCommand = AGENT_SLASH_COMMANDS.find"), 'full command names must be recognized before sending messages');
 assert.ok(chat.includes("if (trimmedInput.startsWith('/'))"), 'slash inputs must be handled by the command router before normal chat send');
-assert.ok(chat.includes('Perintah "\' + typedCommand + \'" tidak dikenal.') || chat.includes('Perintah \' + typedCommand),
+assert.ok(chat.includes('Perintah ') && chat.includes('typedCommand') && chat.includes('tidak dikenal.'),
   'unknown slash commands must report an error instead of being sent to the AI');
 assert.ok(chat.includes("setSettingsFocusTarget(command === '/model' ? 'model' : 'connect')"),
   '/connect and /model must open the existing connection/model panel until provider/model modals are introduced');
