@@ -48,6 +48,12 @@ jobs:
         run: |
           npm pkg set version="$env:RELEASE_VERSION"
 
+      - name: Sync package-lock version
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Test Agent Runtime
+        run: npm run test:agent-runtime
+
       - name: Typecheck
         run: npm run typecheck
 
