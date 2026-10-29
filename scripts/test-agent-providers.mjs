@@ -177,6 +177,27 @@ try {
     }), /Jenis media tidak didukung/);
   });
 
+  await test('rejects inline media larger than the aggregate 12 MiB budget', () => {
+    const oversizedBase64 = Buffer.alloc(12 * 1024 * 1024 + 1).toString('base64');
+    assert.throws(() => providers.buildGeminiRequestBody({
+      model: 'gemini-3.8-flash',
+      messages: [{ role: 'user', content: [
+        { type: 'text', text: 'Analyze this file.' },
+        { type: 'media_url', media_url: { url: 'data:audio/mpeg;base64,' + oversizedBase64, mimeType: 'audio/mpeg' } },
+      ] }],
+    }), /maksimal 12 MiB per permintaan/);
+  });
+
+  await test('rejects oversized total inline JSON body including prompt text', () => {
+    assert.throws(() => providers.buildGeminiRequestBody({
+      model: 'gemini-3.8-flash',
+      messages: [{ role: 'user', content: [
+        { type: 'text', text: 'x'.repeat(19_000_100) },
+        { type: 'media_url', media_url: { url: 'data:audio/mpeg;base64,aGVsbG8=', mimeType: 'audio/mpeg' } },
+      ] }],
+    }), /ukuran total permintaan media inline.*19 MB/i);
+  });
+
   await test('normalizes Gemini text and function calls into the agent OpenAI-shaped response contract', () => {
     const normalized = providers.normalizeGeminiResponse({
       responseId: 'resp-1',
