@@ -58,6 +58,18 @@ try{
  const bad=await make('legacy.doc',Buffer.from('binary'));let rejected=false;
  try{await prepareAgentAttachments([bad]);}catch(error){rejected=/belum didukung/i.test(error.message);}
  test('unsupported document type is rejected',()=>assert.equal(rejected,true));
+ const invalidEntityZip=new AdmZip();
+ invalidEntityZip.addFile('word/document.xml',Buffer.from('<w:document xmlns:w="urn:w"><w:body><w:p><w:r><w:t>safe &#x110000; text</w:t></w:r></w:p></w:body></w:document>'));
+ const invalidEntityDocx=await make('invalid-xml-entity.docx',invalidEntityZip.toBuffer());
+ let invalidEntityHandled=false;
+ try { const refs=await prepareAgentAttachments([invalidEntityDocx]); invalidEntityHandled=/safe/.test(resolveAgentAttachments(refs)[0].text); } catch {}
+ test('malformed numeric XML entities do not crash document extraction',()=>assert.equal(invalidEntityHandled,true));
+ const bombZip=new AdmZip();
+ bombZip.addFile('word/document.xml',Buffer.from('A'.repeat(30*1024*1024+1)));
+ const bombDocx=await make('compressed-bomb.docx',bombZip.toBuffer());
+ let bombRejected=false;
+ try { await prepareAgentAttachments([bombDocx]); } catch(error) { bombRejected=/terlalu besar|dekompresi/i.test(error.message); }
+ test('rejects Office archives whose decompressed content exceeds limits',()=>assert.equal(bombRejected,true));
  console.log('\nAgent attachment tests: '+passed+' passed, '+failed+' failed');
  if(failed)process.exitCode=1;
 }finally{await rm(dir,{recursive:true,force:true});}
