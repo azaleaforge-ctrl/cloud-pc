@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type {
   AgentEntry,
@@ -17,6 +17,7 @@ import type {
   AgentCheckpointSummary,
   AgentModelCatalogResult,
   AgentModelCapabilityReport,
+  AgentModelInfo,
   AgentSessionSummary,
   ChatMessage,
 } from '../../../shared/agents';
@@ -63,6 +64,8 @@ interface DiffRow {
 
 const STORAGE_KEY = 'rk.ai.lastAgent';
 const HISTORY_KEY = 'rk.ai.chatHistory';
+
+type ModelCostFilter = 'all' | 'free' | 'premium' | 'unknown';
 
 type AgentSlashCommandName = '/sessions' | '/connect' | '/model';
 const AGENT_SLASH_COMMANDS: Array<{
@@ -717,6 +720,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [apiKey, setApiKey] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsFocusTarget, setSettingsFocusTarget] = useState<'connect' | 'model' | null>(null);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [modelSearchQuery, setModelSearchQuery] = useState('');
+  const [modelCostFilter, setModelCostFilter] = useState<ModelCostFilter>('all');
   const [savingKey, setSavingKey] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<AgentRouterTestResult | null>(null);
