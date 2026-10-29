@@ -673,9 +673,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [todos, setTodos] = useState<AgentTodo[]>([]);
   const [toolActivities, setToolActivities] = useState<AgentToolActivity[]>([]);
   const [lastRunResult, setLastRunResult] = useState<AgentRunResult | null>(null);
-  const [terminalProcess, setTerminalProcess] = useState<AgentTerminalProcess | null>(null);
-  const [terminalOutput, setTerminalOutput] = useState('');
-  const [terminalHistory, setTerminalHistory] = useState<AgentTerminalHistoryEntry[]>([]);
+remove terminal live-state duplicate  const [terminalHistory, setTerminalHistory] = useState<AgentTerminalHistoryEntry[]>([]);
   const [terminalCopiedId, setTerminalCopiedId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState<AgentAttachmentRef[]>([]);
@@ -825,9 +823,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setSelectedChange(null);
     setActiveSkills([]);
     setToolActivities([]);
-    setTerminalProcess(null);
-    setTerminalOutput('');
-    setTerminalHistory([]);
+remove terminal reset duplicate    setTerminalHistory([]);
     setLastRunResult(null);
     setError(null);
 
@@ -887,7 +883,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       } else if (event.type === 'tool-status') {
         setToolActivities((previous) => {
           const index = previous.findIndex((item) => item.id === event.activity.id);
-          if (index < 0) return [...previous, event.activity].slice(-8);
+          if (index < 0) return [...previous, event.activity];
           const next = [...previous];
           next[index] = event.activity;
           return next;
@@ -896,11 +892,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         setLastRunResult(event.result);
         if (event.result.outcome === 'completed' || event.result.outcome === 'cancelled') setTodos([]);
       } else if (event.type === 'terminal-process') {
-        setTerminalProcess(event.process);
-        setTerminalHistory((previous) => upsertAgentTerminalProcess(previous, event.process));
-        if (event.process.status === 'starting') setTerminalOutput('');
+        setTerminalHistory((previous) => upsertAgentTerminalProcess(previous, event.process, 100));
       } else if (event.type === 'terminal-output') {
-        setTerminalOutput((previous) => (previous + event.output.data).slice(-12000));
         setTerminalHistory((previous) => appendAgentTerminalOutput(previous, event.output));
       } else if (event.type === 'skills') {
         setActiveSkills(event.skills);
@@ -1072,8 +1065,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setTerminalOutput('');
     setTerminalHistory([]);
     setTerminalCopiedId(null);
-    setActivity('Mempersiapkan workspace…');
-    const userMessage: ChatMessage = {
+keep activity for tooltip in loading dock    const userMessage: ChatMessage = {
       id: 'user-' + Date.now(), role: 'user',
       content: text || 'Tolong analisis lampiran yang saya kirim dan rangkum informasi pentingnya.',
       ts: Date.now(),
