@@ -26,8 +26,9 @@ const headings = [...notes.matchAll(/^# Ruang Kerja v?\d+\.\d+\.\d+\s*$/gm)].map
 assert.equal(headings[0].trim(), expectedHeading, 'current release notes must be the first version entry');
 assert.ok(headings.length >= 3, 'historical version descriptions must be preserved');
 
-const separatorIndex = notes.indexOf('\n---\n');
-assert.ok(separatorIndex >= 0, 'release notes must separate current notes from release history');
+const separatorMatch = notes.match(/^---[ \t]*$/m);
+assert.ok(separatorMatch, 'release notes must separate current notes from release history');
+const separatorIndex = separatorMatch.index ?? -1;
 const currentReleaseHeadings = notes.slice(0, separatorIndex).match(/^# Ruang Kerja v?\d+\.\d+\.\d+\s*$/gm) || [];
 assert.equal(currentReleaseHeadings.length, 1, 'the release description before the first separator must contain only the current version');
 
