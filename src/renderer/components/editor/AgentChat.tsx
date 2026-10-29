@@ -686,9 +686,21 @@ function AgentWorkTimeline({
     <>
       {items.map((item) => {
         if (item.kind === 'message') {
-          const checkpoint = item.message.runId
+          const directCheckpoint = item.message.runId
             ? checkpoints.find(candidate => candidate.runId === item.message.runId)
             : undefined;
+          // v1.0.6 sessions predate persisted message run IDs. For those sessions,
+          // conservatively associate a checkpoint only with the prompt interval
+          // containing its creation time; never guess from list order alone.
+          const messageIndex = messages.findIndex(candidate => candidate.id === item.message.id);
+          const nextUserTs = messages.slice(messageIndex + 1).find(candidate => candidate.role === 'user')?.ts
+            ?? Number.POSITIVE_INFINITY;
+          const legacyCheckpoint = !item.message.runId
+            ? checkpoints
+              .filter(candidate => candidate.createdAt >= item.message.ts && candidate.createdAt < nextUserTs)
+              .sort((left, right) => left.createdAt - right.createdAt)[0]
+            : undefined;
+          const checkpoint = directCheckpoint ?? legacyCheckpoint;
           return <MessageBubble
             key={item.key}
             msg={item.message}
