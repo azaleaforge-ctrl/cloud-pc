@@ -172,7 +172,7 @@ try {
     assert.ok(toolPayload);
     assert.equal(toolPayload.choices[0].delta.tool_calls[0].function.name, 'read_file');
     assert.deepEqual(JSON.parse(toolPayload.choices[0].delta.tool_calls[0].function.arguments), { path: 'README.md' });
-    assert.match(stream, /data: \\[DONE\\]/);
+    assert.match(stream, /data: \[DONE\]/);
   });
 
   await test('lists only Gemini content-generation models and strips the models/ prefix', async () => {
