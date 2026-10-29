@@ -88,6 +88,8 @@ export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
   ts: number;
+  /** Agent run that produced this prompt/response; associates message actions with its file checkpoint. */
+  runId?: string;
   streaming?: boolean;
   attachments?: AgentAttachmentRef[];
 }
