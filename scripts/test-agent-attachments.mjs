@@ -45,9 +45,9 @@ try{
  });
  const multiStream=deflateSync(Buffer.alloc(26*1024*1024,0x41));
  const multiStreamPdf=Buffer.concat([
-   Buffer.from('%PDF-1.4\\n<< /Filter /FlateDecode >>\\nstream\\n','latin1'),
-   multiStream,Buffer.from('\\nendstream\\n<< /Filter /FlateDecode >>\\nstream\\n','latin1'),
-   multiStream,Buffer.from('\\nendstream\\n%%EOF','latin1'),
+   Buffer.from('%PDF-1.4\n<< /Filter /FlateDecode >>\nstream\n','latin1'),
+   multiStream,Buffer.from('\nendstream\n<< /Filter /FlateDecode >>\nstream\n','latin1'),
+   multiStream,Buffer.from('\nendstream\n%%EOF','latin1'),
  ]);
  const compressedPdf=await make('many-streams.pdf',multiStreamPdf);
  let cumulativePdfRejected=false;
@@ -55,7 +55,7 @@ try{
  catch(error) { cumulativePdfRejected=/dekompresi PDF melebihi batas aman 50 MiB/i.test(error.message); }
  test('rejects PDFs whose aggregate decompressed streams exceed 50 MiB',()=>assert.equal(cumulativePdfRejected,true));
  const tooManyStreamsPdf=await make('many-stream-count.pdf',Buffer.from(
-   '%PDF-1.4\\n'+Array.from({length:2001},()=> '<< >>\\nstream\\nA\\nendstream\\n').join('')+'%%EOF',
+   '%PDF-1.4\n'+Array.from({length:2001},()=> '<< >>\nstream\nA\nendstream\n').join('')+'%%EOF',
    'latin1',
  ));
  let tooManyStreamsRejected=false;
