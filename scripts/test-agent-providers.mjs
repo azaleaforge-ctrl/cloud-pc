@@ -175,6 +175,34 @@ try {
     assert.match(stream, /data: \[DONE\]/);
   });
 
+  await test('uses OpenRouter base URL and Bearer authorization for catalog and connection checks', async () => {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input);
+      assert.equal(new Headers(init.headers).get('authorization'), 'Bearer openrouter-test-key');
+      if (init.method === 'GET' || !init.body) {
+        assert.equal(url, 'https://openrouter.ai/api/v1/models');
+        return json({ data: [{ id: 'openai/gpt-4o-mini', owned_by: 'openai' }] });
+      }
+      assert.equal(url, 'https://openrouter.ai/api/v1/chat/completions');
+      const body = JSON.parse(init.body);
+      assert.equal(body.model, 'openai/gpt-4o-mini');
+      assert.equal(body.messages[0].content, 'Reply with exactly OK.');
+      return json({ choices: [{ message: { content: 'OK' } }] });
+    };
+    const config = {
+      provider: 'openrouter',
+      apiKey: 'openrouter-test-key',
+      endpoint: 'https://openrouter.ai/api/v1',
+      models: ['openai/gpt-4o-mini'],
+    };
+    const catalog = await capabilities.listAvailableModels(config);
+    assert.equal(catalog.ok, true);
+    assert.equal(catalog.models[0].id, 'openai/gpt-4o-mini');
+    const connection = await capabilities.testProviderConnection(config);
+    assert.equal(connection.ok, true);
+    assert.equal(connection.endpoint, 'https://openrouter.ai/api/v1');
+  });
+
   await test('lists only Gemini content-generation models and strips the models/ prefix', async () => {
     globalThis.fetch = async (input, init) => {
       assert.equal(String(input), 'https://generativelanguage.googleapis.com/v1beta/models');
