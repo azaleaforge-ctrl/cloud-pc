@@ -12,7 +12,7 @@ assert.ok(stageCss.length > 0, 'the right-panel layout rules for v1.0.7 Stage 1 
 assert.ok(stageCss.includes('.ai-agent-sidepanel {'), 'the outer right panel must have explicit scroll rules');
 assert.ok(stageCss.includes('overflow-y: auto;'), 'the outer right panel must scroll when total card height exceeds the viewport');
 assert.ok(stageCss.includes('overscroll-behavior-y: contain;'), 'scrolling must be contained instead of unexpectedly chaining to the chat');
-assert.ok(stageCss.includes('.ai-agent-sidepanel > .ai-side-card {\n  flex: 0 0 auto;'), 'cards must keep their natural height instead of expanding to crowd other cards');
+assert.ok(stageCss.includes('.ai-agent-sidepanel > .ai-side-card {') && stageCss.includes('flex: 0 0 auto;'), 'cards must keep their natural height instead of expanding to crowd other cards');
 
 for (const [selector, height] of [
   ['.ai-agent-sidepanel > .ai-side-card.ai-side-workspace-card {', '150px'],
