@@ -231,7 +231,7 @@ export function selectAgentSkills(userText: string, activePath: string | null, i
   const backEnd = /\b(backend|back-end|api|database|mysql|postgres|postgresql|sqlite|sql|laravel|php|controller|route|middleware|schema|migration|autentikasi|authorization|auth|server|endpoint|webhook|background job|query|orm)\b/.test(text) || /\.(php|sql|prisma|graphql)$/i.test(activePath ?? '');
   const debugging = /\b(error|bug|rusak|gagal|crash|debug|debugging|exception|stack trace|tidak jalan|bermasalah|broken|regression)\b/.test(intentLower);
   const security = /\b(security|keamanan|auth|login|password|token|secret|credential|payment|pembayaran|permission|izin|role|akses|api key)\b/.test(intentLower);
-  const testing = /\b(test|testing|tes|pengujian|build|lint|verifikasi|regression|validasi)\b/.test(lower) || (codingTask && (frontEnd || backEnd));
+  const testing = /\b(test|testing|tes|pengujian|build|lint|verifikasi|regression|validasi)\b/.test(intentLower) || (codingTask && (frontEnd || backEnd));
   const chosen = new Map<string, AgentSkillSelection>();
   const add = (id: string) => {
     const skill = SKILLS.find((item) => item.id === id);
@@ -242,7 +242,7 @@ export function selectAgentSkills(userText: string, activePath: string | null, i
     add('lazy-dev');
     add('safe-code-changes');
     if (debugging) add('debugging');
-    if (security && (backEnd || /auth|login|password|api|payment|pembayaran/i.test(lower))) add('security');
+    if (security && (backEnd || /auth|login|password|api|payment|pembayaran/i.test(intentLower))) add('security');
     if (testing) add('tdd');
     if (frontEnd) add('frontend-ui-engineering');
     if (visualDesign) {
