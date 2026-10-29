@@ -237,7 +237,14 @@ function parseFile(ext: string, mime: string, buffer: Buffer): { text?: string; 
   if (ext === '.pdf') {
     if (buffer.subarray(0, 5).toString('ascii') !== '%PDF-') throw new Error('Header file PDF tidak valid.');
     const text = boundedText(extractPdf(buffer));
-    if (text) return { text };
+    if (text) return {
+      text,
+      // Retain small original PDFs as well as extracted text. Gemini can inspect
+      // mixed documents whose selectable text coexists with scanned/image pages.
+      ...(buffer.length <= DIRECT_MEDIA_MAX
+        ? { dataUrl: 'data:application/pdf;base64,' + buffer.toString('base64') }
+        : {}),
+    };
     if (buffer.length > DIRECT_MEDIA_MAX) {
       throw new Error('PDF hasil scan melebihi 12 MiB. Perkecil PDF atau gunakan PDF yang sudah memiliki teks.');
     }
