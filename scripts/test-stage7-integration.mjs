@@ -96,7 +96,7 @@ try {
     assert.match(agent, /resolveAgentAttachments\(message\.attachments \?\? \[\]\)/);
     assert.match(agent, /type: 'image_url', image_url: \{ url: item\.dataUrl \}/);
     assert.match(agent, /body: JSON\.stringify\(\{[\s\S]*?messages,[\s\S]*?stream: true/);
-    assert.match(providers, /inlineData:[\s\S]*?mimeType: match\[1\]/);
+    assert.match(providers, /return \{ inlineData: \{ mimeType, data \} \}/);
     assert.match(providers, /'x-goog-api-key': config\.apiKey/);
     assert.match(providerTests, /converts embedded image data URLs to Gemini inlineData/);
     assert.match(providerTests, /sensitive-test-key/);
@@ -123,7 +123,7 @@ try {
     assert.match(chat, /const rewindFromMessage = useCallback/);
     assert.match(chat, /event\.stopImmediatePropagation\(\)/);
     assert.match(chat, /runId: result\.sessionId/);
-    assert.match(chat, /candidate\.runId === item\.message\.runId/);
+    assert.match(chat, /findCheckpointForMessage\(item\.message, messages, checkpoints\)/);
     assert.match(sessions, /message\.runId/);
     assert.match(sessionTests, /loaded\.messages\[0\]\.runId/);
     assert.match(editorCss, /\.ai-message-actions-menu/);
