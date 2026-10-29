@@ -508,3 +508,28 @@
   overscroll-behavior-y: contain;
   scrollbar-gutter: stable;
 }
+
+
+/* v1.0.7 Stage 3: provider picker and official API-key shortcut */
+.ai-provider-choice-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+}
+.ai-provider-select {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--ed-border, rgba(148,163,184,.25));
+  border-radius: 7px;
+  color: var(--ed-text, #e8edf6);
+  background: var(--ed-input, #0f172a);
+  font: 11px var(--ed-font, system-ui, sans-serif);
+}
+.ai-provider-key-page { flex: none; }
+.ai-provider-help { margin: 0 0 4px; }
+@media (max-width: 620px) {
+  .ai-provider-choice-row { flex-direction: column; }
+  .ai-provider-key-page { width: 100%; }
+}

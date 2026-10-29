@@ -149,15 +149,33 @@ export type AgentEvent =
   | { type: 'terminal-process'; process: AgentTerminalProcess }
   | { type: 'terminal-output'; output: AgentTerminalOutput };
 
+export type AgentProviderId = 'openrouter' | 'gemini' | 'legacy';
+
+export interface AgentProviderOption {
+  id: AgentProviderId;
+  name: string;
+  configured: boolean;
+  endpoint: string;
+  keyUrl: string;
+  docsUrl: string;
+}
+
 export interface RouterConfig {
   apiKey: string;
   endpoint: string;
   models: string[];
   fallbackEndpoint?: string;
+  /** Omitted means the historical OpenAI-compatible router for backwards-compatible callers. */
+  provider?: AgentProviderId;
 }
 
 export interface AgentRouterStatus {
   configured: boolean;
+  provider: AgentProviderId;
+  providerName: string;
+  providers: AgentProviderOption[];
+  keyUrl: string;
+  docsUrl: string;
   endpoint: string;
   fallbackEndpoint: string;
   model: string;

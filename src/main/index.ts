@@ -17,8 +17,8 @@ import type {
   ServerState,
   UpdateState,
 } from '../shared/types';
-import type { AgentCheckpointActionResult, AgentEvent, AgentRouterStatus, AgentRouterTestResult, AgentSessionData, AgentSessionSaveInput, ChatMessage } from '../shared/agents';
-import { diagnoseModelCapabilities, listAvailableModels, normalizeModelId } from './editor/modelCapabilities';
+import type { AgentCheckpointActionResult, AgentEvent, AgentProviderId, AgentRouterStatus, AgentRouterTestResult, AgentSessionData, AgentSessionSaveInput, ChatMessage } from '../shared/agents';
+import { diagnoseModelCapabilities, listAvailableModels, normalizeModelId, testProviderConnection } from './editor/modelCapabilities';
 import { APP_VERSION } from '../shared/types';
 import { StateStore } from './store';
 import { detectFramework } from './frameworkDetect';
@@ -275,44 +275,51 @@ const editorExtensions = createExtensionService(() => join(app.getPath('userData
 const editorDebugger = createDebugService({ onEvent: (event) => send('rk:editor:debug-event', event) });
 
 // AI Agent service — API key disimpan terenkripsi per-user; tidak dibundel ke aplikasi.
-const ROUTER_ENDPOINT = process.env.RK_ROUTER_ENDPOINT ?? 'https://rbxludp.abc-tunnel.us/v1';
-const ROUTER_FALLBACK_ENDPOINT = process.env.RK_ROUTER_FALLBACK ?? 'http://localhost:20128/v1';
-const ROUTER_MODEL = 'ps/poolside/laguna-s-2.1(high)';
+const LEGACY_ROUTER_ENDPOINT = process.env.RK_ROUTER_ENDPOINT ?? 'https://rbxludp.abc-tunnel.us/v1';
+const LEGACY_ROUTER_FALLBACK_ENDPOINT = process.env.RK_ROUTER_FALLBACK ?? 'http://localhost:20128/v1';
+const LEGACY_ROUTER_MODEL = 'ps/poolside/laguna-s-2.1(high)';
+const PROVIDER_ENDPOINTS: Record<AgentProviderId, string> = {
+  openrouter: 'https://openrouter.ai/api/v1',
+  gemini: 'https://generativelanguage.googleapis.com/v1beta',
+  legacy: LEGACY_ROUTER_ENDPOINT,
+};
+const PROVIDER_DEFAULT_MODELS: Record<AgentProviderId, string> = {
+  openrouter: 'openai/gpt-4o-mini',
+  gemini: 'gemini-3.8-flash',
+  legacy: LEGACY_ROUTER_MODEL,
+};
+const PROVIDER_NAMES: Record<AgentProviderId, string> = {
+  openrouter: 'OpenRouter',
+  gemini: 'Google Gemini API',
+  legacy: '9router / OpenAI-compatible (Legacy)',
+};
 
 function routerKeyPath(): string {
   return join(app.getPath('userData'), '9router-api-key.enc');
+}
+
+function providerKeyPath(provider: AgentProviderId): string {
+  return provider === 'legacy'
+    ? routerKeyPath()
+    : join(app.getPath('userData'), 'agent-' + provider + '-api-key.enc');
+}
+
+function providerSelectionPath(): string {
+  return join(app.getPath('userData'), 'agent-provider-selection.json');
 }
 
 function selectedModelPath(): string {
   return join(app.getPath('userData'), 'agent-model-selection.json');
 }
 
-function getSelectedAgentModel(): string {
-  try {
-    const raw = JSON.parse(readFileSync(selectedModelPath(), 'utf8')) as { model?: unknown };
-    return typeof raw.model === 'string' ? normalizeModelId(raw.model) : ROUTER_MODEL;
-  } catch {
-    return ROUTER_MODEL;
-  }
+function isAgentProvider(value: unknown): value is AgentProviderId {
+  return value === 'openrouter' || value === 'gemini' || value === 'legacy';
 }
 
-function saveSelectedAgentModel(value: unknown): ActionResult {
-  try {
-    if (typeof value !== 'string') throw new Error('ID model harus berupa teks.');
-    const model = normalizeModelId(value);
-    const path = selectedModelPath();
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify({ model, updatedAt: new Date().toISOString() }, null, 2), 'utf8');
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, error: (error as Error).message || 'Gagal menyimpan model.' };
-  }
-}
-
-function readStoredRouterKey(): string {
+function readStoredProviderKey(provider: AgentProviderId): string {
   try {
     if (!safeStorage.isEncryptionAvailable()) return '';
-    const path = routerKeyPath();
+    const path = providerKeyPath(provider);
     if (!existsSync(path)) return '';
     return safeStorage.decryptString(readFileSync(path));
   } catch {
@@ -320,117 +327,168 @@ function readStoredRouterKey(): string {
   }
 }
 
-function getRouterApiKey(): string {
-  return (process.env.RK_ROUTER_API_KEY ?? '').trim() || readStoredRouterKey();
+function getProviderEnvironmentKey(provider: AgentProviderId): string {
+  switch (provider) {
+    case 'openrouter': return (process.env.OPENROUTER_API_KEY ?? '').trim();
+    case 'gemini': return (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+    case 'legacy': return (process.env.RK_ROUTER_API_KEY ?? '').trim();
+  }
+}
+
+function getProviderApiKey(provider: AgentProviderId): string {
+  return getProviderEnvironmentKey(provider) || readStoredProviderKey(provider);
+}
+
+function getSelectedAgentProvider(): AgentProviderId {
+  try {
+    const raw = JSON.parse(readFileSync(providerSelectionPath(), 'utf8')) as { provider?: unknown };
+    if (isAgentProvider(raw.provider)) return raw.provider;
+  } catch {
+    // Migrate existing installs that already stored an old 9router key.
+  }
+  if (getProviderEnvironmentKey('legacy') || readStoredProviderKey('legacy')) return 'legacy';
+  if (getProviderEnvironmentKey('openrouter') || readStoredProviderKey('openrouter')) return 'openrouter';
+  if (getProviderEnvironmentKey('gemini') || readStoredProviderKey('gemini')) return 'gemini';
+  return 'openrouter';
+}
+
+function saveAgentProviderSelection(value: unknown): ActionResult {
+  if (!isAgentProvider(value)) return { ok: false, error: 'Provider tidak dikenali.' };
+  try {
+    const path = providerSelectionPath();
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify({ provider: value, updatedAt: new Date().toISOString() }, null, 2), 'utf8');
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: 'Gagal menyimpan pilihan provider: ' + ((error as Error).message || 'kesalahan file') };
+  }
+}
+
+function getSelectedAgentModel(provider: AgentProviderId = getSelectedAgentProvider()): string {
+  try {
+    const raw = JSON.parse(readFileSync(selectedModelPath(), 'utf8')) as {
+      model?: unknown;
+      models?: Partial<Record<AgentProviderId, unknown>>;
+    };
+    const providerModel = raw.models?.[provider];
+    if (typeof providerModel === 'string') return normalizeModelId(providerModel);
+    // Preserve the old single-model preference only for the legacy provider.
+    if (provider === 'legacy' && typeof raw.model === 'string') return normalizeModelId(raw.model);
+  } catch {
+    // Use the provider's default model when no selection is saved yet.
+  }
+  return PROVIDER_DEFAULT_MODELS[provider];
+}
+
+function saveSelectedAgentModel(value: unknown, provider: AgentProviderId = getSelectedAgentProvider()): ActionResult {
+  try {
+    if (typeof value !== 'string') throw new Error('ID model harus berupa teks.');
+    const model = normalizeModelId(value);
+    const path = selectedModelPath();
+    let previous: { model?: unknown; models?: Partial<Record<AgentProviderId, unknown>> } = {};
+    try { previous = JSON.parse(readFileSync(path, 'utf8')) as typeof previous; } catch { /* initialize */ }
+    const models = { ...(previous.models ?? {}), [provider]: model };
+    writeFileSync(path, JSON.stringify({
+      models,
+      ...(provider === 'legacy'
+        ? { model }
+        : typeof previous.model === 'string' ? { model: previous.model } : {}),
+      updatedAt: new Date().toISOString(),
+    }, null, 2), 'utf8');
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message || 'Gagal menyimpan model.' };
+  }
+}
+
+function getProviderInfo(provider: AgentProviderId) {
+  return {
+    id: provider,
+    name: PROVIDER_NAMES[provider],
+    configured: !!getProviderApiKey(provider),
+    endpoint: provider === 'legacy' ? LEGACY_ROUTER_ENDPOINT : PROVIDER_ENDPOINTS[provider],
+    keyUrl: provider === 'openrouter' ? 'https://openrouter.ai/keys'
+      : provider === 'gemini' ? 'https://aistudio.google.com/apikey' : '',
+    docsUrl: provider === 'openrouter' ? 'https://openrouter.ai/docs/quickstart'
+      : provider === 'gemini' ? 'https://ai.google.dev/gemini-api/docs' : '',
+  };
+}
+
+function getProviderConfig(provider: AgentProviderId, allowEmptyKey = false): RouterConfig | null {
+  const apiKey = getProviderApiKey(provider);
+  if (!apiKey && !allowEmptyKey) return null;
+  return {
+    provider,
+    apiKey,
+    endpoint: PROVIDER_ENDPOINTS[provider],
+    models: [getSelectedAgentModel(provider)],
+    ...(provider === 'legacy' ? { fallbackEndpoint: LEGACY_ROUTER_FALLBACK_ENDPOINT } : {}),
+  };
 }
 
 function getRouterConfig(): RouterConfig | null {
-  const apiKey = getRouterApiKey();
-  if (!apiKey) return null;
-  return {
-    apiKey,
-    endpoint: ROUTER_ENDPOINT,
-    models: [getSelectedAgentModel()],
-    fallbackEndpoint: ROUTER_FALLBACK_ENDPOINT,
-  };
+  return getProviderConfig(getSelectedAgentProvider());
 }
 
 function getAgentRouterStatus(): AgentRouterStatus {
+  const provider = getSelectedAgentProvider();
+  const info = getProviderInfo(provider);
   return {
-    configured: !!getRouterApiKey(),
-    endpoint: ROUTER_ENDPOINT,
-    fallbackEndpoint: ROUTER_FALLBACK_ENDPOINT,
-    model: getSelectedAgentModel(),
+    configured: info.configured,
+    provider,
+    providerName: info.name,
+    providers: (['openrouter', 'gemini', 'legacy'] as AgentProviderId[]).map(getProviderInfo),
+    keyUrl: info.keyUrl,
+    docsUrl: info.docsUrl,
+    endpoint: info.endpoint,
+    fallbackEndpoint: provider === 'legacy' ? LEGACY_ROUTER_FALLBACK_ENDPOINT : '',
+    model: getSelectedAgentModel(provider),
   };
 }
 
-function saveAgentRouterKey(apiKey: string): { ok: boolean; error?: string } {
-  const clean = apiKey.trim();
-  if (!clean) return { ok: false, error: 'API key tidak boleh kosong.' };
-  if (process.env.RK_ROUTER_API_KEY) {
-    return { ok: false, error: 'API key diatur melalui environment RK_ROUTER_API_KEY; ubah konfigurasi tersebut untuk menggantinya.' };
+function saveAgentRouterKey(input: unknown): { ok: boolean; error?: string } {
+  if (!input || typeof input !== 'object') return { ok: false, error: 'Data konfigurasi provider tidak valid.' };
+  const value = input as { provider?: unknown; apiKey?: unknown };
+  if (!isAgentProvider(value.provider)) return { ok: false, error: 'Pilih provider yang tersedia.' };
+  if (typeof value.apiKey !== 'string' || !value.apiKey.trim()) return { ok: false, error: 'API key tidak boleh kosong.' };
+  const provider = value.provider;
+  const clean = value.apiKey.trim();
+  if (getProviderEnvironmentKey(provider)) {
+    const envName = provider === 'openrouter' ? 'OPENROUTER_API_KEY'
+      : provider === 'gemini' ? (process.env.GEMINI_API_KEY ? 'GEMINI_API_KEY' : 'GOOGLE_API_KEY')
+      : 'RK_ROUTER_API_KEY';
+    return { ok: false, error: 'API key provider diatur melalui environment ' + envName + '; ubah konfigurasi environment untuk menggantinya.' };
   }
   if (!safeStorage.isEncryptionAvailable()) {
     return { ok: false, error: 'Penyimpanan terenkripsi tidak tersedia di perangkat ini. API key tidak disimpan.' };
   }
   try {
-    mkdirSync(dirname(routerKeyPath()), { recursive: true });
-    writeFileSync(routerKeyPath(), safeStorage.encryptString(clean));
+    mkdirSync(dirname(providerKeyPath(provider)), { recursive: true });
+    writeFileSync(providerKeyPath(provider), safeStorage.encryptString(clean));
+    const selected = saveAgentProviderSelection(provider);
+    if (!selected.ok) return selected;
     return { ok: true };
   } catch (error) {
-    return { ok: false, error: 'Gagal menyimpan API key: ' + (error as Error).message };
+    return { ok: false, error: 'Gagal menyimpan API key terenkripsi: ' + ((error as Error).message || 'kesalahan file') };
+  }
+}
+
+async function openProviderKeyPage(providerValue: unknown): Promise<ActionResult> {
+  if (!isAgentProvider(providerValue)) return { ok: false, error: 'Provider tidak dikenali.' };
+  const url = getProviderInfo(providerValue).keyUrl;
+  if (!url) return { ok: false, error: 'Provider lama ini tidak memiliki halaman API key resmi yang terdaftar.' };
+  try {
+    await shell.openExternal(url);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: 'Gagal membuka halaman API key: ' + ((error as Error).message || 'kesalahan sistem') };
   }
 }
 
 async function testAgentRouter(): Promise<AgentRouterTestResult> {
   const config = getRouterConfig();
-  if (!config?.apiKey) {
-    return { ok: false, message: 'API key belum disetel. Masukkan API key 9router lalu tekan Simpan.' };
-  }
-
-  const endpoints = [...new Set([config.endpoint, config.fallbackEndpoint].filter(Boolean).map((url) => url!.replace(/\/+$/, '')))];
-  let lastError = 'Tidak ada endpoint yang berhasil dihubungi.';
-
-  for (const endpoint of endpoints) {
-    try {
-      const response = await fetch(endpoint + '/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer ' + config.apiKey,
-          'User-Agent': 'RuangKerja-Agent/0.4.6',
-        },
-        body: JSON.stringify({
-          model: config.models[0] ?? ROUTER_MODEL,
-          messages: [{ role: 'user', content: 'Reply with exactly OK.' }],
-          stream: false,
-          max_tokens: 8,
-          temperature: 0,
-        }),
-        signal: AbortSignal.timeout(20_000),
-      });
-
-      if (!response.ok) {
-        lastError = response.status === 401
-          ? 'API key ditolak oleh endpoint (HTTP 401). Periksa key 9router yang dimasukkan.'
-          : response.status === 403
-            ? 'Akses ditolak oleh endpoint (HTTP 403). Periksa izin atau akses model.'
-            : 'Endpoint menjawab HTTP ' + response.status + '.';
-        continue;
-      }
-
-      const payload = await response.json() as {
-        choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>;
-        error?: { message?: string };
-      };
-      if (payload.error?.message) {
-        lastError = 'Router mengembalikan error model: ' + payload.error.message.slice(0, 220);
-        continue;
-      }
-      const answer = payload.choices?.[0]?.message?.content;
-      if (typeof answer !== 'string' && !Array.isArray(answer)) {
-        lastError = 'Endpoint merespons, tetapi format jawaban model tidak dikenali.';
-        continue;
-      }
-
-      return {
-        ok: true,
-        endpoint,
-        model: config.models[0] ?? ROUTER_MODEL,
-        message: 'Koneksi berhasil. Model menerima permintaan dan mengembalikan jawaban.',
-      };
-    } catch (error) {
-      lastError = (error as Error).name === 'TimeoutError'
-        ? 'Permintaan ke endpoint habis waktu setelah 20 detik.'
-        : 'Koneksi gagal: ' + (((error as Error).message || 'kesalahan jaringan').slice(0, 180));
-    }
-  }
-
-  return {
-    ok: false,
-    model: config.models[0] ?? ROUTER_MODEL,
-    message: lastError + ' Endpoint cadangan juga sudah dicoba.',
-  };
+  if (!config?.apiKey) return { ok: false, message: 'Pilih provider lalu simpan API key sebelum menguji koneksi.' };
+  return testProviderConnection(config);
 }
 
 const agentService = createAgentService(getRouterConfig);
@@ -1078,7 +1136,9 @@ function registerIpc(): void {
   };
   ipcMain.handle('rk:agent:list', () => agentService.listAgents());
   ipcMain.handle('rk:agent:get-config', () => getAgentRouterStatus());
-  ipcMain.handle('rk:agent:save-config', (_e, apiKey: string) => saveAgentRouterKey(apiKey));
+  ipcMain.handle('rk:agent:save-config', (_e, input: unknown) => saveAgentRouterKey(input));
+  ipcMain.handle('rk:agent:select-provider', (_e, provider: AgentProviderId) => saveAgentProviderSelection(provider));
+  ipcMain.handle('rk:agent:open-provider-key-page', (_e, provider: AgentProviderId) => openProviderKeyPage(provider));
   ipcMain.handle('rk:agent:test-config', () => testAgentRouter());
   ipcMain.handle('rk:agent:list-sessions', () => listAgentSessions(app.getPath('userData')));
   ipcMain.handle('rk:agent:load-session', async (_e, id: string) => {
@@ -1196,13 +1256,9 @@ function registerIpc(): void {
   });
   ipcMain.handle('rk:agent:select-model', (_e, model: string) => saveSelectedAgentModel(model));
   ipcMain.handle('rk:agent:diagnose-model', async () => {
-    const selected = getSelectedAgentModel();
-    const config = getRouterConfig() ?? {
-      apiKey: '',
-      endpoint: ROUTER_ENDPOINT,
-      models: [selected],
-      fallbackEndpoint: ROUTER_FALLBACK_ENDPOINT,
-    };
+    const provider = getSelectedAgentProvider();
+    const selected = getSelectedAgentModel(provider);
+    const config = getProviderConfig(provider, true)!;
     return diagnoseModelCapabilities(config, selected);
   });
   ipcMain.handle('rk:agent:list-skills', () => agentService.listSkills());

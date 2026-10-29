@@ -18,6 +18,7 @@ import { getAgentTerminalGuidance, resolveTerminalShell } from './terminalShell'
 import { getToolRecoveryHint, isToolFailureResult, repeatedFailureSignature, repeatedNoProgressActionSignature } from './agentFailureGuard';
 import { listBuiltinAgentSkills } from './skills';
 import { hasSuccessfulTerminalVerification } from './agentVerification';
+import { openGeminiCompletionStream } from './agentProviders';
 import { prepareAgentAttachments, resolveAgentAttachments } from './agentAttachments';
 import { checkPackageVersion, getCurrentTime, readWebPage, searchWeb, type PackageEcosystem } from './agentResearch';
 import { loadAgentSession, recordAgentFileCheckpoint, saveAgentSession } from './agentSessionStore';
@@ -67,7 +68,7 @@ interface LlmSession {
   codeChangeVersion: number;
   successfulTerminalChecks: Array<{ command: string; startedAt: number; finishedAt: number; exitCode: 0; codeChangeVersion: number }>;
 }
-interface ToolCall { id: string; name: string; arguments: string }
+interface ToolCall { id: string; name: string; arguments: string; geminiThoughtSignature?: string; geminiFunctionCallId?: string }
 interface ToolDefinition {
   type: 'function';
   function: { name: string; description: string; parameters: Record<string, unknown> };
@@ -947,11 +948,19 @@ async function openCompletionStream(
   messages: Array<Record<string, unknown>>,
   toolChoice: 'auto' | 'required' = 'auto',
 ): Promise<Response> {
-  const endpoints = [...new Set([
-    session.agent.endpoint || config.endpoint || DEFAULT_ENDPOINT,
-    config.fallbackEndpoint || DEFAULT_FALLBACK_ENDPOINT,
-  ].map((url) => url.replace(/\/+$/, '')))];
-  let lastError = 'Endpoint 9router tidak dapat diakses.';
+  const provider = config.provider ?? 'legacy';
+  if (provider === 'gemini') {
+    return openGeminiCompletionStream(config, messages, TOOL_DEFINITIONS, toolChoice, session.controller.signal);
+  }
+
+  const endpoints = provider === 'legacy'
+    ? [...new Set([
+        session.agent.endpoint || config.endpoint || DEFAULT_ENDPOINT,
+        config.fallbackEndpoint || DEFAULT_FALLBACK_ENDPOINT,
+      ].map((url) => url.replace(/\/+$/, '')))]
+    : [config.endpoint.replace(/\/+$/, '')];
+  let lastError = 'Endpoint provider tidak dapat diakses.';
+  const providerName = provider === 'openrouter' ? 'OpenRouter' : '9router';
 
   for (const endpoint of endpoints) {
     try {
@@ -960,7 +969,7 @@ async function openCompletionStream(
         headers: {
           'Content-Type': 'application/json',
           Authorization: 'Bearer ' + config.apiKey,
-          'User-Agent': 'RuangKerja-Agent/0.4.8',
+          'User-Agent': 'RuangKerja-Agent/1.0',
         },
         body: JSON.stringify({
           model: config.models[0] || session.agent.model || DEFAULT_MODEL,
@@ -976,14 +985,14 @@ async function openCompletionStream(
       if (response.ok) return response;
       const body = (await response.text()).slice(0, 500);
       lastError = 'HTTP ' + response.status + (body ? ': ' + body : '');
-      // Try the secondary endpoint even for HTTP errors: routers can differ in model/tool support.
+      // Only the historical provider has a configured fallback endpoint.
     } catch (error) {
       if (session.controller.signal.aborted || session.killed) throw error;
       lastError = (error as Error).message || 'Koneksi gagal.';
     }
   }
 
-  throw new Error('9router tidak dapat memproses permintaan. ' + lastError + '. Periksa endpoint, koneksi, dan API key di Pengaturan AI.');
+  throw new Error(providerName + ' tidak dapat memproses permintaan. ' + lastError + '. Periksa endpoint, koneksi, dan API key di Pengaturan AI.');
 }
 
 async function readCompletion(response: Response, session: LlmSession): Promise<{ content: string; toolCalls: ToolCall[] }> {
@@ -1006,7 +1015,7 @@ async function readCompletion(response: Response, session: LlmSession): Promise<
       choices?: Array<{
         delta?: {
           content?: string | Array<{ type?: string; text?: string }>;
-          tool_calls?: Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string } }>;
+          tool_calls?: Array<{ index?: number; id?: string; thought_signature?: string; gemini_function_call_id?: string; function?: { name?: string; arguments?: string } }>;
         };
       }>;
     };
@@ -1030,6 +1039,8 @@ async function readCompletion(response: Response, session: LlmSession): Promise<
       const index = Number.isInteger(item.index) ? Number(item.index) : calls.size;
       const call = calls.get(index) ?? { id: '', name: '', arguments: '' };
       if (item.id) call.id = item.id;
+      if (item.thought_signature) call.geminiThoughtSignature = item.thought_signature;
+      if (item.gemini_function_call_id) call.geminiFunctionCallId = item.gemini_function_call_id;
       if (item.function?.name) call.name += item.function.name;
       if (item.function?.arguments) call.arguments += item.function.arguments;
       calls.set(index, call);
@@ -1137,7 +1148,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
     let totalToolCalls = session.totalToolCalls;
     const config = getRouterConfig();
     try {
-      if (!config?.apiKey) throw new Error('API key 9router belum disetel. Buka Pengaturan AI dan masukkan API key yang valid.');
+      if (!config?.apiKey) throw new Error('API key provider belum disetel. Buka /connect, pilih provider, lalu simpan API key yang valid.');
       if (session.agent.type !== 'llm-chat') throw new Error(session.agent.name + ' adalah CLI eksternal. Pilih Poolside untuk chat coding bawaan.');
       if (!projectPath) throw new Error('Belum ada folder proyek. Buka atau buat ruangan terlebih dahulu.');
       const root = await realpath(projectPath);
@@ -1330,10 +1341,13 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
 
         // Keep the assistant tool-call declaration and tool results in identical order.
         // Process todo_write first so a plan and the first task can be returned in one model response.
-        const orderedToolCalls = [...completion.toolCalls].sort((a, b) => {
-          const rank = (name: string): number => name === 'todo_write' ? 0 : name === 'todo_read' ? 1 : 2;
-          return rank(a.name) - rank(b.name);
-        });
+        const orderedToolCalls = config.provider === 'gemini'
+          // Gemini 3 signatures bind to their exact functionCall part. Never reorder them.
+          ? [...completion.toolCalls]
+          : [...completion.toolCalls].sort((a, b) => {
+              const rank = (name: string): number => name === 'todo_write' ? 0 : name === 'todo_read' ? 1 : 2;
+              return rank(a.name) - rank(b.name);
+            });
         conversation.push({
           role: 'assistant',
           content: completion.content || null,
@@ -1341,6 +1355,8 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
             id: call.id,
             type: 'function',
             function: { name: call.name, arguments: call.arguments || '{}' },
+            ...(call.geminiThoughtSignature ? { geminiThoughtSignature: call.geminiThoughtSignature } : {}),
+            ...(call.geminiFunctionCallId ? { geminiFunctionCallId: call.geminiFunctionCallId } : {}),
           })),
         });
 
@@ -1429,6 +1445,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
             tool_call_id: call.id,
             name: call.name,
             content: result.slice(0, MAX_TOOL_OUTPUT),
+            ...(call.geminiFunctionCallId ? { geminiFunctionCallId: call.geminiFunctionCallId } : {}),
           });
           if (blockedReason) break;
         }

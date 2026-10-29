@@ -27,7 +27,7 @@ import type {
   TerminalSessionInfo,
   VsxSearchResult,
 } from '../shared/editor';
-import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, ChatMessage, AgentEvent } from '../shared/agents';
+import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentProviderId, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, ChatMessage, AgentEvent } from '../shared/agents';
 import { APP_VERSION } from '../shared/types';
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -117,7 +117,9 @@ const api: RkApi = {
   // --- AI Agent ---
   agentList: (): Promise<AgentEntry[]> => ipcRenderer.invoke('rk:agent:list'),
   agentGetConfig: () => ipcRenderer.invoke('rk:agent:get-config'),
-  agentSaveConfig: (apiKey: string) => ipcRenderer.invoke('rk:agent:save-config', apiKey),
+  agentSaveConfig: (input: { provider: AgentProviderId; apiKey: string }) => ipcRenderer.invoke('rk:agent:save-config', input),
+  agentSelectProvider: (provider: AgentProviderId): Promise<ActionResult> => ipcRenderer.invoke('rk:agent:select-provider', provider),
+  agentOpenProviderKeyPage: (provider: AgentProviderId): Promise<ActionResult> => ipcRenderer.invoke('rk:agent:open-provider-key-page', provider),
   agentTestConfig: () => ipcRenderer.invoke('rk:agent:test-config'),
   agentListModels: (): Promise<AgentModelCatalogResult> => ipcRenderer.invoke('rk:agent:list-models'),
   agentSelectModel: (model: string) => ipcRenderer.invoke('rk:agent:select-model', model),

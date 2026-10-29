@@ -4,8 +4,11 @@ import type {
   AgentModelCapabilityReport,
   AgentModelCatalogResult,
   AgentModelInfo,
+  AgentProviderId,
+  AgentRouterTestResult,
   RouterConfig,
 } from '../../shared/agents';
+import { buildGeminiRequestBody, normalizeGeminiResponse } from './agentProviders';
 
 const MAX_MODELS_BODY = 1_000_000;
 const MAX_CHAT_BODY = 1_000_000;
@@ -13,7 +16,11 @@ const REQUEST_TIMEOUT_MS = 18_000;
 const USER_AGENT = 'RuangKerja-ModelDiagnostics/1.0';
 
 function uniqueEndpoints(config: RouterConfig): string[] {
-  return [...new Set([config.endpoint, config.fallbackEndpoint]
+  const provider = config.provider ?? 'legacy';
+  const endpoints = provider === 'legacy'
+    ? [config.endpoint, config.fallbackEndpoint]
+    : [config.endpoint];
+  return [...new Set(endpoints
     .filter((value): value is string => !!value)
     .map(value => value.replace(/\/+$/, '')))];
 }
@@ -53,11 +60,11 @@ async function readBoundedText(response: Response, maxBytes: number): Promise<st
   return new TextDecoder().decode(Buffer.concat(chunks.map(chunk => Buffer.from(chunk))));
 }
 
-async function requestJson(url: string, apiKey: string, body?: unknown): Promise<{ response: Response; data: Record<string, unknown> }> {
+async function requestJson(url: string, apiKey: string, body?: unknown, provider: AgentProviderId = 'legacy'): Promise<{ response: Response; data: Record<string, unknown> }> {
   const response = await fetch(url, {
     method: body === undefined ? 'GET' : 'POST',
     headers: {
-      Authorization: 'Bearer ' + apiKey,
+      ...(provider === 'gemini' ? { 'x-goog-api-key': apiKey } : { Authorization: 'Bearer ' + apiKey }),
       'Content-Type': 'application/json',
       Accept: 'application/json',
       'User-Agent': USER_AGENT,
@@ -74,8 +81,23 @@ async function requestJson(url: string, apiKey: string, body?: unknown): Promise
   return { response, data };
 }
 
-export function parseModels(data: Record<string, unknown>): AgentModelInfo[] {
-  const raw = Array.isArray(data.data) ? data.data : Array.isArray(data.models) ? data.models : [];
+export function parseModels(data: Record<string, unknown>, provider: AgentProviderId = 'legacy'): AgentModelInfo[] {
+  const raw: unknown[] = provider === 'gemini'
+    ? (Array.isArray(data.models) ? data.models : []).flatMap(item => {
+        if (!item || typeof item !== 'object') return [];
+        const record = item as Record<string, unknown>;
+        const methods = Array.isArray(record.supportedGenerationMethods) ? record.supportedGenerationMethods : null;
+        if (methods && !methods.some(method => method === 'generateContent' || method === 'streamGenerateContent')) return [];
+        const rawName = typeof record.name === 'string' ? record.name : '';
+        const id = rawName.replace(/^models\//, '');
+        if (!id) return [];
+        return [{
+          id,
+          name: typeof record.displayName === 'string' ? record.displayName : id,
+          owned_by: 'Google',
+        }];
+      })
+    : (Array.isArray(data.data) ? data.data : Array.isArray(data.models) ? data.models : []);
   const seen = new Set<string>();
   const result: AgentModelInfo[] = [];
   for (const item of raw) {
@@ -101,7 +123,7 @@ export async function listAvailableModels(config: RouterConfig): Promise<AgentMo
   const errors: string[] = [];
   for (const endpoint of uniqueEndpoints(config)) {
     try {
-      const { response, data } = await requestJson(endpoint + '/models', config.apiKey);
+      const { response, data } = await requestJson(endpoint + '/models', config.apiKey, undefined, config.provider ?? 'legacy');
       if (!response.ok) {
         errors.push(endpoint + ': HTTP ' + response.status);
         continue;
@@ -111,7 +133,7 @@ export async function listAvailableModels(config: RouterConfig): Promise<AgentMo
         errors.push(endpoint + ': ' + (typeof message === 'string' ? message.slice(0, 200) : 'provider error'));
         continue;
       }
-      const models = parseModels(data);
+      const models = parseModels(data, config.provider ?? 'legacy');
       if (!models.length) {
         errors.push(endpoint + ': endpoint tidak mengembalikan daftar model yang dapat dibaca.');
         continue;
@@ -143,8 +165,27 @@ async function testRequest(
   body: Record<string, unknown>,
 ): Promise<RequestOutcome> {
   const started = Date.now();
+  const provider = config.provider ?? 'legacy';
   try {
-    const { response, data } = await requestJson(endpoint + '/chat/completions', config.apiKey, body);
+    let requestUrl = endpoint + '/chat/completions';
+    let requestBody: unknown = body;
+    if (provider === 'gemini') {
+      const model = normalizeModelId(String(body.model ?? config.models[0] ?? 'gemini-3.8-flash'));
+      requestUrl = endpoint.replace(/\/+$/, '') + '/models/' + encodeURIComponent(model.replace(/^models\//, '')) + ':generateContent';
+      const rawChoice = body.tool_choice;
+      const toolChoice = rawChoice === 'required' || (rawChoice && typeof rawChoice === 'object')
+        ? 'required'
+        : 'auto';
+      requestBody = buildGeminiRequestBody({
+        model,
+        messages: Array.isArray(body.messages) ? body.messages as Array<Record<string, unknown>> : [],
+        tools: body.tools,
+        toolChoice,
+        temperature: typeof body.temperature === 'number' ? body.temperature : 0,
+        maxOutputTokens: typeof body.max_tokens === 'number' ? body.max_tokens : 64,
+      });
+    }
+    const { response, data } = await requestJson(requestUrl, config.apiKey, requestBody, provider);
     const durationMs = Date.now() - started;
     if (!response.ok) {
       const detail = data.error && typeof data.error === 'object'
@@ -155,7 +196,11 @@ async function testRequest(
     if (data.error && typeof data.error === 'object') {
       return { ok: false, message: String((data.error as Record<string, unknown>).message ?? 'Provider error').slice(0, 180), data, durationMs, httpStatus: response.status };
     }
-    return { ok: true, message: 'Provider menerima permintaan.', data, durationMs, httpStatus: response.status };
+    const normalized = provider === 'gemini' ? normalizeGeminiResponse(data) : data;
+    if (normalized.error && typeof normalized.error === 'object') {
+      return { ok: false, message: String((normalized.error as Record<string, unknown>).message ?? 'Provider error').slice(0, 180), data: normalized, durationMs, httpStatus: response.status };
+    }
+    return { ok: true, message: 'Provider menerima permintaan.', data: normalized, durationMs, httpStatus: response.status };
   } catch (error) {
     return { ok: false, message: ((error as Error).message || 'Permintaan gagal').slice(0, 180), durationMs: Date.now() - started };
   }
@@ -173,7 +218,7 @@ function completionHasText(data: Record<string, unknown> | undefined): boolean {
   const message = (choices[0] as Record<string, unknown>).message;
   if (!message || typeof message !== 'object') return false;
   const content = (message as Record<string, unknown>).content;
-  return typeof content === 'string' || Array.isArray(content);
+  return (typeof content === 'string' && content.trim().length > 0) || (Array.isArray(content) && content.length > 0);
 }
 
 const PROBE_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC';
@@ -286,5 +331,43 @@ export async function diagnoseModelCapabilities(config: RouterConfig, requestedM
     checkedAt,
     checks,
     message: 'Tes selesai. Status menunjukkan perilaku endpoint saat diperiksa, bukan jaminan permanen untuk semua permintaan atau penyedia fallback.',
+  };
+}
+
+
+export async function testProviderConnection(config: RouterConfig): Promise<AgentRouterTestResult> {
+  if (!config.apiKey) return { ok: false, message: 'API key provider belum disetel.' };
+  const model = config.models[0] || (config.provider === 'gemini' ? 'gemini-3.8-flash' : 'openai/gpt-4o-mini');
+  const endpoints = uniqueEndpoints(config);
+  if (!endpoints.length) return { ok: false, message: 'Endpoint provider belum tersedia.' };
+
+  let lastOutcome: RequestOutcome | null = null;
+  let lastEndpoint = endpoints[0];
+  for (const endpoint of endpoints) {
+    lastEndpoint = endpoint;
+    const outcome = await testRequest(endpoint, { ...config, models: [model] }, {
+      model,
+      messages: [{ role: 'user', content: 'Reply with exactly OK.' }],
+      stream: false,
+      max_tokens: 8,
+      temperature: 0,
+    });
+    if (outcome.ok && completionHasText(outcome.data)) {
+      return {
+        ok: true,
+        model,
+        endpoint,
+        message: 'Koneksi berhasil. Provider menerima permintaan dan mengembalikan jawaban.',
+      };
+    }
+    lastOutcome = { ...outcome, ok: false, message: outcome.ok ? 'Provider tidak mengembalikan respons chat yang valid.' : outcome.message };
+  }
+
+  return {
+    ok: false,
+    model,
+    endpoint: lastEndpoint,
+    message: (lastOutcome?.message || 'Provider tidak mengembalikan respons chat yang valid.')
+      + (endpoints.length > 1 ? ' Semua endpoint, termasuk cadangan, sudah dicoba.' : ''),
   };
 }
