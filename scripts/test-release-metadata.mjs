@@ -7,12 +7,12 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
 const lock = JSON.parse(await readFile(join(root, 'package-lock.json'), 'utf8'));
 const notes = await readFile(join(root, 'RELEASE_NOTES.md'), 'utf8');
-const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const expectedHeading = `# Ruang Kerja v${pkg.version}`;
+const escapedVersion = pkg.version.replaceAll('.', '\\.');
+const expectedHeading = \`# Ruang Kerja v\${pkg.version}\`;
 
 assert.match(
   notes,
-  new RegExp('^# Ruang Kerja v?' + escapeRegExp(pkg.version) + '\\s', 'm'),
+  new RegExp('^# Ruang Kerja v?' + escapedVersion + '\\s', 'm'),
   'release notes must start with the current package version',
 );
 assert.equal(lock.version, pkg.version, 'package-lock top-level version must match package.json');
