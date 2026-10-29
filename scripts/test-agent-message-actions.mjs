@@ -45,9 +45,10 @@ try {
       { id: 'cp-1', runId: 'run-1', createdAt: 150, projectPath: '/project', status: 'applied', paths: ['a.ts'] },
       { id: 'cp-2', runId: 'run-2', createdAt: 250, projectPath: '/project', status: 'applied', paths: ['b.ts'] },
     ];
-    assert.equal(findCheckpointForMessage(messages[0], messages, checkpoints), undefined);
+    assert.equal(findCheckpointForMessage(messages[0], messages, checkpoints).id, 'cp-1');
     assert.equal(findCheckpointForMessage(messages[1], messages, checkpoints).id, 'cp-1');
     assert.equal(findCheckpointForMessage(messages[3], messages, checkpoints).id, 'cp-2');
+    assert.equal(findCheckpointForMessage({ ...messages[0], runId: 'missing-run' }, messages, checkpoints), undefined);
   });
   test('maps v1.0.6 legacy messages to only checkpoints inside that prompt interval', () => {
     const legacy = messages.map(message => ({ ...message, runId: undefined }));
