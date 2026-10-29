@@ -163,10 +163,16 @@ try {
     assert.equal(observedHeaders.get('x-goog-api-key'), 'sensitive-test-key');
     assert.equal(observedUrl.includes('sensitive-test-key'), false);
     assert.ok(observedBody.contents.length);
-    assert.match(stream, /Hello from Gemini\./);
-    assert.match(stream, /"name":"read_file"/);
-    assert.match(stream, /"arguments":"\{\\?"path\\?":\\?"README\.md\\?\}"/);
-    assert.match(stream, /data: \[DONE\]/);
+    const payloads = stream.split(/\r?\n\r?\n/)
+      .map(event => event.split(/\r?\n/).find(line => line.startsWith('data: '))?.slice(6))
+      .filter(value => !!value && value !== '[DONE]')
+      .map(value => JSON.parse(value));
+    assert.ok(payloads.some(payload => payload.choices?.[0]?.delta?.content?.includes('Hello from Gemini.')));
+    const toolPayload = payloads.find(payload => payload.choices?.[0]?.delta?.tool_calls?.length);
+    assert.ok(toolPayload);
+    assert.equal(toolPayload.choices[0].delta.tool_calls[0].function.name, 'read_file');
+    assert.deepEqual(JSON.parse(toolPayload.choices[0].delta.tool_calls[0].function.arguments), { path: 'README.md' });
+    assert.match(stream, /data: \\[DONE\\]/);
   });
 
   await test('lists only Gemini content-generation models and strips the models/ prefix', async () => {
