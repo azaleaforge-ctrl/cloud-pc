@@ -18,6 +18,7 @@ import { getAgentTerminalGuidance, resolveTerminalShell } from './terminalShell'
 import { getToolRecoveryHint, isToolFailureResult, repeatedFailureSignature, repeatedNoProgressActionSignature } from './agentFailureGuard';
 import { listBuiltinAgentSkills } from './skills';
 import { hasSuccessfulTerminalVerification } from './agentVerification';
+import { openGeminiCompletionStream } from './agentProviders';
 import { prepareAgentAttachments, resolveAgentAttachments } from './agentAttachments';
 import { checkPackageVersion, getCurrentTime, readWebPage, searchWeb, type PackageEcosystem } from './agentResearch';
 import { loadAgentSession, recordAgentFileCheckpoint, saveAgentSession } from './agentSessionStore';
@@ -947,11 +948,19 @@ async function openCompletionStream(
   messages: Array<Record<string, unknown>>,
   toolChoice: 'auto' | 'required' = 'auto',
 ): Promise<Response> {
-  const endpoints = [...new Set([
-    session.agent.endpoint || config.endpoint || DEFAULT_ENDPOINT,
-    config.fallbackEndpoint || DEFAULT_FALLBACK_ENDPOINT,
-  ].map((url) => url.replace(/\/+$/, '')))];
-  let lastError = 'Endpoint 9router tidak dapat diakses.';
+  const provider = config.provider ?? 'legacy';
+  if (provider === 'gemini') {
+    return openGeminiCompletionStream(config, messages, TOOL_DEFINITIONS, toolChoice, session.controller.signal);
+  }
+
+  const endpoints = provider === 'legacy'
+    ? [...new Set([
+        session.agent.endpoint || config.endpoint || DEFAULT_ENDPOINT,
+        config.fallbackEndpoint || DEFAULT_FALLBACK_ENDPOINT,
+      ].map((url) => url.replace(/\/+$/, '')))]
+    : [config.endpoint.replace(/\/+$/, '')];
+  let lastError = 'Endpoint provider tidak dapat diakses.';
+  const providerName = provider === 'openrouter' ? 'OpenRouter' : '9router';
 
   for (const endpoint of endpoints) {
     try {
@@ -960,7 +969,7 @@ async function openCompletionStream(
         headers: {
           'Content-Type': 'application/json',
           Authorization: 'Bearer ' + config.apiKey,
-          'User-Agent': 'RuangKerja-Agent/0.4.8',
+          'User-Agent': 'RuangKerja-Agent/1.0',
         },
         body: JSON.stringify({
           model: config.models[0] || session.agent.model || DEFAULT_MODEL,
@@ -976,14 +985,14 @@ async function openCompletionStream(
       if (response.ok) return response;
       const body = (await response.text()).slice(0, 500);
       lastError = 'HTTP ' + response.status + (body ? ': ' + body : '');
-      // Try the secondary endpoint even for HTTP errors: routers can differ in model/tool support.
+      // Only the historical provider has a configured fallback endpoint.
     } catch (error) {
       if (session.controller.signal.aborted || session.killed) throw error;
       lastError = (error as Error).message || 'Koneksi gagal.';
     }
   }
 
-  throw new Error('9router tidak dapat memproses permintaan. ' + lastError + '. Periksa endpoint, koneksi, dan API key di Pengaturan AI.');
+  throw new Error(providerName + ' tidak dapat memproses permintaan. ' + lastError + '. Periksa endpoint, koneksi, dan API key di Pengaturan AI.');
 }
 
 async function readCompletion(response: Response, session: LlmSession): Promise<{ content: string; toolCalls: ToolCall[] }> {
@@ -1137,7 +1146,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
     let totalToolCalls = session.totalToolCalls;
     const config = getRouterConfig();
     try {
-      if (!config?.apiKey) throw new Error('API key 9router belum disetel. Buka Pengaturan AI dan masukkan API key yang valid.');
+      if (!config?.apiKey) throw new Error('API key provider belum disetel. Buka /connect, pilih provider, lalu simpan API key yang valid.');
       if (session.agent.type !== 'llm-chat') throw new Error(session.agent.name + ' adalah CLI eksternal. Pilih Poolside untuk chat coding bawaan.');
       if (!projectPath) throw new Error('Belum ada folder proyek. Buka atau buat ruangan terlebih dahulu.');
       const root = await realpath(projectPath);
