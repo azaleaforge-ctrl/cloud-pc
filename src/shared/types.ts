@@ -2,7 +2,7 @@
 // Semua tipe di file ini adalah satu-satunya sumber kebenaran untuk IPC.
 
 import type { EditorApi } from './editor';
-import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentProviderId, AgentRouterStatus, AgentRouterTestResult, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, AgentSkillInfo, InstalledAgentSkill, AgentSkillInstallResult, ChatMessage, AgentEvent } from './agents';
+import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentProviderId, AgentRouterStatus, AgentRouterTestResult, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, AgentSkillInfo, InstalledAgentSkill, AgentSkillInstallResult, McpPluginSummary, McpPluginImportResult, McpPluginProbeResult, ChatMessage, AgentEvent } from './agents';
 
 export type Role = 'none' | 'host' | 'member';
 
@@ -251,6 +251,11 @@ export interface RkApi {
   agentListInstalledSkills(): Promise<InstalledAgentSkill[]>;
   agentImportSkill(): Promise<AgentSkillInstallResult>;
   agentUninstallSkill(id: string): Promise<ActionResult>;
+  agentListMcpPlugins(): Promise<McpPluginSummary[]>;
+  agentImportMcpConfig(): Promise<McpPluginImportResult>;
+  agentSetMcpPluginEnabled(id: string, enabled: boolean): Promise<ActionResult>;
+  agentRemoveMcpPlugin(id: string): Promise<ActionResult>;
+  agentProbeMcpPlugin(id: string): Promise<McpPluginProbeResult>;
   agentPickAttachments(): Promise<{ ok: boolean; attachments?: AgentAttachmentRef[]; error?: string }>;
   agentApproveTool(sessionId: string, requestId: string, approved: boolean): Promise<void>;
   agentAnswerQuestion(sessionId: string, requestId: string, answer: string): Promise<void>;
