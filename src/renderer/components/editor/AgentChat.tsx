@@ -1700,7 +1700,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     };
     window.addEventListener('keydown', onRestoreShortcut, true);
     return () => window.removeEventListener('keydown', onRestoreShortcut, true);
-  }, [visible, settingsOpen, modelPickerOpen, historyOpen, checkpointsOpen, loading, checkpointActionBusy, checkpoints, runCheckpointAction]);
+  }, [visible, settingsOpen, modelPickerOpen, historyOpen, checkpointsOpen, loading, checkpointActionBusy, checkpoints, messages, runCheckpointAction]);
 
   useEffect(() => {
     if (!historyOpen) return;
