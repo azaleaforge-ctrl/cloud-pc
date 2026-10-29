@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { createAgentReforkPlan, findCheckpointForMessage } from '../../../shared/agentMessageActions';
 import type {
   AgentEntry,
   AgentEvent,
@@ -686,21 +687,7 @@ function AgentWorkTimeline({
     <>
       {items.map((item) => {
         if (item.kind === 'message') {
-          const directCheckpoint = item.message.runId
-            ? checkpoints.find(candidate => candidate.runId === item.message.runId)
-            : undefined;
-          // v1.0.6 sessions predate persisted message run IDs. For those sessions,
-          // conservatively associate a checkpoint only with the prompt interval
-          // containing its creation time; never guess from list order alone.
-          const messageIndex = messages.findIndex(candidate => candidate.id === item.message.id);
-          const nextUserTs = messages.slice(messageIndex + 1).find(candidate => candidate.role === 'user')?.ts
-            ?? Number.POSITIVE_INFINITY;
-          const legacyCheckpoint = !item.message.runId
-            ? checkpoints
-              .filter(candidate => candidate.createdAt >= item.message.ts && candidate.createdAt < nextUserTs)
-              .sort((left, right) => left.createdAt - right.createdAt)[0]
-            : undefined;
-          const checkpoint = directCheckpoint ?? legacyCheckpoint;
+          const checkpoint = findCheckpointForMessage(item.message, messages, checkpoints);
           return <MessageBubble
             key={item.key}
             msg={item.message}
@@ -1611,14 +1598,12 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       setError('Workspace sesi tidak cocok dengan workspace aktif; cabang tidak dibuat.');
       return;
     }
-    const index = messages.findIndex(item => item.id === message.id);
-    if (index < 0 || message.role !== 'user') {
-      setError('Prompt yang dipilih tidak ditemukan pada sesi aktif.');
+    const plan = createAgentReforkPlan(messages, message.id);
+    if (!plan) {
+      setError('Prompt pengguna yang dipilih tidak ditemukan pada sesi aktif.');
       return;
     }
-    const prefix = messages.slice(0, index)
-      .filter(item => item.role === 'user' || item.role === 'assistant')
-      .map(item => ({ ...item, streaming: false }));
+    const prefix = plan.messages;
     const branchId = makeConversationId();
     setError(null);
     try {
@@ -1644,11 +1629,11 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       setToolActivities([]);
       setTerminalHistory([]);
       setLastRunResult(null);
-      setInput(message.content);
+      setInput(plan.prompt);
       setHistoryOpen(false);
       setCheckpointsOpen(false);
       setActivity('Cabang percakapan dibuat sebelum prompt terpilih. Prompt siap diedit atau dikirim ulang.');
-      if (message.attachments?.length) {
+      if (plan.requiresAttachmentReselect) {
         setError('Prompt berhasil disalin ke composer, tetapi lampiran lama tidak disalin ke cabang. Lampirkan ulang media sebelum mengirim.');
       }
       setSessions(await window.rk.agentListSessions());
