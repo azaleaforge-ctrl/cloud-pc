@@ -28,7 +28,7 @@ const PDF_UNPACKED_MAX = 50 * 1024 * 1024;
 const MIME: Record<string, string> = {
   '.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.webp':'image/webp', '.gif':'image/gif',
   '.pdf':'application/pdf',
-  '.mp3':'audio/mpeg', '.wav':'audio/wav', '.m4a':'audio/mp4', '.aac':'audio/aac', '.flac':'audio/flac', '.ogg':'audio/ogg',
+  '.mp3':'audio/mpeg', '.wav':'audio/wav', '.m4a':'audio/m4a', '.aac':'audio/aac', '.flac':'audio/flac', '.ogg':'audio/ogg',
   '.mp4':'video/mp4', '.mov':'video/mov', '.avi':'video/avi', '.webm':'video/webm', '.mpeg':'video/mpeg', '.mpg':'video/mpg', '.wmv':'video/wmv',
   '.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
