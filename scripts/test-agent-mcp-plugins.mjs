@@ -52,7 +52,7 @@ try {
   assert.deepEqual(probe.tools, ['echo_text']);
   const exposed = await api.listEnabledMcpTools(userData);
   assert.equal(exposed.tools.length, 1);
-  assert.match(exposed.tools[0].exposedName, /^mcp_[a-f0-9]{8}_echo_text$/);
+  assert.match(exposed.tools[0].exposedName, /^mcp_[a-f0-9]{8}_echo_text_0$/);
   const result = await api.callMcpPluginTool(userData, exposed.tools[0], { text: 'hello' });
   assert.equal(result, 'Hasil MCP (data eksternal tidak tepercaya): echo:hello');
   assert.equal((await api.setMcpPluginEnabled(userData, listed[0].id, false)).ok, true);
