@@ -54,7 +54,7 @@ try {
     assert.doesNotMatch(generic, /top-secret/);
   });
 
-  const [main, agent, providers, capabilities, attachment, sessions, sessionTests, chat, css, providerTests, pkg] = await Promise.all([
+  const [main, agent, providers, capabilities, attachment, sessions, sessionTests, chat, css, editorCss, providerTests, pkg] = await Promise.all([
     readFile(join(root, 'src/main/index.ts'), 'utf8'),
     readFile(join(root, 'src/main/editor/agent.ts'), 'utf8'),
     readFile(join(root, 'src/main/editor/agentProviders.ts'), 'utf8'),
@@ -64,6 +64,7 @@ try {
     readFile(join(root, 'scripts/test-agent-sessions.mjs'), 'utf8'),
     readFile(join(root, 'src/renderer/components/editor/AgentChat.tsx'), 'utf8'),
     readFile(join(root, 'src/renderer/components/editor/agent-progress.css'), 'utf8'),
+    readFile(join(root, 'src/renderer/components/editor/editor.css'), 'utf8'),
     readFile(join(root, 'scripts/test-agent-providers.mjs'), 'utf8'),
     readFile(join(root, 'package.json'), 'utf8'),
   ]);
@@ -99,6 +100,33 @@ try {
     assert.match(providers, /'x-goog-api-key': config\.apiKey/);
     assert.match(providerTests, /converts embedded image data URLs to Gemini inlineData/);
     assert.match(providerTests, /sensitive-test-key/);
+  });
+
+  test('audio/video and scanned PDF use a bounded native Gemini media path', () => {
+    assert.match(attachment, /'\.mp3':'audio\/mpeg'/);
+    assert.match(attachment, /'\.mp4':'video\/mp4'/);
+    assert.match(attachment, /DIRECT_MEDIA_BATCH_MAX/);
+    assert.match(attachment, /PDF asli akan dikirim ke model multimodal/);
+    assert.match(main, /'mp3','wav','m4a','aac','flac','ogg','mp4','mov','avi','webm'/);
+    assert.match(agent, /type: 'media_url'/);
+    assert.match(agent, /directMedia\.length && config\.provider !== 'gemini'/);
+    assert.match(providers, /item\.type === 'media_url'/);
+    assert.match(providerTests, /routes audio, video and scanned PDF data URLs through Gemini native inlineData/);
+  });
+
+  test('per-message Refork/Copy/Rewind actions are linked to persisted run IDs and Ctrl+R cannot reload the app', () => {
+    assert.match(chat, /className="ai-message-actions"/);
+    assert.match(chat, /Salin prompt/);
+    assert.match(chat, /Revert \/ Refork/);
+    assert.match(chat, /const reforkFromMessage = useCallback/);
+    assert.match(chat, /setConversationId\(branchId\)/);
+    assert.match(chat, /const rewindFromMessage = useCallback/);
+    assert.match(chat, /event\.stopImmediatePropagation\(\)/);
+    assert.match(chat, /runId: result\.sessionId/);
+    assert.match(chat, /candidate\.runId === item\.message\.runId/);
+    assert.match(sessions, /message\.runId/);
+    assert.match(sessionTests, /loaded\.messages\[0\]\.runId/);
+    assert.match(editorCss, /\.ai-message-actions-menu/);
   });
 
   test('provider failures and diagnostic responses are redacted and quota/timeouts have clear messages', () => {
