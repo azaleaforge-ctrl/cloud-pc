@@ -85,7 +85,7 @@ try {
   });
   test('README explains optional AI/web network data flows and vision limitations', () => {
     assert.match(readme, /provider AI yang dikonfigurasi/);
-    assert.match(readme, /input gambar/);
+    assert.match(readme, /gambar PNG\/JPEG\/WebP\/GIF/);
     assert.match(readme, /tidak menjalankan JavaScript situs/);
   });
 
