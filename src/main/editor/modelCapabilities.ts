@@ -138,9 +138,7 @@ export function parseModels(data: Record<string, unknown>, provider: AgentProvid
     const costTier: AgentModelInfo['costTier'] = promptPrice !== undefined && completionPrice !== undefined
       ? (promptPrice === 0 && completionPrice === 0 ? 'free' : 'premium')
       : 'unknown';
-    const contextLength = finiteNonNegativeNumber(
-      provider === 'gemini' ? record.context_length : record.context_length,
-    );
+    const contextLength = finiteNonNegativeNumber(record.context_length);
     const inputModalities = metadataStrings(architecture.input_modalities);
     const outputModalities = metadataStrings(architecture.output_modalities);
     const supportedParameters = metadataStrings(record.supported_parameters);
