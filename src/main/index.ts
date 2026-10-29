@@ -285,7 +285,7 @@ const PROVIDER_ENDPOINTS: Record<AgentProviderId, string> = {
 };
 const PROVIDER_DEFAULT_MODELS: Record<AgentProviderId, string> = {
   openrouter: 'openai/gpt-4o-mini',
-  gemini: 'gemini-2.5-flash',
+  gemini: 'gemini-3.8-flash',
   legacy: LEGACY_ROUTER_MODEL,
 };
 const PROVIDER_NAMES: Record<AgentProviderId, string> = {
