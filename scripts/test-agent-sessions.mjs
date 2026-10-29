@@ -127,8 +127,8 @@ try{
     const contents=[];
     for(let index=0;index<4;index++) {
       const name='budget-'+index+'.txt';
-      const oldContent='o'.repeat(900_000);
-      const newContent='n'.repeat(900_000);
+      const oldContent='o'.repeat(950_000);
+      const newContent='n'.repeat(950_000);
       await writeFile(join(workspace,name),newContent,'utf8');
       contents.push({id:'budget-'+index,path:name,operation:'modify',oldContent,newContent,addedLines:1,removedLines:1,changedAt:Date.now()});
       await api.recordAgentFileCheckpoint(userData,'chat-checkpoint-budget','budget-run',workspace,contents[index]);
