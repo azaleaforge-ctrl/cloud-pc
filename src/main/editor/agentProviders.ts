@@ -145,11 +145,18 @@ export function buildGeminiRequestBody(options: GeminiRequestOptions): JsonRecor
       for (const rawCall of toolCalls) {
         if (!isRecord(rawCall)) continue;
         const fn = isRecord(rawCall.function) ? rawCall.function : {};
+        const functionCall: JsonRecord = {
+          name: safeFunctionName(fn.name),
+          args: parseFunctionArguments(fn.arguments),
+        };
+        if (typeof rawCall.geminiFunctionCallId === 'string' && rawCall.geminiFunctionCallId) {
+          functionCall.id = rawCall.geminiFunctionCallId;
+        }
         parts.push({
-          functionCall: {
-            name: safeFunctionName(fn.name),
-            args: parseFunctionArguments(fn.arguments),
-          },
+          functionCall,
+          ...(typeof rawCall.geminiThoughtSignature === 'string' && rawCall.geminiThoughtSignature
+            ? { thoughtSignature: rawCall.geminiThoughtSignature }
+            : {}),
         });
       }
       if (parts.length) contents.push({ role: 'model', parts });
@@ -162,7 +169,10 @@ export function buildGeminiRequestBody(options: GeminiRequestOptions): JsonRecor
   const body: JsonRecord = {
     contents,
     generationConfig: {
-      temperature: typeof options.temperature === 'number' ? options.temperature : 0.2,
+      // Google recommends the default temperature of 1.0 for Gemini 3/4 reasoning models.
+      temperature: /^gemini-[34](?:[.-]|$)/.test(options.model.replace(/^models\//, ''))
+        ? 1.0
+        : typeof options.temperature === 'number' ? options.temperature : 0.2,
       maxOutputTokens: typeof options.maxOutputTokens === 'number' ? options.maxOutputTokens : 6144,
     },
   };
@@ -208,9 +218,11 @@ export function normalizeGeminiResponse(payload: unknown): JsonRecord {
       const call = rawPart.functionCall;
       const name = safeFunctionName(call.name);
       toolCalls.push({
-        id: 'gemini_call_' + callIndex++,
+        id: asText(call.id) || 'gemini_call_' + callIndex++,
         type: 'function',
         function: { name, arguments: JSON.stringify(parseFunctionArguments(call.args)) },
+        ...(asText(rawPart.thoughtSignature) ? { thought_signature: asText(rawPart.thoughtSignature) } : {}),
+        ...(asText(call.id) ? { gemini_function_call_id: asText(call.id) } : {}),
       });
     }
   }
@@ -234,27 +246,36 @@ function candidateToSse(candidate: unknown, toolCounter: { value: number }): str
   const content = isRecord(candidate.content) ? candidate.content : {};
   const parts = Array.isArray(content.parts) ? content.parts : [];
   const output: string[] = [];
-  const functionCalls: JsonRecord[] = [];
+  const functionCalls: Array<{ call: JsonRecord; thoughtSignature?: string }> = [];
   for (const part of parts) {
     if (!isRecord(part)) continue;
     if (typeof part.text === 'string' && part.text) {
       output.push('data: ' + JSON.stringify({ choices: [{ index: 0, delta: { content: part.text }, finish_reason: null }] }) + '\n\n');
     }
-    if (isRecord(part.functionCall)) functionCalls.push(part.functionCall);
+    if (isRecord(part.functionCall)) {
+      functionCalls.push({
+        call: part.functionCall,
+        ...(asText(part.thoughtSignature) ? { thoughtSignature: asText(part.thoughtSignature) } : {}),
+      });
+    }
   }
-  // Gemini reports complete function-call arguments as structured JSON. Emit them once,
-  // at the candidate's terminal chunk, so the OpenAI-shaped consumer does not concatenate
-  // the same object repeatedly across streamed candidate snapshots.
+  // Wait for the completed candidate before emitting structured function arguments.
+  // Keep each part's thought signature on that exact call; Gemini 3 requires it on replay.
   if (functionCalls.length && typeof candidate.finishReason === 'string') {
-    const toolCalls = functionCalls.map((call, index) => ({
-      index: toolCounter.value++,
-      id: 'gemini_call_' + toolCounter.value,
-      type: 'function',
-      function: {
-        name: safeFunctionName(call.name),
-        arguments: JSON.stringify(parseFunctionArguments(call.args)),
-      },
-    }));
+    const toolCalls = functionCalls.map(({ call, thoughtSignature }) => {
+      const index = toolCounter.value++;
+      return {
+        index,
+        id: asText(call.id) || 'gemini_call_' + (index + 1),
+        type: 'function',
+        function: {
+          name: safeFunctionName(call.name),
+          arguments: JSON.stringify(parseFunctionArguments(call.args)),
+        },
+        ...(thoughtSignature ? { thought_signature: thoughtSignature } : {}),
+        ...(asText(call.id) ? { gemini_function_call_id: asText(call.id) } : {}),
+      };
+    });
     output.push('data: ' + JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: toolCalls }, finish_reason: null }] }) + '\n\n');
   }
   if (typeof candidate.finishReason === 'string') {
