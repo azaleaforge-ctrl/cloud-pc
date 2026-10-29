@@ -21,7 +21,7 @@ try{
  test('text extraction returns opaque refs, not filesystem paths',()=>{assert.equal(txtRefs[0].name,'notes.txt');assert.equal('path' in txtRefs[0],false);assert.match(resolveAgentAttachments(txtRefs)[0].text,/Second line/);});
  const pdf=await make('sample.pdf','%PDF-1.4\nBT (Invoice total 250) Tj ET\n%%EOF');
  const pdfRefs=await prepareAgentAttachments([pdf]);
- test('basic selectable PDF text extraction',()=>assert.match(resolveAgentAttachments(pdfRefs)[0].text,/Invoice total 250/));
+ test('selectable PDF keeps extracted text and a bounded original for mixed-page OCR',()=>{const item=resolveAgentAttachments(pdfRefs)[0];assert.match(item.text,/Invoice total 250/);assert.match(item.dataUrl,/^data:application\/pdf;base64,/);});
  const AdmZip=require('adm-zip'),zip=new AdmZip();
  zip.addFile('word/document.xml',Buffer.from('<w:document xmlns:w="urn:w"><w:body><w:p><w:r><w:t>DOCX content</w:t></w:r></w:p></w:body></w:document>'));
  const docx=await make('spec.docx',zip.toBuffer()),docxRefs=await prepareAgentAttachments([docx]);
