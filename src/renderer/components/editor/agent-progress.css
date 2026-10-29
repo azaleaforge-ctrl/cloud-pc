@@ -498,3 +498,13 @@
   .ai-slash-command-title { display: none; }
   .ai-sessions-modal-list { max-height: 38vh; }
 }
+
+
+/* The old settings panel is the temporary target for /connect and /model until their dedicated modals land. */
+.ai-panel.fullsize .ai-settings {
+  max-height: min(48vh, 420px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+}
