@@ -8,7 +8,7 @@ const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
 const lock = JSON.parse(await readFile(join(root, 'package-lock.json'), 'utf8'));
 const notes = await readFile(join(root, 'RELEASE_NOTES.md'), 'utf8');
 const escapedVersion = pkg.version.replaceAll('.', '\\.');
-const expectedHeading = \`# Ruang Kerja v\${pkg.version}\`;
+const expectedHeading = '# Ruang Kerja v' + pkg.version;
 
 assert.match(
   notes,
