@@ -63,6 +63,18 @@ interface DiffRow {
 const STORAGE_KEY = 'rk.ai.lastAgent';
 const HISTORY_KEY = 'rk.ai.chatHistory';
 
+type AgentSlashCommandName = '/sessions' | '/connect' | '/model';
+const AGENT_SLASH_COMMANDS: Array<{
+  command: AgentSlashCommandName;
+  title: string;
+  description: string;
+  icon: string;
+}> = [
+  { command: '/sessions', title: 'Riwayat sesi', description: 'Buka, pilih, atau lanjutkan percakapan yang tersimpan.', icon: '☷' },
+  { command: '/connect', title: 'Hubungkan provider', description: 'Buka pengaturan koneksi AI dan API key.', icon: '↔' },
+  { command: '/model', title: 'Pilih model', description: 'Buka katalog dan pengaturan model yang tersedia saat ini.', icon: '◇' },
+];
+
 function pathName(path: string | null): string {
   if (!path) return 'Workspace belum dipilih';
   return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
@@ -680,6 +692,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [loadingSessions, setLoadingSessions] = useState(false);
+  const [slashMenuOpen, setSlashMenuOpen] = useState(false);
+  const [activeSlashCommandIndex, setActiveSlashCommandIndex] = useState(0);
   const [checkpoints, setCheckpoints] = useState<AgentCheckpointSummary[]>([]);
   const [checkpointsOpen, setCheckpointsOpen] = useState(false);
   const [checkpointActionBusy, setCheckpointActionBusy] = useState<string | null>(null);
@@ -700,6 +714,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [routerStatus, setRouterStatus] = useState<AgentRouterStatus | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsFocusTarget, setSettingsFocusTarget] = useState<'connect' | 'model' | null>(null);
   const [savingKey, setSavingKey] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<AgentRouterTestResult | null>(null);
@@ -718,6 +733,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [changes, setChanges] = useState<AgentFileChange[]>([]);
   const [selectedChange, setSelectedChange] = useState<AgentFileChange | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const apiKeyInputRef = useRef<HTMLInputElement>(null);
+  const modelManagerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const messagesViewportRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -1060,6 +1077,19 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
 
   const activeAgent = agents.find((agent) => agent.id === activeAgentId);
   const workspaceSessions = sessions.filter((session) => sameWorkspacePath(session.projectPath, wb.root));
+  const slashCommandQuery = input.trimStart().split(/\s/, 1)[0].toLowerCase();
+  const filteredSlashCommands = AGENT_SLASH_COMMANDS.filter(item => item.command.startsWith(slashCommandQuery || '/'));
+
+  useEffect(() => {
+    if (!settingsOpen || !settingsFocusTarget) return;
+    if (settingsFocusTarget === 'connect') {
+      apiKeyInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      apiKeyInputRef.current?.focus({ preventScroll: true });
+    } else {
+      modelManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    setSettingsFocusTarget(null);
+  }, [settingsOpen, settingsFocusTarget]);
 
   useEffect(() => {
     if (!testResult || testResult.ok) return;
@@ -1471,9 +1501,62 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setConversationId(makeConversationId());
   }, [activeSessionId, wb.root]);
 
+  const executeSlashCommand = useCallback((command: AgentSlashCommandName) => {
+    setInput('');
+    setSlashMenuOpen(false);
+    setActiveSlashCommandIndex(0);
+    setError(null);
+
+    if (command === '/sessions') {
+      setCheckpointsOpen(false);
+      setSettingsOpen(false);
+      setHistoryOpen(true);
+      return;
+    }
+
+    setHistoryOpen(false);
+    setCheckpointsOpen(false);
+    setSettingsFocusTarget(command === '/model' ? 'model' : 'connect');
+    setSettingsOpen(true);
+  }, []);
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const trimmedInput = input.trim();
+
+    if (event.key === 'Escape' && slashMenuOpen) {
+      event.preventDefault();
+      setSlashMenuOpen(false);
+      return;
+    }
+
+    if (slashMenuOpen && filteredSlashCommands.length > 0 && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      event.preventDefault();
+      setActiveSlashCommandIndex(current => {
+        const direction = event.key === 'ArrowDown' ? 1 : -1;
+        return (current + direction + filteredSlashCommands.length) % filteredSlashCommands.length;
+      });
+      return;
+    }
+
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
+      if (trimmedInput.startsWith('/')) {
+        const exactCommand = AGENT_SLASH_COMMANDS.find(item => item.command === trimmedInput.toLowerCase());
+        if (exactCommand) {
+          executeSlashCommand(exactCommand.command);
+          return;
+        }
+        const selectedCommand = slashMenuOpen ? filteredSlashCommands[activeSlashCommandIndex] : undefined;
+        if (selectedCommand) {
+          executeSlashCommand(selectedCommand.command);
+          return;
+        }
+        const typedCommand = trimmedInput.split(/\s/, 1)[0];
+        setSlashMenuOpen(false);
+        setError('Perintah "' + typedCommand + '" tidak dikenal. Ketik / untuk melihat perintah yang tersedia.');
+        return;
+      }
+      setSlashMenuOpen(false);
       void sendMessage();
     }
   };
@@ -1508,6 +1591,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
           <div className="ai-settings-key-row">
             <input
               id="rk-router-key"
+              ref={apiKeyInputRef}
               className="ai-settings-key"
               type="password"
               autoComplete="new-password"
@@ -1540,7 +1624,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             <div><span>Utama</span><code>{routerStatus?.endpoint ?? 'https://rbxludp.abc-tunnel.us/v1'}</code></div>
             <div><span>Cadangan</span><code>{routerStatus?.fallbackEndpoint ?? 'http://localhost:20128/v1'}</code></div>
           </div>
-          <div className="ai-model-manager">
+          <div className="ai-model-manager" ref={modelManagerRef}>
             <div className="ai-model-manager-head">
               <div>
                 <strong>Model & kemampuan</strong>
@@ -1607,34 +1691,46 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       ) : null}
 
       {historyOpen ? (
-        <section className="ai-session-history" aria-label="Riwayat percakapan tersimpan">
-          <header className="ai-session-panel-head">
-            <div>
-              <strong>Riwayat percakapan</strong>
-              <small>Tersimpan lokal di perangkat ini, terpisah dari folder project.</small>
-            </div>
-            <button type="button" className="ai-icon-btn" onClick={() => setHistoryOpen(false)} aria-label="Tutup riwayat"><IconX size={14} /></button>
-          </header>
-          {loadingSessions ? <p className="ai-session-empty">Memuat riwayat…</p> : workspaceSessions.length === 0 ? (
-            <p className="ai-session-empty">Belum ada percakapan tersimpan.</p>
-          ) : (
-            <div className="ai-session-list">
-              {workspaceSessions.map(session => (
-                <div className={'ai-session-item' + (session.id === conversationId ? ' active' : '')} key={session.id}>
-                  <button type="button" className="ai-session-open" disabled={loading}
-                    onClick={() => { setHistoryOpen(false); if (session.id !== conversationId) setConversationId(session.id); }}>
-                    <strong>{session.title || 'Percakapan baru'}</strong>
-                    <span>{session.lastMessage || 'Belum ada pesan'}</span>
-                    <small>{new Date(session.updatedAt).toLocaleString()} · {session.messageCount} pesan · {session.checkpointCount} checkpoint{session.projectPath ? ' · ' + pathName(session.projectPath) : ''}</small>
-                  </button>
-                  <button type="button" className="ai-icon-btn ai-session-delete" title="Hapus riwayat ini"
-                    aria-label={'Hapus riwayat ' + (session.title || session.id)} disabled={loading}
-                    onClick={() => void deleteStoredSession(session.id)}><IconTrash size={13} /></button>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+        <div className="ai-session-overlay" role="presentation"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setHistoryOpen(false); }}>
+          <section className="ai-session-history ai-sessions-modal" role="dialog" aria-modal="true"
+            aria-label="Riwayat percakapan tersimpan" tabIndex={-1}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                setHistoryOpen(false);
+                inputRef.current?.focus();
+              }
+            }}>
+            <header className="ai-session-panel-head">
+              <div>
+                <strong>Riwayat sesi</strong>
+                <small>Pilih percakapan untuk melanjutkan. Hanya sesi pada workspace aktif yang ditampilkan.</small>
+              </div>
+              <button type="button" className="ai-icon-btn" autoFocus onClick={() => setHistoryOpen(false)} aria-label="Tutup riwayat"><IconX size={14} /></button>
+            </header>
+            {loadingSessions ? <p className="ai-session-empty">Memuat riwayat…</p> : workspaceSessions.length === 0 ? (
+              <p className="ai-session-empty">Belum ada percakapan tersimpan untuk workspace ini.</p>
+            ) : (
+              <div className="ai-session-list ai-sessions-modal-list">
+                {workspaceSessions.map(session => (
+                  <div className={'ai-session-item' + (session.id === conversationId ? ' active' : '')} key={session.id}>
+                    <button type="button" className="ai-session-open" disabled={loading}
+                      onClick={() => { setHistoryOpen(false); if (session.id !== conversationId) setConversationId(session.id); }}>
+                      <strong>{session.title || 'Percakapan baru'}</strong>
+                      <code className="ai-session-code">{session.id}</code>
+                      <span>{session.lastMessage || 'Belum ada pesan'}</span>
+                      <small>{new Date(session.updatedAt).toLocaleString()} · {session.messageCount} pesan · {session.checkpointCount} checkpoint{session.projectPath ? ' · ' + pathName(session.projectPath) : ''}</small>
+                    </button>
+                    <button type="button" className="ai-icon-btn ai-session-delete" title="Hapus riwayat ini"
+                      aria-label={'Hapus riwayat ' + (session.title || session.id)} disabled={loading}
+                      onClick={() => void deleteStoredSession(session.id)}><IconTrash size={13} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
       ) : null}
 
       {checkpointsOpen ? (
@@ -1692,13 +1788,6 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
           <span className={wb.root ? 'ready' : 'missing'} />
           {wb.root ? 'Agent bekerja di folder project aktif' : 'Belum ada workspace'}
         </div>
-        <button type="button" className="ai-clear-btn" onClick={() => setSettingsOpen((open) => !open)} title="Pengaturan AI">
-          ⚙ Pengaturan AI
-        </button>
-        <button type="button" className={'ai-clear-btn' + (historyOpen ? ' active' : '')}
-          onClick={() => { setHistoryOpen(open => !open); setCheckpointsOpen(false); }} title="Riwayat percakapan">
-          ☷ Riwayat ({workspaceSessions.length})
-        </button>
         <button type="button" className={'ai-clear-btn' + (checkpointsOpen ? ' active' : '')}
           onClick={() => { setCheckpointsOpen(open => !open); setHistoryOpen(false); }} title="Checkpoint dan rewind">
           ↶ Checkpoint ({checkpoints.length})
@@ -1882,6 +1971,31 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 ))}
               </div>
             ) : null}
+            {slashMenuOpen ? (
+              <div className="ai-slash-menu" role="listbox" aria-label="Perintah Agentic Coding">
+                <div className="ai-slash-menu-heading">Perintah</div>
+                {filteredSlashCommands.length ? filteredSlashCommands.map((item, index) => (
+                  <button
+                    type="button"
+                    key={item.command}
+                    className={'ai-slash-command' + (index === activeSlashCommandIndex ? ' active' : '')}
+                    role="option"
+                    aria-selected={index === activeSlashCommandIndex}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setActiveSlashCommandIndex(index)}
+                    onClick={() => executeSlashCommand(item.command)}
+                  >
+                    <span className="ai-slash-command-icon" aria-hidden="true">{item.icon}</span>
+                    <span className="ai-slash-command-copy">
+                      <strong>{item.command}</strong>
+                      <small>{item.description}</small>
+                    </span>
+                    <span className="ai-slash-command-title">{item.title}</span>
+                  </button>
+                )) : <p className="ai-slash-menu-empty">Tidak ada perintah yang cocok.</p>}
+                <div className="ai-slash-menu-hint"><kbd>↑</kbd><kbd>↓</kbd> pilih <kbd>Enter</kbd> buka <kbd>Esc</kbd> tutup</div>
+              </div>
+            ) : null}
             <div className="ai-input-row">
               <button type="button" className="ai-attach-btn" aria-label="Lampirkan file"
                 title="Lampirkan foto, dokumen, atau file teks"
@@ -1893,18 +2007,25 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 ref={inputRef}
                 className="ai-input"
                 value={input}
-                onChange={(event) => setInput(event.target.value)}
+                onChange={(event) => {
+                  const nextInput = event.target.value;
+                  setInput(nextInput);
+                  const trimmedStart = nextInput.trimStart();
+                  const opensCommandMenu = trimmedStart.startsWith('/') && !/\s/.test(trimmedStart);
+                  setSlashMenuOpen(opensCommandMenu);
+                  setActiveSlashCommandIndex(0);
+                }}
                 onKeyDown={handleKeyDown}
-                placeholder={permission ? 'Setujui atau tolak command di panel di atas…' : agentQuestion ? 'Pilih opsi atau tulis jawaban custom pada panel di atas…' : loading ? 'Agent sedang bekerja…' : !sessionReady ? 'Menyiapkan sesi AI baru…' : !routerStatus?.configured ? 'Atur API key 9router pada pengaturan…' : !wb.root ? 'Buka workspace proyek terlebih dahulu…' : 'Minta agent membaca, membuat, atau mengubah kode…'}
+                placeholder={permission ? 'Setujui atau tolak command di panel di atas…' : agentQuestion ? 'Pilih opsi atau tulis jawaban custom pada panel di atas…' : loading ? 'Agent sedang bekerja…' : !sessionReady ? 'Menyiapkan sesi AI baru…' : !routerStatus?.configured ? 'Ketik /connect untuk menghubungkan AI, atau tulis instruksi…' : !wb.root ? 'Buka workspace proyek terlebih dahulu…' : 'Tulis instruksi atau ketik / untuk perintah…'}
                 rows={3}
-                disabled={loading || !sessionReady || !activeAgent || !routerStatus?.configured || !wb.root}
+                disabled={loading || !sessionReady || !activeAgent}
                 aria-label="Pesan AI coding agent"
               />
               <button
                 type="button"
                 className="ai-send-btn"
                 onClick={() => void sendMessage()}
-                disabled={loading || (!input.trim() && pendingAttachments.length === 0) || !activeAgent || !routerStatus?.configured || !wb.root}
+                disabled={loading || (!input.trim() && pendingAttachments.length === 0) || !activeAgent || !wb.root}
                 title="Kirim (Enter)"
               >
                 {loading ? <Spinner size={17} /> : <IconSend size={17} />}
