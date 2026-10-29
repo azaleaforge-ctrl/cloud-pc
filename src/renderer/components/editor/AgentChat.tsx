@@ -673,7 +673,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [todos, setTodos] = useState<AgentTodo[]>([]);
   const [toolActivities, setToolActivities] = useState<AgentToolActivity[]>([]);
   const [lastRunResult, setLastRunResult] = useState<AgentRunResult | null>(null);
-remove terminal live-state duplicate  const [terminalHistory, setTerminalHistory] = useState<AgentTerminalHistoryEntry[]>([]);
+  const [terminalHistory, setTerminalHistory] = useState<AgentTerminalHistoryEntry[]>([]);
   const [terminalCopiedId, setTerminalCopiedId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState<AgentAttachmentRef[]>([]);
@@ -1064,7 +1064,7 @@ remove terminal reset duplicate    setTerminalHistory([]);
     setActiveSkills([]);
     setTerminalHistory([]);
     setTerminalCopiedId(null);
-const userMessage: ChatMessage = {
+    const userMessage: ChatMessage = {
       id: 'user-' + Date.now(), role: 'user',
       content: text || 'Tolong analisis lampiran yang saya kirim dan rangkum informasi pentingnya.',
       ts: Date.now(),
