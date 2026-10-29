@@ -1381,7 +1381,9 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
             }
           }
 
-          if (!failed && noProgressKey) {
+          if (noProgressKey) {
+            // Count repeated identical calls on failure too; slightly different error
+            // text must not let the model retry the same command forever.
             const progressAfter = agentProgressFingerprint(session);
             if (progressAfter === progressBefore) {
               const repeatCount = (repeatedNoProgressActions.get(noProgressKey) ?? 0) + 1;
