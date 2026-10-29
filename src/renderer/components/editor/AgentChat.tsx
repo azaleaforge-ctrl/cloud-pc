@@ -765,6 +765,17 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     stickToBottomRef.current = true;
     forceScrollToBottomRef.current = true;
     setSessionReady(false);
+    // Activity is run-scoped and is not persisted with a restored chat session.
+    setToolActivities([]);
+    setTerminalHistory([]);
+    setTerminalCopiedId(null);
+    setLastRunResult(null);
+    setActiveSkills([]);
+    setPermission(null);
+    setAgentQuestion(null);
+    setSelectedQuestionOption(null);
+    setCustomQuestionAnswer('');
+    setSubmittingQuestion(false);
     void (async () => {
       try {
         if (firstSessionLoadRef.current) {
@@ -903,6 +914,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
           setMessages((previous) => {
             const index = previous.map((item) => item.role).lastIndexOf('assistant');
             if (index < 0 || !previous[index].streaming) return previous;
+            // If a model immediately calls a tool without explanatory text, do not
+            // persist an empty assistant bubble.
+            if (!previous[index].content.trim()) return previous.filter((_, currentIndex) => currentIndex !== index);
             const next = [...previous];
             next[index] = { ...next[index], streaming: false };
             return next;
