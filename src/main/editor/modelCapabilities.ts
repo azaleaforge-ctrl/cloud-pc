@@ -218,7 +218,7 @@ function completionHasText(data: Record<string, unknown> | undefined): boolean {
   const message = (choices[0] as Record<string, unknown>).message;
   if (!message || typeof message !== 'object') return false;
   const content = (message as Record<string, unknown>).content;
-  return typeof content === 'string' || Array.isArray(content);
+  return (typeof content === 'string' && content.trim().length > 0) || (Array.isArray(content) && content.length > 0);
 }
 
 const PROBE_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC';
