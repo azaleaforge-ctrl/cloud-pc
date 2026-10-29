@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { getAgentTerminalGuidance } from './terminalShell';
 
+// Runtime guard helpers classify failures before the model is asked to recover.
 export function isToolFailureResult(result: string): boolean {
   if (/^(?:Tool gagal:|Tool ditahan:|Tool tidak dikenal:|Akses ditolak|Path ditolak|Memory ditolak|Pengguna menolak)/i.test(result.trim())) return true;
   if (/^Status:\s*(?:failed|timed_out|cancelled)/im.test(result)) return true;
