@@ -759,6 +759,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setModelCostFilter('all');
     setSelectedModelDraft(routerStatus?.model ?? '');
     setModelReport(null);
+    setError(null);
     setModelPickerOpen(true);
   }, [routerStatus?.model]);
 
@@ -1910,6 +1911,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                   </button>
                 </div>
 
+                {error ? <div className="ai-model-catalog-error" role="alert">{error}</div> : null}
                 {modelReport ? (
                   <div className="ai-model-report" role={modelReport.ok ? 'status' : 'alert'}>
                     <div className="ai-model-report-head">
