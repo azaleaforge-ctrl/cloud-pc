@@ -70,7 +70,7 @@ try {
   });
   test('model picker can filter models whose catalog explicitly lists image input', () => {
     assert.match(chat, /modelVisionOnly/);
-    assert.match(chat, /inputModalities[^\n]*some\(modality => \/\^\(image\|images\|vision\)\//);
+    assert.match(chat, /inputModalities[^\n]*some\(modality => \/\^\(image\|images\|vision\)\$\//);
     assert.match(chat, /Filter vision hanya memakai metadata input dari katalog provider/);
     assert.match(chat, /Uji kemampuan/);
   });
