@@ -39,6 +39,20 @@ export interface AgentAttachmentRef {
   size: number;
 }
 export interface AgentSkillInfo extends AgentSkillSelection { source: string; }
+
+export interface InstalledAgentSkill {
+  id: string;
+  name: string;
+  fileName: string;
+  size: number;
+}
+
+export interface AgentSkillInstallResult {
+  ok: boolean;
+  error?: string;
+  cancelled?: boolean;
+  skill?: InstalledAgentSkill;
+}
 export interface ChatMessage {
   id: string;
   role: 'system' | 'user' | 'assistant';
