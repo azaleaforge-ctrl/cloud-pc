@@ -527,12 +527,10 @@ function TerminalRunPanel({
   entry,
   copied,
   onCopy,
-  outputOverride,
 }: {
   entry: AgentTerminalHistoryEntry;
   copied: boolean;
   onCopy: (entry: AgentTerminalHistoryEntry) => void;
-  outputOverride?: string;
 }) {
   const process = entry.process;
   const statusLabel: Record<AgentTerminalProcess['status'], string> = {
@@ -549,7 +547,7 @@ function TerminalRunPanel({
       ? '×'
       : process.status === 'cancelled' ? '!' : '◌';
   const elapsed = Math.max(0, Math.round(((process.finishedAt ?? Date.now()) - process.startedAt) / 1000));
-  const output = entry.outputs.length ? formatAgentTerminalOutput(entry.outputs) : (outputOverride ?? '');
+  const output = entry.outputs.length ? formatAgentTerminalOutput(entry.outputs) : '';
   return (
     <section className={'ai-terminal-run status-' + process.status} aria-label={'Hasil terminal: ' + statusLabel[process.status]}>
       <header className="ai-terminal-run-header">
@@ -570,7 +568,7 @@ function TerminalRunPanel({
         <small>{new Date(process.startedAt).toLocaleString()}{process.finishedAt ? ' · selesai ' + new Date(process.finishedAt).toLocaleTimeString() : ' · masih berjalan'}</small>
         <button type="button" onClick={() => onCopy(entry)}>{copied ? 'Detail tersalin' : 'Salin detail diagnostik'}</button>
       </div>
-      <pre className="ai-terminal-output">{output || (process.status === 'running' ? 'Menunggu output dari command…' : '(tidak ada output)')}</pre>
+      <pre className="ai-terminal-output">{output || (process.status === 'running' || process.status === 'starting' ? 'Menunggu output dari command…' : '(tidak ada output)')}</pre>
     </section>
   );
 }
