@@ -125,6 +125,9 @@ try {
     assert.match(chat, /setConversationId\(branchId\)/);
     assert.match(chat, /const rewindFromMessage = useCallback/);
     assert.match(chat, /event\.stopImmediatePropagation\(\)/);
+    assert.match(chat, /data-message-id={msg\.id}/);
+    assert.match(chat, /target\?\.closest\('input, textarea, select/);
+    assert.match(chat, /checkpoint\.status === 'rewound' \? 'redo' : 'rewind'/);
     assert.match(chat, /runId: result\.sessionId/);
     assert.match(chat, /findCheckpointForMessage\(item\.message, messages, checkpoints\)/);
     assert.match(sessions, /message\.runId/);
