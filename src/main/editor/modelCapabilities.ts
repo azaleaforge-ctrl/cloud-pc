@@ -338,22 +338,36 @@ export async function diagnoseModelCapabilities(config: RouterConfig, requestedM
 export async function testProviderConnection(config: RouterConfig): Promise<AgentRouterTestResult> {
   if (!config.apiKey) return { ok: false, message: 'API key provider belum disetel.' };
   const model = config.models[0] || (config.provider === 'gemini' ? 'gemini-3.8-flash' : 'openai/gpt-4o-mini');
-  const endpoint = uniqueEndpoints(config)[0];
-  if (!endpoint) return { ok: false, message: 'Endpoint provider belum tersedia.' };
-  const outcome = await testRequest(endpoint, { ...config, models: [model] }, {
-    model,
-    messages: [{ role: 'user', content: 'Reply with exactly OK.' }],
-    stream: false,
-    max_tokens: 8,
-    temperature: 0,
-  });
-  if (!outcome.ok || !completionHasText(outcome.data)) {
-    return { ok: false, model, endpoint, message: outcome.message || 'Provider tidak mengembalikan respons chat yang valid.' };
+  const endpoints = uniqueEndpoints(config);
+  if (!endpoints.length) return { ok: false, message: 'Endpoint provider belum tersedia.' };
+
+  let lastOutcome: RequestOutcome | null = null;
+  let lastEndpoint = endpoints[0];
+  for (const endpoint of endpoints) {
+    lastEndpoint = endpoint;
+    const outcome = await testRequest(endpoint, { ...config, models: [model] }, {
+      model,
+      messages: [{ role: 'user', content: 'Reply with exactly OK.' }],
+      stream: false,
+      max_tokens: 8,
+      temperature: 0,
+    });
+    if (outcome.ok && completionHasText(outcome.data)) {
+      return {
+        ok: true,
+        model,
+        endpoint,
+        message: 'Koneksi berhasil. Provider menerima permintaan dan mengembalikan jawaban.',
+      };
+    }
+    lastOutcome = { ...outcome, ok: false, message: outcome.ok ? 'Provider tidak mengembalikan respons chat yang valid.' : outcome.message };
   }
+
   return {
-    ok: true,
+    ok: false,
     model,
-    endpoint,
-    message: 'Koneksi berhasil. Provider menerima permintaan dan mengembalikan jawaban.',
+    endpoint: lastEndpoint,
+    message: (lastOutcome?.message || 'Provider tidak mengembalikan respons chat yang valid.')
+      + (endpoints.length > 1 ? ' Semua endpoint, termasuk cadangan, sudah dicoba.' : ''),
   };
 }
