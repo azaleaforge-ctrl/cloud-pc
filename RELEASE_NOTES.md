@@ -1,3 +1,36 @@
+# Ruang Kerja v1.0.6
+
+## Agentic Coding AI — timeline kerja dan verifikasi yang lebih andal
+
+### 1. Alur agent dan terminal
+- Menghentikan panggilan tool identik yang berulang tanpa kemajuan agar agent tidak terjebak dalam loop no-progress.
+- Memperkuat deteksi diagnostik terminal berulang untuk error TypeScript, lint, dan npm, termasuk ketika detail keluaran berubah setelah edit kode.
+- Menggabungkan balasan assistant, aktivitas tool, dan hasil terminal ke dalam satu timeline kronologis dengan status berjalan, berhasil, dan gagal yang jelas.
+- Kartu terminal mempertahankan output serta metadata proses seperti exit code dan diagnostik sehingga hasil dapat diperiksa sebelum agent menyimpulkan tugas berhasil.
+
+### 2. Pertanyaan terstruktur dengan jawaban Custom
+- Menambahkan pilihan **Custom (tulis sendiri)** sebagai opsi eksplisit keempat pada pertanyaan agent.
+- Kolom jawaban manual hanya muncul ketika Custom dipilih; jawaban kosong tidak dapat dikirim.
+- Navigasi keyboard tetap didukung, dan jawaban perlu dikonfirmasi pengguna sebelum agent melanjutkan.
+
+### 3. Skills yang memahami konteks lanjutan
+- Untuk pesan singkat atau referensial seperti “lanjutkan”, pemilihan skill dapat menggunakan hingga tiga giliran pesan pengguna sebelumnya dalam konteks yang dibatasi.
+- Permintaan baru yang berdiri sendiri tidak mewarisi maksud tugas sebelumnya yang tidak berkaitan.
+- Skill analisis dokumen tidak lagi terpicu hanya karena ada PDF yang tidak terkait di inventaris proyek; permintaan dan file aktif tetap menjadi sinyal utama.
+
+### 4. Verifikasi setelah perubahan kode
+- Hasil build/test dikaitkan dengan generasi kode yang ada ketika command dimulai.
+- Pemeriksaan yang dimulai sebelum edit source atau konfigurasi berikutnya tidak dianggap memverifikasi kode terbaru hanya karena prosesnya selesai belakangan.
+- Verifikasi memerlukan exit code sukses dan kecocokan generasi kode; pemeriksaan untuk Todo maupun hasil akhir juga menjaga batas waktu tugas.
+- Menambahkan regression tests untuk hasil pemeriksaan lama, pemeriksaan yang masih berjalan saat kode diubah, exit code gagal/tidak diketahui, dan pemeriksaan baru setelah edit.
+
+### Validasi rilis
+- CI Windows menjalankan regression tests Agent Runtime, pemeriksaan TypeScript, dan build aplikasi.
+- Workflow rilis membangun installer Windows dan memvalidasi target installer pada `latest.yml` serta file blockmap sebelum GitHub Release dibuat.
+- Pengujian otomatis tidak menggantikan smoke test manual installer: uji pilihan Custom, beberapa command terminal dengan status berbeda, pesan lanjutan yang memakai konteks sebelumnya, dan edit kode ketika build/test masih berjalan.
+
+---
+
 # Ruang Kerja v1.0.5
 
 ## Agentic Coding AI, Markdown, dan antrian kolaborasi
