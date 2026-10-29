@@ -1,3 +1,55 @@
+# Ruang Kerja v1.0.7
+
+## Agentic Coding AI — lampiran multimodal dan kontrol pesan yang lebih tangguh
+
+Ruang Kerja v1.0.7 menyelesaikan putaran hardening untuk lampiran AI dan kontrol riwayat pesan. Fokus rilis ini adalah mencegah lampiran yang tidak valid atau telah kedaluwarsa diproses seolah-olah berhasil, membatasi penggunaan memori saat membaca dokumen, dan membuat tindakan rewind/refork lebih konsisten.
+
+### 1. Lampiran gambar, dokumen, audio, dan video
+
+- Memperkuat validasi lampiran dengan memeriksa signature berkas dan byte aktual, bukan hanya ekstensi atau MIME yang diberikan nama file.
+- PDF yang memiliki halaman hasil scan maupun campuran teks terpilih dan halaman scan dapat dikirim sebagai dokumen PDF asli ke jalur multimodal Google Gemini. Ini memungkinkan model memeriksa tata letak dan halaman gambar; hasil tetap bergantung pada kemampuan dan respons provider yang dipilih.
+- Menambahkan jalur lampiran audio dan video, termasuk pemetaan MIME yang sesuai untuk berkas M4A. Instruksi ke model sekarang menjelaskan semua format yang terpasang dalam satu pesan, bukan hanya format pertama yang ditemukan.
+- Memperjelas kegagalan provider: bila provider/model tidak menerima media langsung yang dipilih, aplikasi mengembalikan pesan yang jelas dan tidak mengklaim telah menganalisis media tersebut.
+- Membatasi media langsung maksimal **12 MiB per file** dan total media langsung **12 MiB per pesan**. Ukuran payload JSON inline juga dibatasi di bawah **19.000.000 byte** untuk memberi ruang bagi overhead Base64, prompt, dan skema tool di bawah batas request inline provider.
+
+### 2. Proteksi pemrosesan PDF dan dokumen Office
+
+- Membatasi ekspansi PDF secara agregat hingga **50 MiB**, membatasi jumlah stream yang diproses, dan menjaga batas output dekompresi per stream agar PDF terkompresi ekstrem tidak menghabiskan memori secara tidak terkendali.
+- Membatasi arsip Office hingga **2.000 entri** dan total hasil ekspansi **50 MiB** sebelum mengekstrak teks atau nilai sel.
+- Memperketat decoding entitas XML dan menambahkan pemeriksaan untuk berkas malformed serta input yang dapat memicu penggunaan stack atau memori berlebihan.
+- Jika referensi lampiran sudah kedaluwarsa atau tidak cocok dengan byte yang tersedia, agent sekarang membatalkan permintaan dengan alasan yang bisa ditindaklanjuti. Lampiran yang hilang tidak lagi diam-diam berubah menjadi permintaan kosong yang berpotensi disalahartikan sebagai analisis sukses.
+
+### 3. Aksi per pesan: Revert, Refork, Copy, dan Rewind
+
+- Menyediakan aksi pesan yang lebih konsisten untuk menyalin pesan, mengembalikan perubahan, membuat cabang percakapan dari prompt terpilih, atau memulihkan checkpoint workspace.
+- **Refork** membuat sesi baru dengan riwayat sebelum prompt yang dipilih dan mengembalikan prompt itu ke composer supaya pengguna dapat mengubah atau mengirim ulang arahnya. Lampiran tidak disalin sebagai byte permanen ke sesi baru; pilih ulang lampiran yang diperlukan.
+- **Rewind** mengembalikan perubahan file ke checkpoint yang dipilih. Perubahan eksternal yang bertabrakan tetap diperiksa alih-alih ditimpa tanpa peringatan.
+- Memperbaiki kasus ketika ukuran checkpoint melewati batas: file checkpoint yang sudah tersimpan sebelumnya tetap dipertahankan sehingga checkpoint valid yang lama tidak ikut terhapus.
+- Aksi Copy tetap terpisah dari perubahan workspace; kegagalan aksi harus memberi umpan balik, bukan diam-diam dianggap berhasil.
+
+### 4. Pintasan Ctrl+R yang kontekstual
+
+- Ctrl+R hanya bertindak sebagai Rewind/Redo ketika fokus berada pada menu aksi untuk pesan pengguna yang sesuai; pintasan tidak mengambil alih pengetikan normal di kolom teks.
+- Jika checkpoint terkait masih dalam status diterapkan, aksi menjalankan Rewind; jika checkpoint sudah di-rewind, aksi menjalankan Redo.
+- Handler mengikuti daftar pesan terbaru setelah pesan baru, Refork, atau pergantian sesi agar tidak menggunakan state React yang sudah kedaluwarsa.
+
+### Detail Version di dalam aplikasi
+
+- Klik nomor versi pada bilah status bawah aplikasi untuk membuka **Riwayat Versi & Perubahan**. Fitur tersedia dari layar awal maupun saat berada di dalam ruangan kerja.
+- Setiap entri menampilkan tag/nomor versi, nama rilis bila tersedia, tanggal publikasi, dan isi deskripsi rilis. Catatan v1.0.7 ini menjadi sumber deskripsi perubahan yang ditampilkan di aplikasi.
+- Daftar menampilkan maksimal **tiga rilis terbaru**; riwayat versi yang lebih lama tetap disimpan di repositori dan GitHub Releases.
+- Tombol **Muat Ulang Versi** mengambil ulang deskripsi dari GitHub. Tombol **Cek Pembaruan** memeriksa installer baru melalui sistem auto-update.
+- Jika GitHub API gagal atau terkena rate limit, aplikasi mencoba release feed dan kemudian cache lokal yang tersedia. Bila semua sumber gagal dan tidak ada cache, aplikasi menampilkan pesan error yang jelas alih-alih mengarang deskripsi.
+
+### 6. Validasi dan batasan rilis
+
+- CI Windows menjalankan regression tests Agent Runtime, TypeScript typecheck, dan build aplikasi sebelum perubahan rilis diterima.
+- Workflow rilis membangun installer NSIS Windows, lalu memeriksa bahwa latest.yml menunjuk ke installer yang benar dan blockmap tersedia sebelum GitHub Release diterbitkan.
+- Tes otomatis memeriksa jalur logika dan build, tetapi tidak menggantikan smoke test manual pada installer Windows dan panggilan langsung ke setiap provider. Kemampuan audio/video tetap bergantung pada model dan provider yang dipilih.
+- Rilis ini memperbaiki kasus yang direproduksi dan menambah batas keselamatan; ini bukan klaim bahwa setiap provider eksternal, berkas malformed, jaringan, atau mesin pengguna bebas dari semua kemungkinan kegagalan.
+
+---
+
 # Ruang Kerja v1.0.6
 
 ## Agentic Coding AI — timeline kerja dan verifikasi yang lebih andal
