@@ -1606,7 +1606,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         <div className="ai-panel-title">
           <span className="ai-agent-icon">{activeAgent?.icon ?? '🌊'}</span>
           <strong>{activeAgent?.name ?? 'AI Coding Agent'}</strong>
-          <span className={'ai-router-dot ' + (routerStatus?.configured ? 'ready' : 'missing')} title={routerStatus?.configured ? '9router siap' : 'API key 9router belum disetel'} />
+          <span className={'ai-router-dot ' + (routerStatus?.configured ? 'ready' : 'missing')} title={routerStatus?.configured ? (routerStatus.providerName + ' siap') : ((routerStatus?.providerName ?? 'Provider AI') + ' belum dikonfigurasi')} />
         </div>
         <div className="ai-workspace-pill" title={wb.root ?? ''}>
           <span className="ai-workspace-dot" />
@@ -1614,7 +1614,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
           {wb.activePath ? <small>· {pathName(wb.activePath)}</small> : null}
         </div>
         <div className="ai-panel-actions">
-          <button type="button" className="ai-icon-btn" title="Pengaturan 9router" aria-label="Pengaturan 9router" onClick={() => setSettingsOpen((open) => !open)}>⚙</button>
+          <button type="button" className="ai-icon-btn" title="Koneksi provider AI" aria-label="Koneksi provider AI" onClick={() => setSettingsOpen((open) => !open)}>⚙</button>
           {loading ? <button type="button" className="ai-icon-btn ai-stop-btn" title="Hentikan agent" aria-label="Hentikan agent" onClick={() => void stopAgent()}>■</button> : null}
           <button type="button" className="ai-icon-btn" title="Kembali ke editor" aria-label="Kembali ke editor" onClick={onToggle}><IconX size={16} /></button>
         </div>
@@ -1622,8 +1622,31 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
 
       {settingsOpen ? (
         <section className="ai-settings">
-          <div className="ai-settings-title">Koneksi 9router</div>
-          <label className="ai-settings-label" htmlFor="rk-router-key">API key</label>
+          <div className="ai-settings-title">Koneksi provider AI</div>
+          <label className="ai-settings-label" htmlFor="rk-provider-select">Provider</label>
+          <div className="ai-provider-choice-row">
+            <select id="rk-provider-select" className="ai-provider-select" value={selectedProviderDraft}
+              onChange={(event) => void selectProviderDraft(event.target.value as AgentProviderId)} disabled={savingKey}>
+              <option value="openrouter">OpenRouter{routerStatus?.providers.find(item => item.id === 'openrouter')?.configured ? ' · key tersimpan' : ''}</option>
+              <option value="gemini">Google Gemini API{routerStatus?.providers.find(item => item.id === 'gemini')?.configured ? ' · key tersimpan' : ''}</option>
+              {(routerStatus?.providers.find(item => item.id === 'legacy')?.configured || selectedProviderDraft === 'legacy') ? (
+                <option value="legacy">9router / OpenAI-compatible (Legacy)</option>
+              ) : null}
+            </select>
+            {routerStatus?.providers.find(item => item.id === selectedProviderDraft)?.keyUrl ? (
+              <button type="button" className="ai-settings-test ai-provider-key-page" onClick={() => void openProviderKeyPage()}>
+                Buka halaman resmi API key
+              </button>
+            ) : null}
+          </div>
+          <p className="ai-settings-note ai-provider-help">
+            {selectedProviderDraft === 'openrouter'
+              ? 'Satu API key OpenRouter memberi akses ke model-model yang tersedia pada akunmu.'
+              : selectedProviderDraft === 'gemini'
+                ? 'Gunakan API key Gemini dari Google AI Studio. Nama dan akses model mengikuti katalog akun Google-mu.'
+                : 'Mode kompatibilitas untuk instalasi 9router lama; opsi ini hanya ditampilkan saat konfigurasi lama terdeteksi.'}
+          </p>
+          <label className="ai-settings-label" htmlFor="rk-router-key">API key {routerStatus?.providers.find(item => item.id === selectedProviderDraft)?.configured ? '(tersimpan; isi untuk mengganti)' : ''}</label>
           <div className="ai-settings-key-row">
             <input
               id="rk-router-key"
@@ -1634,7 +1657,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
               value={apiKey}
               onChange={(event) => setApiKey(event.target.value)}
               onKeyDown={(event) => { if (event.key === 'Enter') void saveRouterKey(); }}
-              placeholder={routerStatus?.configured ? 'API key tersimpan; isi untuk mengganti' : 'Tempel API key 9router yang baru'}
+              placeholder={routerStatus?.configured ? 'API key tersimpan; isi untuk mengganti' : selectedProviderDraft === 'gemini' ? 'Tempel API key Gemini' : selectedProviderDraft === 'openrouter' ? 'Tempel API key OpenRouter' : 'Tempel API key 9router'}
             />
             <button type="button" className="ai-settings-save" onClick={() => void saveRouterKey()} disabled={!apiKey.trim() || savingKey}>
               {savingKey ? 'Menyimpan…' : 'Simpan & uji'}
@@ -1656,9 +1679,10 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             </div>
           ) : null}
           <div className="ai-settings-meta">
-            <div><span>Model</span><code>{routerStatus?.model ?? 'ps/poolside/laguna-s-2.1(high)'}</code></div>
-            <div><span>Utama</span><code>{routerStatus?.endpoint ?? 'https://rbxludp.abc-tunnel.us/v1'}</code></div>
-            <div><span>Cadangan</span><code>{routerStatus?.fallbackEndpoint ?? 'http://localhost:20128/v1'}</code></div>
+            <div><span>Provider aktif</span><code>{routerStatus?.providerName ?? 'OpenRouter'}</code></div>
+            <div><span>Model</span><code>{routerStatus?.model ?? 'openai/gpt-4o-mini'}</code></div>
+            <div><span>Endpoint</span><code>{routerStatus?.endpoint ?? 'https://openrouter.ai/api/v1'}</code></div>
+            {routerStatus?.fallbackEndpoint ? <div><span>Endpoint cadangan</span><code>{routerStatus.fallbackEndpoint}</code></div> : null}
           </div>
           <div className="ai-model-manager" ref={modelManagerRef}>
             <div className="ai-model-manager-head">
@@ -1722,7 +1746,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
               </div>
             ) : null}
           </div>
-          <p className="ai-settings-note">API key disimpan terenkripsi di perangkat ini dan tidak ditulis ke file proyek. Endpoint utama dicoba lebih dahulu, lalu endpoint cadangan bila perlu. Katalog dan diagnosa memakai API key yang sama dan tidak menampilkan key di UI.</p>
+          <p className="ai-settings-note">API key disimpan terenkripsi di perangkat ini dan tidak ditulis ke file proyek atau dibagikan ke anggota LAN. Setiap provider memakai adapter request, autentikasi, katalog model, dan format streaming yang sesuai. Katalog serta diagnostik tidak menampilkan nilai API key.</p>
         </section>
       ) : null}
 
@@ -1841,8 +1865,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       {!routerStatus?.configured ? (
         <section className="ai-setup-needed">
           <div className="ai-setup-icon">⚙</div>
-          <strong>Hubungkan 9router sebelum mulai chat</strong>
-          <p>Masukkan API key 9router yang masih aktif. API key yang pernah dipublikasikan harus dicabut dan diganti.</p>
+          <strong>Hubungkan provider AI sebelum mulai chat</strong>
+          <p>Pilih OpenRouter atau Google Gemini API, lalu simpan API key aktif. API key yang pernah dipublikasikan harus dicabut dan diganti.</p>
           <button type="button" onClick={() => setSettingsOpen(true)}>Buka pengaturan AI</button>
         </section>
       ) : null}
