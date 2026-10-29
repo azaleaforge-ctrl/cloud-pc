@@ -13,6 +13,8 @@ export interface ResolvedAgentAttachment extends AgentAttachmentRef { text?: str
 const AdmZip = require('adm-zip') as new (data: Buffer) => ZipArchive;
 const FILE_MAX = 25 * 1024 * 1024;
 const IMAGE_MAX = 12 * 1024 * 1024;
+const DIRECT_MEDIA_MAX = 12 * 1024 * 1024;
+const DIRECT_MEDIA_BATCH_MAX = 14 * 1024 * 1024;
 const BATCH_MAX = 50 * 1024 * 1024;
 const PART_MAX = 30 * 1024 * 1024;
 const TEXT_MAX = 24_000;
@@ -21,7 +23,10 @@ const STORE_MAX = 100 * 1024 * 1024;
 
 const MIME: Record<string, string> = {
   '.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.webp':'image/webp', '.gif':'image/gif',
-  '.pdf':'application/pdf', '.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.pdf':'application/pdf',
+  '.mp3':'audio/mpeg', '.wav':'audio/wav', '.m4a':'audio/mp4', '.aac':'audio/aac', '.flac':'audio/flac', '.ogg':'audio/ogg',
+  '.mp4':'video/mp4', '.mov':'video/mov', '.avi':'video/avi', '.webm':'video/webm', '.mpeg':'video/mpeg', '.mpg':'video/mpg', '.wmv':'video/wmv',
+  '.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   '.pptx':'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.txt':'text/plain', '.md':'text/markdown', '.markdown':'text/markdown', '.csv':'text/csv', '.tsv':'text/tab-separated-values',
@@ -31,8 +36,11 @@ const MIME: Record<string, string> = {
   '.yaml':'text/yaml', '.yml':'text/yaml', '.log':'text/plain', '.ini':'text/plain', '.toml':'text/plain', '.sh':'text/plain', '.ps1':'text/plain',
 };
 const imageExts = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
+const directMediaExts = new Set(['.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.mp4', '.mov', '.avi', '.webm', '.mpeg', '.mpg', '.wmv']);
 const officeExts = new Set(['.docx', '.xlsx', '.pptx']);
-const textExts = new Set(Object.keys(MIME).filter((ext) => !imageExts.has(ext) && ext !== '.pdf' && !officeExts.has(ext)));
+const textExts = new Set(Object.keys(MIME).filter((ext) =>
+  !imageExts.has(ext) && ext !== '.pdf' && !officeExts.has(ext) && !directMediaExts.has(ext),
+));
 const records = new Map<string, Stored>();
 
 function prune(): void {
@@ -148,14 +156,50 @@ function extractPdf(buffer: Buffer): string {
   }
   return results.join('\n');
 }
+function hasMediaSignature(ext: string, buffer: Buffer): boolean {
+  switch (ext) {
+    case '.mp3':
+      return buffer.subarray(0, 3).toString() === 'ID3'
+        || (buffer.length > 1 && buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0);
+    case '.wav':
+      return buffer.length >= 12 && buffer.subarray(0, 4).toString() === 'RIFF' && buffer.subarray(8, 12).toString() === 'WAVE';
+    case '.m4a':
+    case '.mp4':
+      return buffer.length >= 12 && buffer.subarray(4, 8).toString() === 'ftyp';
+    case '.mov':
+      return buffer.length >= 12 && buffer.subarray(4, 8).toString() === 'ftyp';
+    case '.aac':
+      return buffer.length > 1 && buffer[0] === 0xff && (buffer[1] & 0xf6) === 0xf0;
+    case '.flac':
+      return buffer.subarray(0, 4).toString() === 'fLaC';
+    case '.ogg':
+      return buffer.subarray(0, 4).toString() === 'OggS';
+    case '.avi':
+      return buffer.length >= 12 && buffer.subarray(0, 4).toString() === 'RIFF' && buffer.subarray(8, 12).toString() === 'AVI ';
+    case '.webm':
+      return buffer.length >= 4 && buffer.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
+    case '.mpeg':
+    case '.mpg':
+      return buffer.length >= 4 && buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0x01;
+    case '.wmv':
+      return buffer.length >= 16 && buffer.subarray(0, 8).equals(Buffer.from([0x30,0x26,0xb2,0x75,0x8e,0x66,0xcf,0x11]));
+    default:
+      return false;
+  }
+}
 function parseFile(ext: string, mime: string, buffer: Buffer): { text?: string; dataUrl?: string } {
   if (imageExts.has(ext)) {
     if (buffer.length > IMAGE_MAX) throw new Error('Ukuran foto maksimal 12 MiB.');
-    const valid = (ext === '.png' && buffer.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])))
-      || (['.jpg','.jpeg'].includes(ext) && buffer[0] === 255 && buffer[1] === 216)
-      || (ext === '.gif' && buffer.subarray(0, 3).toString() === 'GIF')
-      || (ext === '.webp' && buffer.subarray(8, 12).toString() === 'WEBP');
-    if (!valid) throw new Error('Signature file gambar tidak valid: ' + ext);
+    const valid = (ext === '.png' && buffer.length >= 24 && buffer.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) && buffer.subarray(12, 16).toString() === 'IHDR')
+      || (['.jpg','.jpeg'].includes(ext) && buffer.length >= 4 && buffer[0] === 255 && buffer[1] === 216 && buffer.subarray(-2).equals(Buffer.from([255,217]))
+      || (ext === '.gif' && buffer.length >= 13 && /^GIF8[79]a$/.test(buffer.subarray(0, 6).toString()))
+      || (ext === '.webp' && buffer.length >= 20 && buffer.subarray(0, 4).toString() === 'RIFF' && buffer.subarray(8, 12).toString() === 'WEBP');
+    if (!valid) throw new Error('Signature atau header file gambar tidak valid: ' + ext);
+    return { dataUrl: 'data:' + mime + ';base64,' + buffer.toString('base64') };
+  }
+  if (directMediaExts.has(ext)) {
+    if (buffer.length > DIRECT_MEDIA_MAX) throw new Error('Ukuran audio/video maksimal 12 MiB per file untuk pemrosesan langsung.');
+    if (!hasMediaSignature(ext, buffer)) throw new Error('Signature file audio/video tidak valid: ' + ext);
     return { dataUrl: 'data:' + mime + ';base64,' + buffer.toString('base64') };
   }
   if (textExts.has(ext)) {
@@ -164,8 +208,18 @@ function parseFile(ext: string, mime: string, buffer: Buffer): { text?: string; 
     return { text: boundedText(buffer.toString('utf8')) };
   }
   if (ext === '.pdf') {
+    if (buffer.subarray(0, 5).toString('ascii') !== '%PDF-') throw new Error('Header file PDF tidak valid.');
     const text = boundedText(extractPdf(buffer));
-    return { text: text || '[Teks PDF tidak dapat diekstrak. Jika PDF hasil scan, OCR belum tersedia; kirim screenshot halaman terkait.]' };
+    if (text) return { text };
+    if (buffer.length > DIRECT_MEDIA_MAX) {
+      throw new Error('PDF hasil scan melebihi 12 MiB. Perkecil PDF atau gunakan PDF yang sudah memiliki teks.');
+    }
+    // When text extraction fails, pass the original PDF to Gemini's multimodal input
+    // path so the model can perform OCR/layout analysis instead of pretending no OCR is possible.
+    return {
+      text: '[PDF tidak memiliki teks yang dapat diekstrak. PDF asli akan dikirim ke model multimodal yang mendukung dokumen untuk OCR dan analisis layout.]',
+      dataUrl: 'data:application/pdf;base64,' + buffer.toString('base64)',
+    };
   }
   if (ext === '.docx') return { text: boundedText(extractDocx(buffer)) };
   if (ext === '.xlsx') return { text: boundedText(extractXlsx(buffer)) };
@@ -180,12 +234,27 @@ export async function prepareAgentAttachments(filePaths: string[]): Promise<Agen
   if (files.some((file) => file.info.size > FILE_MAX)) throw new Error('Ukuran setiap lampiran maksimal 25 MiB.');
   if (files.reduce((total, file) => total + file.info.size, 0) > BATCH_MAX) throw new Error('Total lampiran maksimal 50 MiB.');
   const parsed: Stored[] = [];
+  let actualBatchBytes = 0;
+  let directMediaBytes = 0;
   for (const { path, info } of files) {
     const ext = extname(path).toLowerCase();
     const mime = MIME[ext];
     if (!mime) throw new Error('Format "' + basename(path) + '" belum didukung.');
-    parsed.push({ id: 'att-' + randomUUID(), name: basename(path), mimeType: mime, size: info.size, ...parseFile(ext, mime, await readFile(path)), expiresAt: Date.now() + TTL });
+    const buffer = await readFile(path);
+    // Recheck actual bytes after opening: the file can change after the earlier stat().
+    if (buffer.length > FILE_MAX) throw new Error('Ukuran setiap lampiran maksimal 25 MiB.');
+    actualBatchBytes += buffer.length;
+    if (actualBatchBytes > BATCH_MAX) throw new Error('Total lampiran maksimal 50 MiB.');
+    const payload = parseFile(ext, mime, buffer);
+    if (payload.dataUrl) {
+      directMediaBytes += buffer.length;
+      if (directMediaBytes > DIRECT_MEDIA_BATCH_MAX) {
+        throw new Error('Total media yang dikirim langsung ke model maksimal 14 MiB per pesan. Kurangi jumlah/ukuran gambar, audio, video, atau PDF scan.');
+      }
+    }
+    parsed.push({ id: 'att-' + randomUUID(), name: basename(path), mimeType: mime, size: buffer.length, ...payload, expiresAt: Date.now() + TTL });
   }
+  if (actualBatchBytes > BATCH_MAX) throw new Error('Total lampiran maksimal 50 MiB.');
   const adding = parsed.reduce((total, item) => total + (item.dataUrl ? Math.floor(item.dataUrl.length * 0.75) : (item.text?.length ?? 0) * 2), 0);
   if (memoryUse() + adding > STORE_MAX) throw new Error('Memori lampiran mencapai batas 100 MiB. Mulai sesi AI baru sebelum melampirkan lagi.');
   for (const item of parsed) records.set(item.id, item);
