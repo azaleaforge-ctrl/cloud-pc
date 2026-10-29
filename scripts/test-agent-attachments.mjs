@@ -65,6 +65,10 @@ try{
  const scannedPdf=await make('scan.pdf',Buffer.from('%PDF-1.4\\n%%EOF','utf8'));
  const scannedRefs=await prepareAgentAttachments([scannedPdf]);
  test('scanned PDF retains its original file for provider-side OCR fallback',()=>{const item=resolveAgentAttachments(scannedRefs)[0];assert.match(item.text,/OCR/i);assert.match(item.dataUrl,/^data:application\/pdf;base64,/);});
+ const m4aHeader=Buffer.alloc(24); m4aHeader.writeUInt32BE(24,0); m4aHeader.write('ftyp',4); m4aHeader.write('M4A ',8); m4aHeader.write('M4A ',16);
+ const m4a=await make('recording.m4a',m4aHeader);
+ const m4aRefs=await prepareAgentAttachments([m4a]);
+ test('M4A attachments use Gemini-supported audio/m4a MIME',()=>assert.equal(resolveAgentAttachments(m4aRefs)[0].mimeType,'audio/m4a'));
  const mp3=await make('recording.mp3',Buffer.from([0x49,0x44,0x33,0x04,0x00,0x00,0x00,0x00,0x00,0x00]));
  const mp3Refs=await prepareAgentAttachments([mp3]);
  test('audio attachments retain MIME-tagged main-process payloads',()=>{const item=resolveAgentAttachments(mp3Refs)[0];assert.equal(item.mimeType,'audio/mpeg');assert.match(item.dataUrl,/^data:audio\/mpeg;base64,/);});
