@@ -49,6 +49,49 @@ function toGeminiParts(content: unknown): JsonRecord[] {
   return parts;
 }
 
+const GEMINI_SCHEMA_KEYS = new Set([
+  'type',
+  'format',
+  'description',
+  'nullable',
+  'enum',
+  'items',
+  'properties',
+  'required',
+]);
+
+/**
+ * Gemini's legacy generateContent function calling accepts only a subset of
+ * OpenAPI/JSON Schema. Strip unsupported JSON Schema keywords (notably
+ * additionalProperties and min/max constraints) before forwarding tool
+ * declarations, while preserving the structural schema used by the model.
+ */
+export function normalizeGeminiFunctionSchema(value: unknown): JsonRecord {
+  if (!isRecord(value)) return { type: 'object', properties: {} };
+  const normalized: JsonRecord = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (!GEMINI_SCHEMA_KEYS.has(key)) continue;
+    if (key === 'properties' && isRecord(item)) {
+      const properties: JsonRecord = {};
+      for (const [name, property] of Object.entries(item)) {
+        properties[name] = normalizeGeminiFunctionSchema(property);
+      }
+      normalized.properties = properties;
+    } else if (key === 'items') {
+      normalized.items = normalizeGeminiFunctionSchema(item);
+    } else if (key === 'required' && Array.isArray(item)) {
+      normalized.required = item.filter((entry): entry is string => typeof entry === 'string');
+    } else if (key === 'enum' && Array.isArray(item)) {
+      normalized.enum = item.filter(entry => ['string', 'number', 'boolean'].includes(typeof entry));
+    } else if (['type', 'format', 'description'].includes(key) && typeof item === 'string') {
+      normalized[key] = item;
+    } else if (key === 'nullable' && typeof item === 'boolean') {
+      normalized.nullable = item;
+    }
+  }
+  return normalized;
+}
+
 function safeFunctionName(value: unknown): string {
   const name = asText(value);
   if (!/^[A-Za-z0-9_]{1,64}$/.test(name)) {
@@ -132,7 +175,7 @@ export function buildGeminiRequestBody(options: GeminiRequestOptions): JsonRecor
     const fn = rawTool.function;
     const declaration: JsonRecord = {
       name: safeFunctionName(fn.name),
-      parameters: isRecord(fn.parameters) ? fn.parameters : { type: 'object', properties: {} },
+      parameters: normalizeGeminiFunctionSchema(fn.parameters),
     };
     if (typeof fn.description === 'string') declaration.description = fn.description.slice(0, 1000);
     declarations.push(declaration);
