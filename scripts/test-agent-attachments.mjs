@@ -41,10 +41,10 @@ try{
  const scannedPdf=await make('scan.pdf',Buffer.from('%PDF-1.4\\n%%EOF','utf8'));
  const scannedRefs=await prepareAgentAttachments([scannedPdf]);
  test('scanned PDF retains its original file for provider-side OCR fallback',()=>{const item=resolveAgentAttachments(scannedRefs)[0];assert.match(item.text,/OCR/i);assert.match(item.dataUrl,/^data:application\/pdf;base64,/);});
- const mp3=await make('recording.mp3',Buffer.from('ID3\\u0004\\u0000\\u0000\\u0000','binary'));
+ const mp3=await make('recording.mp3',Buffer.from([0x49,0x44,0x33,0x04,0x00,0x00,0x00,0x00,0x00,0x00]));
  const mp3Refs=await prepareAgentAttachments([mp3]);
  test('audio attachments retain MIME-tagged main-process payloads',()=>{const item=resolveAgentAttachments(mp3Refs)[0];assert.equal(item.mimeType,'audio/mpeg');assert.match(item.dataUrl,/^data:audio\/mpeg;base64,/);});
- const mp4=await make('clip.mp4',Buffer.from([0,0,0,24,0x66,0x74,0x79,0x70,0x69,0x73,0x6f,0x6d]));
+ const mp4=await make('clip.mp4',(() => { const b=Buffer.alloc(24); b.writeUInt32BE(24,0); b.write('ftyp',4); b.write('isom',8); b.write('isom',16); return b; })());
  const mp4Refs=await prepareAgentAttachments([mp4]);
  test('video attachments retain MIME-tagged main-process payloads',()=>{const item=resolveAgentAttachments(mp4Refs)[0];assert.equal(item.mimeType,'video/mp4');assert.match(item.dataUrl,/^data:video\/mp4;base64,/);});
  const malformedImage=await make('fake.png',Buffer.from([137,80,78,71,13,10,26,10]));
