@@ -89,12 +89,12 @@ try {
       'Status: failed',
       'Exit code: 1',
       "src/app/profile/page.tsx:232:18 - Error: ' character must be escaped (react/no-unescaped-entities)",
-    ].join('\\n');
+    ].join('\n');
     const second = [
       'Status: failed',
       'Exit code: 1',
       "src/app/posts/page.tsx:87:3 - Error: ' character must be escaped (react/no-unescaped-entities)",
-    ].join('\\n');
+    ].join('\n');
     assert.equal(
       guard.repeatedFailureSignature('run_terminal', first),
       guard.repeatedFailureSignature('run_terminal', second),
