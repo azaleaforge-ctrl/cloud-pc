@@ -37,11 +37,14 @@ function geminiInlineData(url: string, mediaBudget: GeminiMediaBudget, expectedT
     throw new Error('Jenis media tidak didukung pada jalur Gemini: ' + mimeType);
   }
   const data = match[2].replace(/\s+/g, '');
-  if (data.length === 0 || data.length % 4 !== 0 ||
-      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data)) {
+  const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
+  const unpadded = data.slice(0, data.length - padding);
+  // Avoid a large nested regular expression or decoding the whole payload into
+  // a second Buffer. Both can cause unnecessary stack/heap pressure on big files.
+  if (data.length === 0 || data.length % 4 !== 0 || /[^A-Za-z0-9+/]/.test(unpadded)) {
     throw new Error('Encoding base64 media tidak valid.');
   }
-  const decodedBytes = Buffer.from(data, 'base64').byteLength;
+  const decodedBytes = (data.length / 4) * 3 - padding;
   mediaBudget.bytes += decodedBytes;
   if (mediaBudget.bytes > GEMINI_INLINE_MEDIA_MAX) {
     throw new Error('Total gambar/audio/video/PDF yang dikirim langsung ke Gemini maksimal 12 MiB per permintaan. Kurangi jumlah atau ukuran media.');
