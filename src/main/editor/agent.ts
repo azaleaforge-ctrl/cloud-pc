@@ -1269,7 +1269,18 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
               : '';
             const baseTextContent = [message.content, ...documents, expiryNote].filter(Boolean).join('\n\n');
             const images = resolved.filter(item => item.dataUrl && item.mimeType.startsWith('image/'));
-            const directMedia = resolved.filter(item => item.dataUrl && !item.mimeType.startsWith('image/'));
+            const mediaCandidates = resolved.filter(item => item.dataUrl && !item.mimeType.startsWith('image/'));
+            const pdfNeedsOcr = resolved.some(item =>
+              item.mimeType === 'application/pdf' && item.dataUrl && item.text?.startsWith('[PDF tidak memiliki teks'),
+            );
+            if (pdfNeedsOcr && config.provider !== 'gemini') {
+              throw new Error('PDF hasil scan membutuhkan model dokumen Google Gemini pada implementasi ini. Buka /connect, aktifkan Gemini, lalu lampirkan ulang PDF; teks yang diekstrak tidak cukup untuk OCR.');
+            }
+            // Selectable PDFs are text-extracted for OpenAI-compatible providers;
+            // small originals are additionally sent only to Gemini for mixed-page OCR.
+            const directMedia = mediaCandidates.filter(item =>
+              config.provider === 'gemini' || item.mimeType !== 'application/pdf',
+            );
             const mediaGuidance = directMedia.some(item => item.mimeType.startsWith('audio/'))
               ? 'Untuk audio: transkripsikan ucapan sebisa mungkin, rangkum isi dan urutan pembicaraan, serta tandai bagian yang tidak jelas. Jangan mengarang kata yang tidak terdengar.'
               : directMedia.some(item => item.mimeType.startsWith('video/'))
