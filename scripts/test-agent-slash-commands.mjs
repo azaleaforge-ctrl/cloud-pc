@@ -38,6 +38,8 @@ assert.ok(css.includes('.ai-slash-menu {') && css.includes('max-height: 320px;')
   'slash suggestions must stay compact and scroll when necessary');
 assert.ok(css.includes('.ai-session-overlay {') && css.includes('justify-content: center;') && css.includes('align-items: center;'),
   'the session picker must be centered on screen');
+assert.ok(css.includes('.ai-panel.fullsize .ai-settings {') && css.includes('max-height: min(48vh, 420px);'),
+  '/connect and /model settings must be independently scrollable while their dedicated modals are pending');
 assert.ok(css.includes('.ai-sessions-modal-list {') && css.includes('max-height: min(255px, 42vh);') && css.includes('overflow-y: auto;'),
   'the session list must scroll internally after roughly three rows');
 assert.ok(chat.includes('disabled={loading || !sessionReady || !activeAgent}'),
