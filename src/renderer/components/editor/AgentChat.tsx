@@ -1077,7 +1077,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
 
   const activeAgent = agents.find((agent) => agent.id === activeAgentId);
   const workspaceSessions = sessions.filter((session) => sameWorkspacePath(session.projectPath, wb.root));
-  const slashCommandQuery = input.trimStart().split(/\\s/, 1)[0].toLowerCase();
+  const slashCommandQuery = input.trimStart().split(/\s/, 1)[0].toLowerCase();
   const filteredSlashCommands = AGENT_SLASH_COMMANDS.filter(item => item.command.startsWith(slashCommandQuery || '/'));
 
   useEffect(() => {
@@ -1551,7 +1551,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
           executeSlashCommand(selectedCommand.command);
           return;
         }
-        const typedCommand = trimmedInput.split(/\\s/, 1)[0];
+        const typedCommand = trimmedInput.split(/\s/, 1)[0];
         setSlashMenuOpen(false);
         setError('Perintah "' + typedCommand + '" tidak dikenal. Ketik / untuk melihat perintah yang tersedia.');
         return;
@@ -2011,7 +2011,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                   const nextInput = event.target.value;
                   setInput(nextInput);
                   const trimmedStart = nextInput.trimStart();
-                  const opensCommandMenu = trimmedStart.startsWith('/') && !/\\s/.test(trimmedStart);
+                  const opensCommandMenu = trimmedStart.startsWith('/') && !/\s/.test(trimmedStart);
                   setSlashMenuOpen(opensCommandMenu);
                   setActiveSlashCommandIndex(0);
                 }}
