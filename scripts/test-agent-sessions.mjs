@@ -122,6 +122,29 @@ try{
     assert.equal(await readFile(file,'utf8'),'manual user edit');
   });
 
+  await test('validates every file in a multi-file rewind before changing any file',async()=>{
+    const first=join(workspace,'multi-first.txt');
+    const second=join(workspace,'multi-second.txt');
+    await writeFile(first,'before first','utf8');
+    await writeFile(second,'before second','utf8');
+    await api.saveAgentSession(userData,{id:'chat-multi-conflict',messages:[],projectPath:workspace});
+    await writeFile(first,'agent first','utf8');
+    await api.recordAgentFileCheckpoint(userData,'chat-multi-conflict','run-multi',workspace,{
+      id:'change-first',path:'multi-first.txt',operation:'modify',oldContent:'before first',newContent:'agent first',
+      addedLines:1,removedLines:1,changedAt:Date.now(),
+    });
+    await writeFile(second,'agent second','utf8');
+    const checkpoint=await api.recordAgentFileCheckpoint(userData,'chat-multi-conflict','run-multi',workspace,{
+      id:'change-second',path:'multi-second.txt',operation:'modify',oldContent:'before second',newContent:'agent second',
+      addedLines:1,removedLines:1,changedAt:Date.now(),
+    });
+    await writeFile(second,'manual second','utf8');
+    const result=await api.rewindAgentCheckpoint(userData,'chat-multi-conflict',workspace,checkpoint.id);
+    assert.equal(result.ok,false);
+    assert.equal(await readFile(first,'utf8'),'agent first');
+    assert.equal(await readFile(second,'utf8'),'manual second');
+  });
+
   await test('refuses checkpoint paths outside the workspace and workspace mismatch',async()=>{
     await api.saveAgentSession(userData,{id:'chat-boundary',messages:[],projectPath:workspace});
     await assert.rejects(()=>api.recordAgentFileCheckpoint(userData,'chat-boundary','run-bad',workspace,{
