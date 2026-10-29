@@ -1134,13 +1134,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const filteredSlashCommands = AGENT_SLASH_COMMANDS.filter(item => item.command.startsWith(slashCommandQuery || '/'));
 
   useEffect(() => {
-    if (!settingsOpen || !settingsFocusTarget) return;
-    if (settingsFocusTarget === 'connect') {
-      apiKeyInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      apiKeyInputRef.current?.focus({ preventScroll: true });
-    } else {
-      modelManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+    if (!settingsOpen || settingsFocusTarget !== 'connect') return;
+    apiKeyInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    apiKeyInputRef.current?.focus({ preventScroll: true });
     setSettingsFocusTarget(null);
   }, [settingsOpen, settingsFocusTarget]);
 
@@ -1315,6 +1311,39 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     }
   }, []);
 
+  useEffect(() => {
+    if (!modelPickerOpen) return;
+    if (!routerStatus?.configured) {
+      setModelCatalog(null);
+      return;
+    }
+    void refreshModelCatalog();
+  }, [modelPickerOpen, routerStatus?.configured, routerStatus?.provider, refreshModelCatalog]);
+
+  const modelCatalogOptions = useMemo(() => {
+    const models = modelCatalog?.ok ? modelCatalog.models : [];
+    const query = modelSearchQuery.trim().toLowerCase();
+    return models
+      .filter(model => modelCostFilter === 'all' || model.costTier === modelCostFilter)
+      .filter(model => !query || [model.id, model.name, model.ownedBy, ...(model.inputModalities ?? []), ...(model.outputModalities ?? [])]
+        .some(value => (value ?? '').toLowerCase().includes(query)))
+      .sort((a, b) => {
+        const activeA = a.id === routerStatus?.model ? 0 : 1;
+        const activeB = b.id === routerStatus?.model ? 0 : 1;
+        return activeA - activeB || a.id.localeCompare(b.id);
+      });
+  }, [modelCatalog, modelSearchQuery, modelCostFilter, routerStatus?.model]);
+
+  const modelCostCounts = useMemo(() => {
+    const models = modelCatalog?.ok ? modelCatalog.models : [];
+    return {
+      all: models.length,
+      free: models.filter(model => model.costTier === 'free').length,
+      premium: models.filter(model => model.costTier === 'premium').length,
+      unknown: models.filter(model => model.costTier === 'unknown').length,
+    };
+  }, [modelCatalog]);
+
   const saveSelectedModel = useCallback(async () => {
     if (!selectedModelDraft.trim() || savingModel) return;
     setSavingModel(true);
@@ -1322,9 +1351,11 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     try {
       const result = await window.rk.agentSelectModel(selectedModelDraft.trim());
       if (!result.ok) throw new Error(result.error || 'Gagal menyimpan model.');
+      setModelPickerOpen(false);
       await refreshRouterStatus();
       setActivity('Model AI berhasil disimpan.');
       setError(null);
+      inputRef.current?.focus();
     } catch (error) {
       setError((error as Error).message || 'Gagal menyimpan model.');
     } finally {
