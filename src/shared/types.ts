@@ -2,7 +2,7 @@
 // Semua tipe di file ini adalah satu-satunya sumber kebenaran untuk IPC.
 
 import type { EditorApi } from './editor';
-import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentRouterStatus, AgentRouterTestResult, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, AgentSkillInfo, ChatMessage, AgentEvent } from './agents';
+import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentProviderId, AgentRouterStatus, AgentRouterTestResult, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, AgentSkillInfo, ChatMessage, AgentEvent } from './agents';
 
 export type Role = 'none' | 'host' | 'member';
 
@@ -233,7 +233,9 @@ export interface RkApi {
   // --- AI Agent ---
   agentList(): Promise<AgentEntry[]>;
   agentGetConfig(): Promise<AgentRouterStatus>;
-  agentSaveConfig(apiKey: string): Promise<ActionResult>;
+  agentSaveConfig(input: { provider: AgentProviderId; apiKey: string }): Promise<ActionResult>;
+  agentSelectProvider(provider: AgentProviderId): Promise<ActionResult>;
+  agentOpenProviderKeyPage(provider: AgentProviderId): Promise<ActionResult>;
   agentTestConfig(): Promise<AgentRouterTestResult>;
   agentListModels(): Promise<AgentModelCatalogResult>;
   agentSelectModel(model: string): Promise<ActionResult>;
