@@ -25,8 +25,8 @@ for (const selector of ['codingTask', 'visualDesign', 'debugging', 'security', '
   assert.ok(line && line.includes('.test(intentLower)'), selector + ' selection must use effective task intent');
 }
 assert.ok(
-  skills.includes("i.test(intentLower)) add('document-analysis')"),
-  'document skills must be selected from request/attachment context, not unrelated filenames in project inventory',
+  skills.includes("i.test(documentIntentText)) add('document-analysis')"),
+  'document skills must use the request or active file, not unrelated filenames in project inventory',
 );
 assert.ok(
   agent.includes("const userMessages = inputMessages.filter((message) => message.role === 'user');") &&
