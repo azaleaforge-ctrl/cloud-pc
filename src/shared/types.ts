@@ -2,7 +2,7 @@
 // Semua tipe di file ini adalah satu-satunya sumber kebenaran untuk IPC.
 
 import type { EditorApi } from './editor';
-import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentProviderId, AgentRouterStatus, AgentRouterTestResult, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, AgentSkillInfo, ChatMessage, AgentEvent } from './agents';
+import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentProviderId, AgentRouterStatus, AgentRouterTestResult, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, AgentSkillInfo, InstalledAgentSkill, AgentSkillInstallResult, ChatMessage, AgentEvent } from './agents';
 
 export type Role = 'none' | 'host' | 'member';
 
@@ -248,6 +248,9 @@ export interface RkApi {
   agentRewindCheckpoint(sessionId: string, checkpointId: string): Promise<AgentCheckpointActionResult>;
   agentRedoCheckpoint(sessionId: string, checkpointId: string): Promise<AgentCheckpointActionResult>;
   agentListSkills(): Promise<AgentSkillInfo[]>;
+  agentListInstalledSkills(): Promise<InstalledAgentSkill[]>;
+  agentImportSkill(): Promise<AgentSkillInstallResult>;
+  agentUninstallSkill(id: string): Promise<ActionResult>;
   agentPickAttachments(): Promise<{ ok: boolean; attachments?: AgentAttachmentRef[]; error?: string }>;
   agentApproveTool(sessionId: string, requestId: string, approved: boolean): Promise<void>;
   agentAnswerQuestion(sessionId: string, requestId: string, answer: string): Promise<void>;
