@@ -1267,9 +1267,17 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
             const expiryNote = missing.length
               ? '[Lampiran sudah kedaluwarsa dari memori lokal; minta pengguna melampirkan ulang: ' + missing.map(item => item.name).join(', ') + ']'
               : '';
-            const textContent = [message.content, ...documents, expiryNote].filter(Boolean).join('\n\n');
+            const baseTextContent = [message.content, ...documents, expiryNote].filter(Boolean).join('\n\n');
             const images = resolved.filter(item => item.dataUrl && item.mimeType.startsWith('image/'));
             const directMedia = resolved.filter(item => item.dataUrl && !item.mimeType.startsWith('image/'));
+            const mediaGuidance = directMedia.some(item => item.mimeType.startsWith('audio/'))
+              ? 'Untuk audio: transkripsikan ucapan sebisa mungkin, rangkum isi dan urutan pembicaraan, serta tandai bagian yang tidak jelas. Jangan mengarang kata yang tidak terdengar.'
+              : directMedia.some(item => item.mimeType.startsWith('video/'))
+                ? 'Untuk video: rangkum urutan adegan, objek/teks yang terlihat, waktu/perubahan penting, dan audio/ucapan hanya bila benar-benar dapat diproses.'
+                : directMedia.length
+                  ? 'Untuk PDF hasil scan: baca halaman dan layout menggunakan kemampuan dokumen/OCR model bila tersedia; nyatakan halaman yang tidak terbaca dan jangan mengarang isi.'
+                  : '';
+            const textContent = [baseTextContent, mediaGuidance].filter(Boolean).join('\n\n');
             if (directMedia.length && config.provider !== 'gemini') {
               const mediaTypes = Array.from(new Set(directMedia.map(item => item.mimeType.startsWith('audio/') ? 'audio' : item.mimeType.startsWith('video/') ? 'video' : 'PDF scan')));
               throw new Error('Lampiran ' + mediaTypes.join('/') + ' membutuhkan provider Google Gemini untuk input media langsung. Provider kompatibel OpenAI yang aktif tidak menerima format ini melalui jalur chat standar. Ubah provider lewat /connect, lalu kirim ulang media.');
