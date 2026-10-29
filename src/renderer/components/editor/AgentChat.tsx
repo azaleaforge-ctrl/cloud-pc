@@ -1589,6 +1589,102 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     }
   }, [loading, checkpointActionBusy, conversationId]);
 
+  const reforkFromMessage = useCallback(async (message: ChatMessage) => {
+    if (loading || !sessionReady || !wb.root) return;
+    if (pendingAttachments.length) {
+      setError('Kirim atau hapus lampiran yang masih ada di composer sebelum membuat cabang percakapan.');
+      return;
+    }
+    if (sessionProjectPath && !sameWorkspacePath(sessionProjectPath, wb.root)) {
+      setError('Workspace sesi tidak cocok dengan workspace aktif; cabang tidak dibuat.');
+      return;
+    }
+    const index = messages.findIndex(item => item.id === message.id);
+    if (index < 0 || message.role !== 'user') {
+      setError('Prompt yang dipilih tidak ditemukan pada sesi aktif.');
+      return;
+    }
+    const prefix = messages.slice(0, index)
+      .filter(item => item.role === 'user' || item.role === 'assistant')
+      .map(item => ({ ...item, streaming: false }));
+    const branchId = makeConversationId();
+    setError(null);
+    try {
+      const saved = await window.rk.agentSaveSession({
+        id: branchId,
+        projectPath: wb.root,
+        activeAgentId,
+        messages: prefix,
+        summary: '',
+        summaryThroughTs: 0,
+        todos: [],
+      });
+      if (!saved.ok) throw new Error(saved.error || 'Gagal menyimpan cabang sesi.');
+      setConversationId(branchId);
+      setMessages(prefix);
+      setSessionProjectPath(wb.root);
+      setConversationSummary('');
+      setSummaryThroughTs(0);
+      setTodos([]);
+      setCheckpoints([]);
+      setChanges([]);
+      setSelectedChange(null);
+      setToolActivities([]);
+      setTerminalHistory([]);
+      setLastRunResult(null);
+      setInput(message.content);
+      setHistoryOpen(false);
+      setCheckpointsOpen(false);
+      setActivity('Cabang percakapan dibuat sebelum prompt terpilih. Prompt siap diedit atau dikirim ulang.');
+      if (message.attachments?.length) {
+        setError('Prompt berhasil disalin ke composer, tetapi lampiran lama tidak disalin ke cabang. Lampirkan ulang media sebelum mengirim.');
+      }
+      setSessions(await window.rk.agentListSessions());
+    } catch (error) {
+      setError((error as Error).message || 'Gagal membuat cabang percakapan.');
+    }
+  }, [loading, sessionReady, wb.root, sessionProjectPath, pendingAttachments.length, messages, activeAgentId]);
+
+  const rewindFromMessage = useCallback((message: ChatMessage) => {
+    if (!message.runId) {
+      setError('Checkpoint tidak tertaut ke pesan ini. Pesan dari versi lama mungkin belum menyimpan ID run.');
+      return;
+    }
+    const checkpoint = checkpoints.find(item => item.runId === message.runId && item.status === 'applied');
+    if (!checkpoint) {
+      setError('Tidak ada checkpoint aktif untuk perubahan yang terkait dengan prompt ini.');
+      return;
+    }
+    void runCheckpointAction(checkpoint.id, 'rewind');
+  }, [checkpoints, runCheckpointAction]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const onRestoreShortcut = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || event.key.toLowerCase() !== 'r') return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      // Reserve Ctrl+R while the Agentic Coding panel is visible so it can never
+      // accidentally reload the application. Modal workflows keep focus instead.
+      if (settingsOpen || modelPickerOpen || historyOpen || checkpointsOpen) return;
+      if (loading || checkpointActionBusy) {
+        setActivity('Tunggu agent atau operasi checkpoint selesai sebelum memulihkan.');
+        return;
+      }
+      const checkpoint = checkpoints
+        .filter(item => item.status === 'rewound')
+        .sort((a, b) => b.createdAt - a.createdAt)[0];
+      if (!checkpoint) {
+        setActivity('Belum ada checkpoint yang di-rewind untuk dipulihkan.');
+        return;
+      }
+      void runCheckpointAction(checkpoint.id, 'redo');
+    };
+    window.addEventListener('keydown', onRestoreShortcut, true);
+    return () => window.removeEventListener('keydown', onRestoreShortcut, true);
+  }, [visible, settingsOpen, modelPickerOpen, historyOpen, checkpointsOpen, loading, checkpointActionBusy, checkpoints, runCheckpointAction]);
+
   useEffect(() => {
     if (!historyOpen) return;
     let alive = true;
@@ -2159,7 +2255,11 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 lastRunResult={lastRunResult}
                 copiedMessage={copiedMsg}
                 copiedTerminalId={terminalCopiedId}
+                checkpoints={checkpoints}
                 onMessageCopy={saveCopied}
+                onMessageRefork={(message) => void reforkFromMessage(message)}
+                onMessageRewind={rewindFromMessage}
+                messageActionsDisabled={loading || !sessionReady || !wb.root || pendingAttachments.length > 0}
                 onTerminalCopy={(entry) => void copyTerminalDiagnostics(entry)}
               />
             )}
