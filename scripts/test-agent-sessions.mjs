@@ -122,6 +122,29 @@ try{
     assert.equal(await readFile(file,'utf8'),'manual user edit');
   });
 
+  await test('preserves prior run checkpoint when a later file would exceed its size budget',async()=>{
+    await api.saveAgentSession(userData,{id:'chat-checkpoint-budget',messages:[],projectPath:workspace});
+    const contents=[];
+    for(let index=0;index<4;index++) {
+      const name='budget-'+index+'.txt';
+      const oldContent='o'.repeat(950_000);
+      const newContent='n'.repeat(950_000);
+      await writeFile(join(workspace,name),newContent,'utf8');
+      contents.push({id:'budget-'+index,path:name,operation:'modify',oldContent,newContent,addedLines:1,removedLines:1,changedAt:Date.now()});
+      await api.recordAgentFileCheckpoint(userData,'chat-checkpoint-budget','budget-run',workspace,contents[index]);
+    }
+    const tooLarge={id:'budget-overflow',path:'budget-overflow.txt',operation:'create',oldContent:'',newContent:'n'.repeat(900_000),addedLines:1,removedLines:0,changedAt:Date.now()};
+    await writeFile(join(workspace,tooLarge.path),tooLarge.newContent,'utf8');
+    await assert.rejects(
+      () => api.recordAgentFileCheckpoint(userData,'chat-checkpoint-budget','budget-run',workspace,tooLarge),
+      /Checkpoint melebihi batas ukuran/,
+    );
+    const checkpoints=await api.listAgentCheckpoints(userData,'chat-checkpoint-budget');
+    assert.equal(checkpoints.length,1);
+    assert.equal(checkpoints[0].runId,'budget-run');
+    assert.deepEqual(checkpoints[0].paths,['budget-0.txt','budget-1.txt','budget-2.txt','budget-3.txt']);
+  });
+
   await test('validates every file in a multi-file rewind before changing any file',async()=>{
     const first=join(workspace,'multi-first.txt');
     const second=join(workspace,'multi-second.txt');

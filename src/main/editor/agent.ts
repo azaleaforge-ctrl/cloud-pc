@@ -1257,17 +1257,11 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         ...inputMessages.filter((message) => message.role === 'user' || message.role === 'assistant')
           .map((message) => {
             const resolved = resolveAgentAttachments(message.attachments ?? []);
+            // The resolver rejects missing/expired refs. Never let a request continue
+            // with only a note pretending the original document/audio/video was present.
             const documents = resolved.filter(item => item.text)
               .map(item => '--- LAMPIRAN: ' + item.name + ' (' + item.mimeType + ') ---\n' + item.text);
-            const missing = (message.attachments ?? []).filter(ref => !resolved.some(item => item.id === ref.id));
-            const unavailableDirectMedia = missing.filter(item => /^(audio|video)\//i.test(item.mimeType));
-            if (unavailableDirectMedia.length && config.provider !== 'gemini') {
-              throw new Error('Lampiran audio/video pada riwayat ini tidak tersedia lagi atau belum bisa diproses oleh provider yang aktif. Hubungkan Google Gemini melalui /connect dan lampirkan ulang media tersebut.');
-            }
-            const expiryNote = missing.length
-              ? '[Lampiran sudah kedaluwarsa dari memori lokal; minta pengguna melampirkan ulang: ' + missing.map(item => item.name).join(', ') + ']'
-              : '';
-            const baseTextContent = [message.content, ...documents, expiryNote].filter(Boolean).join('\n\n');
+            const baseTextContent = [message.content, ...documents].filter(Boolean).join('\n\n');
             const images = resolved.filter(item => item.dataUrl && item.mimeType.startsWith('image/'));
             const mediaCandidates = resolved.filter(item => item.dataUrl && !item.mimeType.startsWith('image/'));
             const pdfNeedsOcr = resolved.some(item =>
@@ -1281,14 +1275,17 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
             const directMedia = mediaCandidates.filter(item =>
               config.provider === 'gemini' || item.mimeType !== 'application/pdf',
             );
-            const mediaGuidance = directMedia.some(item => item.mimeType.startsWith('audio/'))
-              ? 'Untuk audio: transkripsikan ucapan sebisa mungkin, rangkum isi dan urutan pembicaraan, serta tandai bagian yang tidak jelas. Jangan mengarang kata yang tidak terdengar.'
-              : directMedia.some(item => item.mimeType.startsWith('video/'))
-                ? 'Untuk video: rangkum urutan adegan, objek/teks yang terlihat, waktu/perubahan penting, dan audio/ucapan hanya bila benar-benar dapat diproses.'
-                : directMedia.length
-                  ? 'Untuk PDF hasil scan: baca halaman dan layout menggunakan kemampuan dokumen/OCR model bila tersedia; nyatakan halaman yang tidak terbaca dan jangan mengarang isi.'
-                  : '';
-            const textContent = [baseTextContent, mediaGuidance].filter(Boolean).join('\n\n');
+            const mediaGuidance: string[] = [];
+            if (directMedia.some(item => item.mimeType.startsWith('audio/'))) {
+              mediaGuidance.push('Untuk audio: transkripsikan ucapan sebisa mungkin, rangkum isi dan urutan pembicaraan, serta tandai bagian yang tidak jelas. Jangan mengarang kata yang tidak terdengar.');
+            }
+            if (directMedia.some(item => item.mimeType.startsWith('video/'))) {
+              mediaGuidance.push('Untuk video: rangkum urutan adegan, objek/teks yang terlihat, waktu/perubahan penting, dan audio/ucapan hanya bila benar-benar dapat diproses.');
+            }
+            if (directMedia.some(item => item.mimeType === 'application/pdf')) {
+              mediaGuidance.push('Untuk PDF hasil scan: baca halaman dan layout menggunakan kemampuan dokumen/OCR model bila tersedia; nyatakan halaman yang tidak terbaca dan jangan mengarang isi.');
+            }
+            const textContent = [baseTextContent, ...mediaGuidance].filter(Boolean).join('\n\n');
             if (directMedia.length && config.provider !== 'gemini') {
               const mediaTypes = Array.from(new Set(directMedia.map(item => item.mimeType.startsWith('audio/') ? 'audio' : item.mimeType.startsWith('video/') ? 'video' : 'PDF scan')));
               throw new Error('Lampiran ' + mediaTypes.join('/') + ' membutuhkan provider Google Gemini untuk input media langsung. Provider kompatibel OpenAI yang aktif tidak menerima format ini melalui jalur chat standar. Ubah provider lewat /connect, lalu kirim ulang media.');

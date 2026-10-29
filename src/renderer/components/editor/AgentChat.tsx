@@ -301,7 +301,7 @@ function MessageBubble({
         ) : null}
       </div>
       {isUser ? (
-        <details className="ai-message-actions">
+        <details className="ai-message-actions" data-message-id={msg.id}>
           <summary aria-label="Buka aksi pesan" title="Aksi pesan">•••</summary>
           <div className="ai-message-actions-menu" role="group" aria-label="Aksi pesan pengguna">
             <button type="button" onClick={() => onCopy(msg.content)}>
@@ -1671,21 +1671,32 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      // Reserve Ctrl+R while the Agentic Coding panel is visible so it can never
-      // accidentally reload the application. Modal workflows keep focus instead.
+      // Reserve Ctrl+R while the Agentic Coding panel is visible so it cannot
+      // accidentally reload the app. File mutations require a focused prompt menu.
       if (settingsOpen || modelPickerOpen || historyOpen || checkpointsOpen) return;
-      if (loading || checkpointActionBusy) {
-        setActivity('Tunggu agent atau operasi checkpoint selesai sebelum memulihkan.');
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) {
+        setActivity('Ctrl+R tidak mengubah checkpoint saat fokus berada di kolom teks.');
         return;
       }
-      const checkpoint = checkpoints
-        .filter(item => item.status === 'rewound')
-        .sort((a, b) => b.createdAt - a.createdAt)[0];
+      const actionMenu = target?.closest('.ai-message-actions[data-message-id]') as HTMLElement | null;
+      const selectedMessage = actionMenu?.dataset.messageId
+        ? messages.find(message => message.id === actionMenu.dataset.messageId)
+        : undefined;
+      if (!selectedMessage) {
+        setActivity('Fokuskan menu aksi pada prompt terlebih dahulu untuk undo/redo checkpoint dengan Ctrl+R.');
+        return;
+      }
+      if (loading || checkpointActionInFlightRef.current !== null) {
+        setActivity('Tunggu agent atau operasi checkpoint selesai sebelum undo/redo.');
+        return;
+      }
+      const checkpoint = findCheckpointForMessage(selectedMessage, messages, checkpoints);
       if (!checkpoint) {
-        setActivity('Belum ada checkpoint yang di-rewind untuk dipulihkan.');
+        setActivity('Prompt ini tidak memiliki checkpoint yang dapat di-undo/redo.');
         return;
       }
-      void runCheckpointAction(checkpoint.id, 'redo');
+      void runCheckpointAction(checkpoint.id, checkpoint.status === 'rewound' ? 'redo' : 'rewind');
     };
     window.addEventListener('keydown', onRestoreShortcut, true);
     return () => window.removeEventListener('keydown', onRestoreShortcut, true);

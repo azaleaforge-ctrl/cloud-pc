@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 const root=fileURLToPath(new URL('..',import.meta.url));
 const dir=await mkdtemp(join(tmpdir(),'rk-agent-attachments-'));
 const require=createRequire(import.meta.url);
+const { deflateSync } = require('node:zlib');
 let passed=0,failed=0;
 function test(name,fn){try{fn();passed++;console.log('PASS '+name);}catch(error){failed++;console.error('FAIL '+name+': '+(error instanceof Error?error.message:String(error)));}}
 async function make(name,data){const path=join(dir,name);await writeFile(path,data);return path;}
@@ -38,9 +39,36 @@ try{
  const image=await make('photo.png',Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC','base64'));
  const imageRefs=await prepareAgentAttachments([image]);
  test('image data stays in main-process payload, not renderer ref',()=>{assert.equal('dataUrl' in imageRefs[0],false);assert.match(resolveAgentAttachments(imageRefs)[0].dataUrl,/^data:image\/png;base64,/);});
+ const wrongMetadata={...txtRefs[0],size:txtRefs[0].size+1};
+ test('expired or mismatched attachment references are rejected instead of silently omitted',()=>{
+   assert.throws(()=>resolveAgentAttachments([wrongMetadata]),/Lampiran tidak tersedia lagi.*Pilih ulang file/);
+ });
+ const multiStream=deflateSync(Buffer.alloc(26*1024*1024,0x41));
+ const multiStreamPdf=Buffer.concat([
+   Buffer.from('%PDF-1.4\n<< /Filter /FlateDecode >>\nstream\n','latin1'),
+   multiStream,Buffer.from('\nendstream\n<< /Filter /FlateDecode >>\nstream\n','latin1'),
+   multiStream,Buffer.from('\nendstream\n%%EOF','latin1'),
+ ]);
+ const compressedPdf=await make('many-streams.pdf',multiStreamPdf);
+ let cumulativePdfRejected=false;
+ try { await prepareAgentAttachments([compressedPdf]); }
+ catch(error) { cumulativePdfRejected=/dekompresi PDF melebihi batas aman 50 MiB/i.test(error.message); }
+ test('rejects PDFs whose aggregate decompressed streams exceed 50 MiB',()=>assert.equal(cumulativePdfRejected,true));
+ const tooManyStreamsPdf=await make('many-stream-count.pdf',Buffer.from(
+   '%PDF-1.4\n'+Array.from({length:2001},()=> '<< >>\nstream\nA\nendstream\n').join('')+'%%EOF',
+   'latin1',
+ ));
+ let tooManyStreamsRejected=false;
+ try { await prepareAgentAttachments([tooManyStreamsPdf]); }
+ catch(error) { tooManyStreamsRejected=/terlalu banyak stream.*2.000/i.test(error.message); }
+ test('rejects PDFs with excessive stream counts before parsing unlimited content',()=>assert.equal(tooManyStreamsRejected,true));
  const scannedPdf=await make('scan.pdf',Buffer.from('%PDF-1.4\\n%%EOF','utf8'));
  const scannedRefs=await prepareAgentAttachments([scannedPdf]);
  test('scanned PDF retains its original file for provider-side OCR fallback',()=>{const item=resolveAgentAttachments(scannedRefs)[0];assert.match(item.text,/OCR/i);assert.match(item.dataUrl,/^data:application\/pdf;base64,/);});
+ const m4aHeader=Buffer.alloc(24); m4aHeader.writeUInt32BE(24,0); m4aHeader.write('ftyp',4); m4aHeader.write('M4A ',8); m4aHeader.write('M4A ',16);
+ const m4a=await make('recording.m4a',m4aHeader);
+ const m4aRefs=await prepareAgentAttachments([m4a]);
+ test('M4A attachments use Gemini-supported audio/m4a MIME',()=>assert.equal(resolveAgentAttachments(m4aRefs)[0].mimeType,'audio/m4a'));
  const mp3=await make('recording.mp3',Buffer.from([0x49,0x44,0x33,0x04,0x00,0x00,0x00,0x00,0x00,0x00]));
  const mp3Refs=await prepareAgentAttachments([mp3]);
  test('audio attachments retain MIME-tagged main-process payloads',()=>{const item=resolveAgentAttachments(mp3Refs)[0];assert.equal(item.mimeType,'audio/mpeg');assert.match(item.dataUrl,/^data:audio\/mpeg;base64,/);});

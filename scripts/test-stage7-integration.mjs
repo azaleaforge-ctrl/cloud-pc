@@ -109,6 +109,9 @@ try {
     assert.match(attachment, /PDF asli akan dikirim ke model multimodal/);
     assert.match(main, /'mp3','wav','m4a','aac','flac','ogg','mp4','mov','avi','webm'/);
     assert.match(agent, /type: 'media_url'/);
+    assert.match(agent, /mediaGuidance\.push\('Untuk audio/);
+    assert.match(agent, /mediaGuidance\.push\('Untuk video/);
+    assert.match(agent, /mediaGuidance\.push\('Untuk PDF hasil scan/);
     assert.match(agent, /directMedia\.length && config\.provider !== 'gemini'/);
     assert.match(providers, /item\.type === 'media_url'/);
     assert.match(providerTests, /routes audio, video and scanned PDF data URLs through Gemini native inlineData/);
@@ -122,6 +125,9 @@ try {
     assert.match(chat, /setConversationId\(branchId\)/);
     assert.match(chat, /const rewindFromMessage = useCallback/);
     assert.match(chat, /event\.stopImmediatePropagation\(\)/);
+    assert.match(chat, /data-message-id={msg\.id}/);
+    assert.match(chat, /target\?\.closest\('input, textarea, select/);
+    assert.match(chat, /checkpoint\.status === 'rewound' \? 'redo' : 'rewind'/);
     assert.match(chat, /runId: result\.sessionId/);
     assert.match(chat, /findCheckpointForMessage\(item\.message, messages, checkpoints\)/);
     assert.match(sessions, /message\.runId/);
