@@ -347,6 +347,8 @@ function getSelectedAgentProvider(): AgentProviderId {
     // Migrate existing installs that already stored an old 9router key.
   }
   if (getProviderEnvironmentKey('legacy') || readStoredProviderKey('legacy')) return 'legacy';
+  if (getProviderEnvironmentKey('openrouter') || readStoredProviderKey('openrouter')) return 'openrouter';
+  if (getProviderEnvironmentKey('gemini') || readStoredProviderKey('gemini')) return 'gemini';
   return 'openrouter';
 }
 
@@ -388,7 +390,9 @@ function saveSelectedAgentModel(value: unknown, provider: AgentProviderId = getS
     const models = { ...(previous.models ?? {}), [provider]: model };
     writeFileSync(path, JSON.stringify({
       models,
-      ...(provider === 'legacy' ? { model } : {}),
+      ...(provider === 'legacy'
+        ? { model }
+        : typeof previous.model === 'string' ? { model: previous.model } : {}),
       updatedAt: new Date().toISOString(),
     }, null, 2), 'utf8');
     return { ok: true };
