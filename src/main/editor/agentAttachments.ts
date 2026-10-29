@@ -20,6 +20,8 @@ const PART_MAX = 30 * 1024 * 1024;
 const TEXT_MAX = 24_000;
 const TTL = 60 * 60 * 1000;
 const STORE_MAX = 100 * 1024 * 1024;
+const ZIP_ENTRY_COUNT_MAX = 2000;
+const ZIP_UNPACKED_MAX = 50 * 1024 * 1024;
 
 const MIME: Record<string, string> = {
   '.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.webp':'image/webp', '.gif':'image/gif',
@@ -43,6 +45,23 @@ const textExts = new Set(Object.keys(MIME).filter((ext) =>
 ));
 const records = new Map<string, Stored>();
 
+function safeZip(buffer: Buffer): ZipArchive {
+  const zip = safeZip(buffer);
+  const entries = zip.getEntries();
+  if (entries.length > ZIP_ENTRY_COUNT_MAX) throw new Error('Arsip Office memiliki terlalu banyak bagian.');
+  let unpacked = 0;
+  for (const entry of entries) {
+    const size = entry.header?.size;
+    if (typeof size !== 'number' || !Number.isSafeInteger(size) || size < 0) {
+      throw new Error('Arsip Office memiliki metadata ukuran bagian yang tidak valid.');
+    }
+    if (size > PART_MAX) throw new Error('Bagian dokumen terlalu besar: ' + entry.entryName);
+    unpacked += size;
+    if (unpacked > ZIP_UNPACKED_MAX) throw new Error('Isi arsip Office melebihi batas dekompresi 50 MiB.');
+  }
+  return zip;
+}
+
 function prune(): void {
   const now = Date.now();
   for (const [id, item] of records) if (item.expiresAt <= now) records.delete(id);
@@ -57,10 +76,16 @@ function boundedText(source: string): string {
   return clean.length <= TEXT_MAX ? clean : clean.slice(0, TEXT_MAX) + '\n\n[Konten dipotong untuk membatasi konteks AI.]';
 }
 function decodeXml(value: string): string {
+  const decodeCodepoint = (raw: string, radix: number): string => {
+    const codepoint = Number.parseInt(raw, radix);
+    if (!Number.isInteger(codepoint) || codepoint < 0 || codepoint > 0x10ffff ||
+        (codepoint >= 0xd800 && codepoint <= 0xdfff)) return '\\uFFFD';
+    return String.fromCodePoint(codepoint);
+  };
   return value.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
-    .replace(/&#x([0-9a-f]+);/gi, (_m, code: string) => String.fromCodePoint(parseInt(code, 16)))
-    .replace(/&#(\d+);/g, (_m, code: string) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_m, code: string) => decodeCodepoint(code, 16))
+    .replace(/&#(\d+);/g, (_m, code: string) => decodeCodepoint(code, 10))
     .replace(/&amp;/g, '&');
 }
 function xmlText(xml: string): string {
@@ -73,14 +98,14 @@ function zipPart(zip: ZipArchive, name: string): string | null {
   return entry.getData().toString('utf8');
 }
 function extractDocx(buffer: Buffer): string {
-  const xml = zipPart(new AdmZip(buffer), 'word/document.xml');
+  const xml = zipPart(safeZip(buffer), 'word/document.xml');
   if (!xml) throw new Error('DOCX tidak memiliki word/document.xml.');
   return xml.replace(/<\/w:p>/g, '\n').replace(/<w:tab\b[^>]*\/>/g, '\t')
     .replace(/<w:br\b[^>]*\/>/g, '\n').replace(/<[^>]+>/g, ' ')
     .split('\n').map((line) => decodeXml(line.replace(/[ \t]+/g, ' ').trim())).filter(Boolean).join('\n');
 }
 function extractXlsx(buffer: Buffer): string {
-  const zip = new AdmZip(buffer);
+  const zip = safeZip(buffer);
   const sharedRaw = zipPart(zip, 'xl/sharedStrings.xml') ?? '';
   const shared = [...sharedRaw.matchAll(/<si\b[\s\S]*?<\/si>/g)].map((m) => xmlText(m[0]));
   const sheets = zip.getEntries().filter((entry) => /^xl\/worksheets\/sheet\d+\.xml$/i.test(entry.entryName))
@@ -105,7 +130,7 @@ function extractXlsx(buffer: Buffer): string {
   return rows.join('\n') || shared.join('\n');
 }
 function extractPptx(buffer: Buffer): string {
-  const slides = new AdmZip(buffer).getEntries()
+  const slides = safeZip(buffer).getEntries()
     .filter((entry) => /^ppt\/slides\/slide\d+\.xml$/i.test(entry.entryName))
     .sort((a, b) => a.entryName.localeCompare(b.entryName, undefined, { numeric: true }));
   return slides.map((entry) => {
@@ -145,7 +170,7 @@ function extractPdf(buffer: Buffer): string {
   for (const match of source.matchAll(/<<(.*?)>>\s*stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
     let data = Buffer.from(match[2], 'latin1');
     if (/\/FlateDecode\b/.test(match[1])) {
-      try { data = inflateSync(data); } catch { continue; }
+      try { data = inflateSync(data, { maxOutputLength: PART_MAX }); } catch { continue; }
     } else if (/\/Filter\b/.test(match[1])) continue;
     const text = pdfOperators(data.toString('latin1'));
     if (text) results.push(text);
