@@ -43,6 +43,7 @@ import {
 } from './editor/agentSessionStore';
 import type { RouterConfig } from '../shared/agents';
 import { importAgentSkill, listInstalledAgentSkills, uninstallAgentSkill } from './editor/installedSkills';
+import { importMcpPluginConfig, listMcpPlugins, probeMcpPlugin, removeMcpPlugin, setMcpPluginEnabled } from './editor/mcpPlugins';
 import { scanProjectEntries } from './fsScan';
 import { watchProjectFileChanges, type ProjectFileWatch } from './projectFileWatcher';
 import { openEmbeddedIde, closeEmbeddedIde, resizeEmbeddedIde, focusEmbeddedIde } from './nativeHost';
@@ -1283,6 +1284,33 @@ function registerIpc(): void {
     } catch (error) {
       return { ok: false, error: (error as Error).message || 'Skill gagal dihapus.' };
     }
+  });
+  ipcMain.handle('rk:agent:list-mcp-plugins', () => listMcpPlugins(app.getPath('userData')));
+  ipcMain.handle('rk:agent:import-mcp-config', async () => {
+    try {
+      const selected = await dialog.showOpenDialog({
+        properties: ['openFile'],
+        filters: [{ name: 'Konfigurasi MCP JSON', extensions: ['json'] }],
+        title: 'Pilih konfigurasi MCP',
+        message: 'Impor konfigurasi server MCP lokal. Periksa command dan izin server sebelum mengaktifkannya.',
+      });
+      if (selected.canceled || selected.filePaths.length === 0) return { ok: false, cancelled: true };
+      return await importMcpPluginConfig(app.getPath('userData'), selected.filePaths[0]);
+    } catch (error) {
+      return { ok: false, error: (error as Error).message || 'Konfigurasi MCP gagal diimpor.' };
+    }
+  });
+  ipcMain.handle('rk:agent:set-mcp-plugin-enabled', async (_e, id: string, enabled: boolean) => {
+    try { return await setMcpPluginEnabled(app.getPath('userData'), id, enabled); }
+    catch (error) { return { ok: false, error: (error as Error).message || 'Status MCP plugin gagal diubah.' }; }
+  });
+  ipcMain.handle('rk:agent:remove-mcp-plugin', async (_e, id: string) => {
+    try { return await removeMcpPlugin(app.getPath('userData'), id); }
+    catch (error) { return { ok: false, error: (error as Error).message || 'MCP plugin gagal dihapus.' }; }
+  });
+  ipcMain.handle('rk:agent:probe-mcp-plugin', async (_e, id: string) => {
+    try { return await probeMcpPlugin(app.getPath('userData'), id); }
+    catch (error) { return { ok: false, error: (error as Error).message || 'Tes koneksi MCP gagal.', tools: [] }; }
   });
   ipcMain.handle('rk:agent:pick-attachments', async () => {
     try {

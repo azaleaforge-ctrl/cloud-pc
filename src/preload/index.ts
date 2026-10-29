@@ -27,7 +27,7 @@ import type {
   TerminalSessionInfo,
   VsxSearchResult,
 } from '../shared/editor';
-import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentProviderId, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, InstalledAgentSkill, AgentSkillInstallResult, ChatMessage, AgentEvent } from '../shared/agents';
+import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentProviderId, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, InstalledAgentSkill, AgentSkillInstallResult, McpPluginSummary, McpPluginImportResult, McpPluginProbeResult, ChatMessage, AgentEvent } from '../shared/agents';
 import { APP_VERSION } from '../shared/types';
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -135,6 +135,11 @@ const api: RkApi = {
   agentListInstalledSkills: (): Promise<InstalledAgentSkill[]> => ipcRenderer.invoke('rk:agent:list-installed-skills'),
   agentImportSkill: (): Promise<AgentSkillInstallResult> => ipcRenderer.invoke('rk:agent:import-skill'),
   agentUninstallSkill: (id: string) => ipcRenderer.invoke('rk:agent:uninstall-skill', id),
+  agentListMcpPlugins: (): Promise<McpPluginSummary[]> => ipcRenderer.invoke('rk:agent:list-mcp-plugins'),
+  agentImportMcpConfig: (): Promise<McpPluginImportResult> => ipcRenderer.invoke('rk:agent:import-mcp-config'),
+  agentSetMcpPluginEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke('rk:agent:set-mcp-plugin-enabled', id, enabled),
+  agentRemoveMcpPlugin: (id: string) => ipcRenderer.invoke('rk:agent:remove-mcp-plugin', id),
+  agentProbeMcpPlugin: (id: string): Promise<McpPluginProbeResult> => ipcRenderer.invoke('rk:agent:probe-mcp-plugin', id),
   agentPickAttachments: (): Promise<{ ok: boolean; attachments?: AgentAttachmentRef[]; error?: string }> => ipcRenderer.invoke('rk:agent:pick-attachments'),
   agentApproveTool: (sessionId: string, requestId: string, approved: boolean) => ipcRenderer.invoke('rk:agent:approve-tool', sessionId, requestId, approved),
   agentAnswerQuestion: (sessionId: string, requestId: string, answer: string) => ipcRenderer.invoke('rk:agent:answer-question', sessionId, requestId, answer),
