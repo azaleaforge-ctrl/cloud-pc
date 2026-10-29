@@ -602,6 +602,8 @@ function RunResultBanner({ result }: { result: AgentRunResult }) {
   );
 }
 
+const CUSTOM_QUESTION_OPTION = 4;
+
 export function AgentChat({ wb, visible, onToggle }: Props) {
   const [agents, setAgents] = useState<AgentEntry[]>([]);
   const [activeAgentId, setActiveAgentId] = useState('poolside');
@@ -1210,10 +1212,15 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const answerAgentQuestion = useCallback(async () => {
     const current = agentQuestion;
     if (!current || submittingQuestion) return;
-    const custom = customQuestionAnswer.trim();
-    const selected = selectedQuestionOption === null ? null : current.options[selectedQuestionOption - 1];
-    const answer = custom
-      ? 'Jawaban custom: ' + custom
+    const isCustomOptionSelected = selectedQuestionOption === CUSTOM_QUESTION_OPTION;
+    const custom = isCustomOptionSelected ? customQuestionAnswer.trim() : '';
+    const selected = selectedQuestionOption !== null &&
+      selectedQuestionOption >= 1 &&
+      selectedQuestionOption <= current.options.length
+      ? current.options[selectedQuestionOption - 1]
+      : null;
+    const answer = isCustomOptionSelected
+      ? (custom ? 'Jawaban custom: ' + custom : '')
       : selected
         ? 'Pilihan ' + selectedQuestionOption + ': ' + selected.label + '\n' + selected.description
         : '';
@@ -1249,8 +1256,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         event.preventDefault();
         setCustomQuestionAnswer('');
         setSelectedQuestionOption((current) => {
-          const count = agentQuestion.options.length;
-          if (count === 0) return null;
+          const count = agentQuestion.options.length + 1;
+          if (count === 1) return null;
           if (current === null) return event.key === 'ArrowDown' ? 1 : count;
           return event.key === 'ArrowDown' ? (current % count) + 1 : ((current - 2 + count) % count) + 1;
         });
@@ -1718,24 +1725,44 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                       </button>
                     );
                   })}
-                </div>
-                <div className="ai-question-custom">
-                  <label htmlFor="ai-question-custom-answer">Atau tulis jawaban sendiri</label>
-                  <input
-                    id="ai-question-custom-answer"
-                    value={customQuestionAnswer}
-                    onChange={(event) => { setCustomQuestionAnswer(event.target.value); setSelectedQuestionOption(null); }}
-                    maxLength={2000}
-                    placeholder="Masukkan keputusan atau instruksi khusus…"
+                  <button
+                    type="button"
+                    key="custom"
+                    className={'ai-question-option ai-question-option-custom' + (selectedQuestionOption === CUSTOM_QUESTION_OPTION ? ' selected' : '')}
+                    onClick={() => { setSelectedQuestionOption(CUSTOM_QUESTION_OPTION); setCustomQuestionAnswer(''); }}
                     disabled={submittingQuestion}
-                  />
+                    aria-pressed={selectedQuestionOption === CUSTOM_QUESTION_OPTION}
+                  >
+                    <span className="ai-question-option-top">
+                      <strong>4. Custom (tulis sendiri)</strong>
+                    </span>
+                    <small>Tulis keputusan atau instruksi sendiri di luar tiga pilihan di atas.</small>
+                  </button>
                 </div>
+                {selectedQuestionOption === CUSTOM_QUESTION_OPTION ? (
+                  <div className="ai-question-custom">
+                    <label htmlFor="ai-question-custom-answer">Jawaban custom</label>
+                    <input
+                      id="ai-question-custom-answer"
+                      autoFocus
+                      value={customQuestionAnswer}
+                      onChange={(event) => setCustomQuestionAnswer(event.target.value)}
+                      maxLength={2000}
+                      placeholder="Masukkan keputusan atau instruksi khusus…"
+                      disabled={submittingQuestion}
+                    />
+                  </div>
+                ) : null}
                 <footer className="ai-question-actions">
                   <span>Rekomendasi tidak dipilih otomatis. Agent menunggu keputusanmu.</span>
                   <button
                     type="button"
                     className="ai-question-submit"
-                    disabled={submittingQuestion || (!customQuestionAnswer.trim() && selectedQuestionOption === null)}
+                    disabled={submittingQuestion || (
+                      selectedQuestionOption === CUSTOM_QUESTION_OPTION
+                        ? !customQuestionAnswer.trim()
+                        : selectedQuestionOption === null
+                    )}
                     onClick={() => void answerAgentQuestion()}
                   >
                     {submittingQuestion ? <Spinner size={14} /> : null}

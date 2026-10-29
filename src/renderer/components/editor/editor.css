@@ -3290,6 +3290,7 @@ button.ed-status-item:hover {
   box-shadow: inset 0 0 0 1px rgba(45,212,191,.12);
 }
 .ai-question-option.recommended:not(.selected) { border-color: rgba(45,212,191,.25); }
+.ai-question-option-custom:not(.selected) { border-style: dashed; }
 .ai-question-option-top { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 .ai-question-option-top > strong {
   min-width: 0;
