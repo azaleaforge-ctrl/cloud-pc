@@ -321,6 +321,8 @@ async function connectPlugin(userDataDir: string, plugin: StoredMcpPlugin): Prom
     id: plugin.id, fingerprint, child, buffer: '', nextId: 1, pending: new Map(), tools: [], closed: false,
   };
   runtimes.set(key, runtime);
+  // Drain stderr so verbose servers cannot block on a full pipe; plugin logs stay out of the chat.
+  child.stderr.on('data', () => undefined);
   child.stdout.on('data', (chunk: Buffer | string) => {
     runtime.buffer += String(chunk);
     if (Buffer.byteLength(runtime.buffer, 'utf8') > MAX_RPC_BYTES) {
@@ -417,14 +419,15 @@ export async function listEnabledMcpTools(userDataDir: string): Promise<{ tools:
   for (const plugin of plugins) {
     try {
       const runtime = await connectPlugin(userDataDir, plugin);
-      for (const tool of runtime.tools) {
+      for (let index = 0; index < runtime.tools.length; index += 1) {
+        const tool = runtime.tools[index];
         if (tools.length >= MAX_TOOLS_TOTAL) {
           errors.push('Jumlah MCP tools melewati batas ' + MAX_TOOLS_TOTAL + '.');
           return { tools, errors };
         }
         const suffix = plugin.id.slice(-8);
-        const toolSlug = slug(tool.name).replace(/-/g, '_').slice(0, 46) || 'tool';
-        const exposedName = ('mcp_' + suffix + '_' + toolSlug).slice(0, 64);
+        const toolSlug = slug(tool.name).replace(/-/g, '_').slice(0, 42) || 'tool';
+        const exposedName = 'mcp_' + suffix + '_' + toolSlug + '_' + index;
         tools.push({
           pluginId: plugin.id,
           pluginName: plugin.name,
