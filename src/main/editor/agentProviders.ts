@@ -79,15 +79,21 @@ export function buildGeminiRequestBody(options: GeminiRequestOptions): JsonRecor
 
     if (role === 'tool') {
       const name = safeFunctionName(message.name);
-      contents.push({
-        role: 'user',
-        parts: [{
-          functionResponse: {
-            name,
-            response: { result: asText(message.content) },
-          },
-        }],
-      });
+      const functionResponse = {
+        functionResponse: {
+          name,
+          response: { result: asText(message.content) },
+        },
+      };
+      const previous = contents[contents.length - 1];
+      const previousParts = isRecord(previous) && Array.isArray(previous.parts) ? previous.parts : [];
+      const previousIsToolResponse = previous?.role === 'user'
+        && previousParts.some(part => isRecord(part) && isRecord(part.functionResponse));
+      if (previousIsToolResponse) {
+        previousParts.push(functionResponse);
+      } else {
+        contents.push({ role: 'user', parts: [functionResponse] });
+      }
       continue;
     }
 
