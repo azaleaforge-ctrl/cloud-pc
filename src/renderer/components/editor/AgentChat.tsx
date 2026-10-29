@@ -481,22 +481,23 @@ function TodoPanel({ todos }: { todos: AgentTodo[] }) {
   );
 }
 
+const AGENT_TOOL_DISPLAY_NAMES: Record<string, string> = {
+  todo_read: 'Todo List',
+  todo_write: 'Todo List',
+  list_project_files: 'Jelajahi struktur proyek',
+  read_project_file: 'Baca file',
+  write_project_file: 'Tulis kode',
+  search_project_files: 'Cari dalam proyek',
+  read_session_memory: 'Baca konteks sesi',
+  write_session_memory: 'Simpan konteks sesi',
+  run_terminal: 'Terminal',
+  search_web: 'Cari di web',
+  read_web_page: 'Baca halaman web',
+  check_package_version: 'Periksa versi package',
+  get_current_time: 'Periksa waktu',
+};
+
 function ToolActivityList({ activity }: { activity: AgentToolActivity }) {
-  const toolName: Record<string, string> = {
-    todo_read: 'Todo List',
-    todo_write: 'Todo List',
-    list_project_files: 'Jelajahi struktur proyek',
-    read_project_file: 'Baca file',
-    write_project_file: 'Tulis kode',
-    search_project_files: 'Cari dalam proyek',
-    read_session_memory: 'Baca konteks sesi',
-    write_session_memory: 'Simpan konteks sesi',
-    run_terminal: 'Terminal',
-    search_web: 'Cari di web',
-    read_web_page: 'Baca halaman web',
-    check_package_version: 'Periksa versi package',
-    get_current_time: 'Periksa waktu',
-  };
   const statusLabel: Record<AgentToolActivity['status'], string> = {
     running: 'Berjalan',
     completed: 'Selesai',
@@ -506,14 +507,14 @@ function ToolActivityList({ activity }: { activity: AgentToolActivity }) {
   return (
     <section
       className={'ai-tool-activities status-' + activity.status}
-      aria-label={toolName[activity.name] || activity.name}
+      aria-label={AGENT_TOOL_DISPLAY_NAMES[activity.name] || activity.name}
       aria-live={activity.status === 'running' ? 'polite' : undefined}
       role={activity.status === 'failed' ? 'alert' : 'status'}
       key={activity.id}
     >
       <header>
         <span className="ai-tool-activity-mark" aria-hidden="true">{mark}</span>
-        <strong className="ai-tool-activity-name">{toolName[activity.name] || activity.name}</strong>
+        <strong className="ai-tool-activity-name">{AGENT_TOOL_DISPLAY_NAMES[activity.name] || activity.name}</strong>
         <span className={'ai-tool-activity-status status-' + activity.status}>{statusLabel[activity.status]}</span>
       </header>
       <p className="ai-tool-activity-detail">{activity.detail}</p>
@@ -1932,6 +1933,26 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                   {skill.reason ? <small>{skill.reason}</small> : null}
                 </div>
               )) : <p className="ai-side-empty">Skill yang digunakan selama tugas akan muncul di sini.</p>}
+            </div>
+          </section>
+
+          <section className="ai-side-card ai-side-tools-card">
+            <div className="ai-side-card-title">
+              <strong>Tool yang dipakai</strong>
+              <span>{toolActivities.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-tools-scroll">
+              {toolActivities.length ? toolActivities.slice(-12).slice().reverse().map((item) => (
+                <div className="ai-side-tool" key={item.id}>
+                  <span className={'ai-side-tool-mark status-' + item.status} aria-hidden="true">
+                    {item.status === 'running' ? '◌' : item.status === 'completed' ? '✓' : '×'}
+                  </span>
+                  <div>
+                    <strong>{AGENT_TOOL_DISPLAY_NAMES[item.name] || item.name}</strong>
+                    <small>{item.detail}</small>
+                  </div>
+                </div>
+              )) : <p className="ai-side-empty">Tool yang digunakan agent pada run ini akan tampil di sini.</p>}
             </div>
           </section>
 
