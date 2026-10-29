@@ -40,7 +40,7 @@ assert.ok(css.includes('.ai-session-overlay {') && css.includes('justify-content
   'the session picker must be centered on screen');
 assert.ok(css.includes('.ai-sessions-modal-list {') && css.includes('max-height: min(255px, 42vh);') && css.includes('overflow-y: auto;'),
   'the session list must scroll internally after roughly three rows');
-assert.ok(chat.includes('disabled={loading || !sessionReady || !activeAgent || !wb.root}'),
+assert.ok(chat.includes('disabled={loading || !sessionReady || !activeAgent}'),
   'the composer must remain available to enter /connect before a provider is connected');
 
 console.log('Agent slash-command and session-modal tests: all assertions passed.');
