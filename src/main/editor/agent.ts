@@ -792,17 +792,25 @@ async function executeTool(
     case 'todo_write': {
       const previousById = new Map(session.todos.map((todo): [string, AgentTodo] => [todo.id, todo]));
       const next = applyAgentTodoUpdate(session.todos, args.todos);
+
+      // Validate every terminal-verification requirement before mutating runtime state.
+      // A rejected Todo update must be atomic: no start timestamp may be changed first.
       for (const todo of next) {
         const previous = previousById.get(todo.id);
-        if (todo.status === 'in_progress' && previous?.status !== 'in_progress') {
-          session.todoStartedAt.set(todo.id, todo.updatedAt);
-        }
         if (todo.status === 'completed' && previous?.status === 'in_progress' && todoRequiresTerminalVerification(todo)) {
           const taskStartedAt = session.todoStartedAt.get(todo.id) ?? previous.updatedAt;
           const verified = session.successfulTerminalChecks.some((check) => check.exitCode === 0 && check.finishedAt >= taskStartedAt);
           if (!verified) {
             throw new Error('Task belum bisa completed: "' + todo.title + '" membutuhkan build/test/lint/typecheck yang benar-benar berakhir dengan exit code 0 setelah task dimulai. Jalankan pemeriksaan yang sesuai lewat run_terminal, perbaiki error jika gagal, lalu coba lagi.');
           }
+        }
+      }
+
+      // Commit metadata only after all validation has succeeded.
+      for (const todo of next) {
+        const previous = previousById.get(todo.id);
+        if (todo.status === 'in_progress' && previous?.status !== 'in_progress') {
+          session.todoStartedAt.set(todo.id, todo.updatedAt);
         }
       }
       session.todos = next;
