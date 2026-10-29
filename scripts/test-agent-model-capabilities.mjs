@@ -47,6 +47,57 @@ try{
     assert.equal(models[0].name,'Alpha');
   });
 
+  await test('parses model costs, context window, modalities and supported tool metadata without guessing',()=>{
+    const models=api.parseModels({
+      data:[
+        {
+          id:'org/free-vision', name:'Free Vision', owned_by:'org',
+          context_length:65536,
+          architecture:{input_modalities:['text','image'],output_modalities:['text']},
+          pricing:{prompt:'0',completion:'0'},
+          supported_parameters:['tools','tool_choice'],
+        },
+        {
+          id:'org/paid-chat', name:'Paid Chat', owned_by:'org',
+          context_length:131072,
+          architecture:{input_modalities:['text'],output_modalities:['text']},
+          pricing:{prompt:'0.000001',completion:'0.000003'},
+          supported_parameters:['temperature'],
+        },
+        {id:'org/metadata-missing'},
+      ],
+    },'openrouter');
+    const free=models.find(item=>item.id==='org/free-vision');
+    const paid=models.find(item=>item.id==='org/paid-chat');
+    const unknown=models.find(item=>item.id==='org/metadata-missing');
+    assert.equal(free.costTier,'free');
+    assert.equal(free.contextLength,65536);
+    assert.deepEqual(free.inputModalities,['text','image']);
+    assert.deepEqual(free.outputModalities,['text']);
+    assert.deepEqual(free.supportedParameters,['tools','tool_choice']);
+    assert.equal(paid.costTier,'premium');
+    assert.equal(unknown.costTier,'unknown');
+    assert.equal(unknown.contextLength,undefined);
+    assert.equal(unknown.inputModalities,undefined);
+  });
+
+  await test('keeps Gemini pricing and modality unknown when its catalogue does not supply those fields',()=>{
+    const result=api.parseModels({
+      models:[{
+        name:'models/gemini-example',
+        displayName:'Gemini Example',
+        inputTokenLimit:32768,
+        outputTokenLimit:4096,
+        supportedGenerationMethods:['generateContent','streamGenerateContent'],
+      }],
+    },'gemini');
+    assert.equal(result.length,1);
+    assert.equal(result[0].contextLength,32768);
+    assert.equal(result[0].costTier,'unknown');
+    assert.equal(result[0].inputModalities,undefined);
+    assert.deepEqual(result[0].supportedGenerationMethods,['generatecontent','streamgeneratecontent']);
+  });
+
   await test('lists models from the primary endpoint and normalizes metadata',async()=>{
     globalThis.fetch=async url=>{
       assert.equal(String(url),'https://primary.example/v1/models');
