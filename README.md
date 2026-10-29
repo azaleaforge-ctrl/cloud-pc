@@ -1,8 +1,7 @@
 # Ruang Kerja
 
-App desktop untuk kerja bareng di **satu folder project** lewat WiFi/LAN — tanpa internet.
-Satu orang jadi **host**, anggota lain **join** pakai kode ruangan. Hanya satu orang yang
-bekerja pada satu waktu (antrian giliran), jadi file tidak pernah bentrok.
+App desktop untuk kerja bareng di **satu folder project** lewat WiFi/LAN.
+Fitur kolaborasi folder dan antrean berjalan di jaringan lokal. Fitur AI dan live web research bersifat opsional, memerlukan internet, dan dapat mengirim prompt, konteks terpilih, atau lampiran ke provider AI/situs web yang dipakai.
 
 ## Fitur
 
@@ -16,6 +15,10 @@ bekerja pada satu waktu (antrian giliran), jadi file tidak pernah bentrok.
 - **Kontrol dev server dari app** — host menyalakan `npm run dev` (dsb.) tanpa PowerShell;
   saat aktif, tab **Website** terbuka untuk semua anggota lewat IP host.
 - Beda IDE antar anggota tidak masalah — yang dibagi adalah foldernya, bukan IDE-nya.
+- **Agentic Coding AI (opsional)** — chat dengan model dari provider terkonfigurasi, pemilih model berdasarkan katalog provider, tool untuk membaca/menulis workspace, dan command terminal dengan persetujuan.
+- **Lampiran AI** — gambar PNG/JPEG/WebP/GIF untuk model yang menerima input gambar, serta PDF, DOCX, XLSX, PPTX, dan file teks. Ekstraksi teks PDF hasil scan tidak memiliki OCR otomatis.
+- **Live research AI** — pencarian web, membaca halaman HTTPS publik, pengecekan versi package registry, dan waktu zona. Tool pembaca halaman tidak menjalankan JavaScript situs; halaman dinamis/anti-bot mungkin tidak dapat dibaca.
+- **Website / browser** — pratinjau dev server di tab Website. Navigasi browser dibatasi ke HTTP/HTTPS, dan popup dari halaman tersemat dinonaktifkan.
 
 ## Menjalankan (mode pengembangan)
 
@@ -47,7 +50,7 @@ npm run dist       # buat installer .exe (NSIS) di folder release/
   tidak akan bisa saling terhubung.
 - Windows Firewall biasanya meminta izin saat pertama dijalankan — izinkan untuk
   **Private network**. Tanpa izin, host tidak akan terdeteksi.
-- Tidak ada data yang keluar ke internet; kode ruangan hanya disiarkan lewat UDP di LAN.
+- Kode ruangan dan sinkronisasi file antaranggota berjalan pada jaringan lokal. Jika memakai Agent AI, prompt, ringkasan konteks workspace, dan lampiran yang dipilih dikirim ke provider AI yang dikonfigurasi. Jika memakai live research, query/URL dikirim ke layanan web/registry yang dituju. Periksa provider dan konten sebelum mengirim; jangan lampirkan rahasia atau kredensial.
 
 ## Struktur
 

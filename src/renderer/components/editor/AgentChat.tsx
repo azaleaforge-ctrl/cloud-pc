@@ -723,6 +723,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [modelCostFilter, setModelCostFilter] = useState<ModelCostFilter>('all');
+  const [modelVisionOnly, setModelVisionOnly] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<AgentRouterTestResult | null>(null);
@@ -1325,6 +1326,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     const query = modelSearchQuery.trim().toLowerCase();
     return models
       .filter(model => modelCostFilter === 'all' || model.costTier === modelCostFilter)
+      .filter(model => !modelVisionOnly || (model.inputModalities ?? []).some(modality => /^(image|images|vision)$/i.test(modality)))
       .filter(model => !query || [model.id, model.name, model.ownedBy, ...(model.inputModalities ?? []), ...(model.outputModalities ?? [])]
         .some(value => (value ?? '').toLowerCase().includes(query)))
       .sort((a, b) => {
@@ -1332,7 +1334,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         const activeB = b.id === routerStatus?.model ? 0 : 1;
         return activeA - activeB || a.id.localeCompare(b.id);
       });
-  }, [modelCatalog, modelSearchQuery, modelCostFilter, routerStatus?.model]);
+  }, [modelCatalog, modelSearchQuery, modelCostFilter, modelVisionOnly, routerStatus?.model]);
 
   const modelCostCounts = useMemo(() => {
     const models = modelCatalog?.ok ? modelCatalog.models : [];
@@ -1830,6 +1832,20 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                   ))}
                 </div>
 
+                <div className="ai-model-price-filters" role="group" aria-label="Filter model dengan input gambar">
+                  <button type="button" className={!modelVisionOnly ? 'active' : ''}
+                    aria-pressed={!modelVisionOnly} onClick={() => setModelVisionOnly(false)}>
+                    Semua kemampuan
+                  </button>
+                  <button type="button" className={modelVisionOnly ? 'active' : ''}
+                    aria-pressed={modelVisionOnly} onClick={() => setModelVisionOnly(true)}>
+                    Input gambar (vision)
+                  </button>
+                </div>
+                <p className="ai-settings-note">
+                  Filter vision hanya memakai metadata input dari katalog provider. Metadata yang tidak tersedia tidak dianggap mendukung gambar; gunakan “Uji kemampuan” untuk menguji endpoint/model aktif.
+                </p>
+
                 <div className="ai-model-catalog-state" aria-live="polite">
                   {loadingModels ? <span><Spinner size={12} /> Mengambil katalog dari {routerStatus.providerName}…</span>
                     : modelCatalog?.ok
@@ -1850,7 +1866,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                   ) : modelCatalogOptions.length === 0 ? (
                     <div className="ai-model-empty-state">
                       <strong>Tidak ada model yang cocok</strong>
-                      <p>Coba ubah kata pencarian atau pilih filter biaya yang lain.</p>
+                      <p>Coba ubah kata pencarian, filter biaya, atau filter input gambar.</p>
                     </div>
                   ) : modelCatalogOptions.map((model: AgentModelInfo) => {
                     const isActive = model.id === routerStatus.model;

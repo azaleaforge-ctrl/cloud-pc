@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { IconExternal, IconRefresh, IconSearch, IconEdit, IconChevronLeft, IconChevronRight } from './icons';
+import { normalizeWebNavigationUrl } from '../../shared/webNavigation';
 
 /** Subset API elemen <webview> Electron yang dipakai. */
 type RkWebview = HTMLElement & {
   loadURL(url: string): Promise<void>;
   reload(): void;
+  goBack(): void;
+  goForward(): void;
 };
+type WebviewNavigate = Event & { url?: string };
 type WebviewFailure = Event & { errorCode?: number; errorDescription?: string; validatedURL?: string; isMainFrame?: boolean };
 
 interface WebTabProps {
@@ -38,10 +42,9 @@ export function WebTab({ url, projectPath, onUrlChange }: WebTabProps) {
   }, [url]);
 
   const navigate = useCallback((targetUrl: string) => {
-    const normalized = targetUrl.trim();
-    if (!normalized) return;
-    if (!/^https?:\/\//i.test(normalized)) {
-      setLoadError('URL harus dimulai dengan http:// atau https://');
+    const normalized = normalizeWebNavigationUrl(targetUrl);
+    if (!normalized) {
+      setLoadError('URL ditolak. Gunakan alamat HTTP/HTTPS yang valid tanpa kredensial tertanam.');
       return;
     }
     setInputUrl(normalized);
@@ -65,12 +68,21 @@ export function WebTab({ url, projectPath, onUrlChange }: WebTabProps) {
   useEffect(() => {
     const webview = ref.current;
     if (!webview) return;
+    const onWillNavigate = (event: Event) => {
+      const navigation = event as WebviewNavigate;
+      if (!normalizeWebNavigationUrl(navigation.url ?? '')) {
+        event.preventDefault();
+        setLoading(false);
+        setLoadError('Navigasi diblokir: browser hanya mengizinkan URL HTTP/HTTPS.');
+      }
+    };
     const onNavigate = (event: Event) => {
-      const nav = event as Event & { url?: string };
-      if (nav.url) {
-        setCurrentUrl(nav.url);
-        setInputUrl(nav.url);
-        onUrlChange(nav.url);
+      const nav = event as WebviewNavigate;
+      const normalized = normalizeWebNavigationUrl(nav.url ?? '');
+      if (normalized) {
+        setCurrentUrl(normalized);
+        setInputUrl(normalized);
+        onUrlChange(normalized);
       }
     };
     const onStart = () => { setLoading(true); setLoadError(null); };
@@ -82,6 +94,7 @@ export function WebTab({ url, projectPath, onUrlChange }: WebTabProps) {
       setLoadError((failure.errorDescription || 'Tidak diketahui') +
         (failure.validatedURL ? ' — ' + failure.validatedURL : ''));
     };
+    webview.addEventListener('will-navigate', onWillNavigate);
     webview.addEventListener('did-navigate', onNavigate);
     webview.addEventListener('did-navigate-in-page', onNavigate);
     webview.addEventListener('did-start-loading', onStart);
@@ -89,6 +102,7 @@ export function WebTab({ url, projectPath, onUrlChange }: WebTabProps) {
     webview.addEventListener('did-finish-load', onFinish);
     webview.addEventListener('did-fail-load', onFail);
     return () => {
+      webview.removeEventListener('will-navigate', onWillNavigate);
       webview.removeEventListener('did-navigate', onNavigate);
       webview.removeEventListener('did-navigate-in-page', onNavigate);
       webview.removeEventListener('did-start-loading', onStart);
@@ -105,15 +119,20 @@ export function WebTab({ url, projectPath, onUrlChange }: WebTabProps) {
   };
 
   const goBack = () => {
-    (ref.current as RkWebview | null)?.loadURL('javascript:history.back()');
+    (ref.current as RkWebview | null)?.goBack();
   };
 
   const goForward = () => {
-    (ref.current as RkWebview | null)?.loadURL('javascript:history.forward()');
+    (ref.current as RkWebview | null)?.goForward();
   };
 
   const openExternal = () => {
-    window.open(currentUrl, '_blank', 'noopener');
+    const safeUrl = normalizeWebNavigationUrl(currentUrl);
+    if (!safeUrl) {
+      setLoadError('URL tidak dapat dibuka di browser eksternal karena skemanya tidak didukung.');
+      return;
+    }
+    window.open(safeUrl, '_blank', 'noopener');
   };
 
   const startEdit = () => {
@@ -169,7 +188,7 @@ export function WebTab({ url, projectPath, onUrlChange }: WebTabProps) {
           <button type="button" className="btn btn-primary btn-sm" onClick={openExternal}>Buka di browser</button>
         </div>
       ) : null}
-      <webview ref={ref} src={currentUrl} className="web-frame" allowpopups={true} />
+      <webview ref={ref} src={currentUrl} className="web-frame" />
     </div>
   );
 }
