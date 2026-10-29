@@ -897,11 +897,24 @@ remove terminal reset duplicate    setTerminalHistory([]);
       if (event.type === 'todo-update') {
         setTodos(event.todos);
       } else if (event.type === 'tool-status') {
+        if (event.activity.status === 'running') {
+          // Finish the current assistant text segment before showing this tool card.
+          // New model text after the tool result will start a fresh bubble.
+          setMessages((previous) => {
+            const index = previous.map((item) => item.role).lastIndexOf('assistant');
+            if (index < 0 || !previous[index].streaming) return previous;
+            const next = [...previous];
+            next[index] = { ...next[index], streaming: false };
+            return next;
+          });
+        }
         setToolActivities((previous) => {
           const index = previous.findIndex((item) => item.id === event.activity.id);
           if (index < 0) return [...previous, event.activity];
           const next = [...previous];
-          next[index] = event.activity;
+          // Keep the original start time so updates do not move a job to the end
+          // of the timeline when it finishes.
+          next[index] = { ...event.activity, ts: previous[index].ts };
           return next;
         });
       } else if (event.type === 'run-result') {
@@ -916,11 +929,25 @@ remove terminal reset duplicate    setTerminalHistory([]);
       } else if (event.type === 'output') {
         setMessages((previous) => {
           const index = previous.map((item) => item.role).lastIndexOf('assistant');
-          if (index < 0) return previous;
-          const next = [...previous];
-          const last = next[index];
-          next[index] = { ...last, content: last.content + event.data, streaming: true };
-          return next;
+          if (index >= 0 && previous[index].streaming) {
+            const next = [...previous];
+            const last = next[index];
+            next[index] = { ...last, content: last.content + event.data, streaming: true };
+            return next;
+          }
+
+          // The previous assistant segment ended when a tool started. Keep
+          // post-tool commentary in its own chat bubble instead of merging it
+          // into text shown before that tool ran.
+          const ts = Date.now();
+          const nextMessage: ChatMessage = {
+            id: 'assistant-' + ts.toString(36) + '-' + Math.random().toString(36).slice(2, 8),
+            role: 'assistant',
+            content: event.data,
+            ts,
+            streaming: true,
+          };
+          return [...previous, nextMessage];
         });
       } else if (event.type === 'file-change') {
         setChanges((previous) => [event.change, ...previous.filter((item) => item.id !== event.change.id)].slice(0, 30));
@@ -1016,7 +1043,7 @@ remove terminal reset duplicate    setTerminalHistory([]);
     viewport.scrollTop = viewport.scrollHeight;
     forceScrollToBottomRef.current = false;
     stickToBottomRef.current = true;
-  }, [messages]);
+  }, [messages, toolActivities, terminalHistory, lastRunResult]);
 
   const activeAgent = agents.find((agent) => agent.id === activeAgentId);
   const workspaceSessions = sessions.filter((session) => sameWorkspacePath(session.projectPath, wb.root));
