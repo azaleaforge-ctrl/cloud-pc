@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type {
   AgentEntry,
@@ -17,6 +17,7 @@ import type {
   AgentCheckpointSummary,
   AgentModelCatalogResult,
   AgentModelCapabilityReport,
+  AgentModelInfo,
   AgentSessionSummary,
   ChatMessage,
 } from '../../../shared/agents';
@@ -63,6 +64,8 @@ interface DiffRow {
 
 const STORAGE_KEY = 'rk.ai.lastAgent';
 const HISTORY_KEY = 'rk.ai.chatHistory';
+
+type ModelCostFilter = 'all' | 'free' | 'premium' | 'unknown';
 
 type AgentSlashCommandName = '/sessions' | '/connect' | '/model';
 const AGENT_SLASH_COMMANDS: Array<{
@@ -716,7 +719,10 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [selectedProviderDraft, setSelectedProviderDraft] = useState<AgentProviderId>('openrouter');
   const [apiKey, setApiKey] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsFocusTarget, setSettingsFocusTarget] = useState<'connect' | 'model' | null>(null);
+  const [settingsFocusTarget, setSettingsFocusTarget] = useState<'connect' | null>(null);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [modelSearchQuery, setModelSearchQuery] = useState('');
+  const [modelCostFilter, setModelCostFilter] = useState<ModelCostFilter>('all');
   const [savingKey, setSavingKey] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<AgentRouterTestResult | null>(null);
@@ -736,7 +742,6 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [selectedChange, setSelectedChange] = useState<AgentFileChange | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const apiKeyInputRef = useRef<HTMLInputElement>(null);
-  const modelManagerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const messagesViewportRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -745,6 +750,18 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const sessionWorkspaceRef = useRef<string | null>(wb.root);
   const cancelRequestedRef = useRef(false);
 
+  const openModelPicker = useCallback(() => {
+    setSettingsOpen(false);
+    setSettingsFocusTarget(null);
+    setHistoryOpen(false);
+    setCheckpointsOpen(false);
+    setModelSearchQuery('');
+    setModelCostFilter('all');
+    setSelectedModelDraft(routerStatus?.model ?? '');
+    setModelReport(null);
+    setError(null);
+    setModelPickerOpen(true);
+  }, [routerStatus?.model]);
 
   const refreshRouterStatus = useCallback(async () => {
     try {
@@ -1117,13 +1134,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const filteredSlashCommands = AGENT_SLASH_COMMANDS.filter(item => item.command.startsWith(slashCommandQuery || '/'));
 
   useEffect(() => {
-    if (!settingsOpen || !settingsFocusTarget) return;
-    if (settingsFocusTarget === 'connect') {
-      apiKeyInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      apiKeyInputRef.current?.focus({ preventScroll: true });
-    } else {
-      modelManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+    if (!settingsOpen || settingsFocusTarget !== 'connect') return;
+    apiKeyInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    apiKeyInputRef.current?.focus({ preventScroll: true });
     setSettingsFocusTarget(null);
   }, [settingsOpen, settingsFocusTarget]);
 
@@ -1298,6 +1311,39 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     }
   }, []);
 
+  useEffect(() => {
+    if (!modelPickerOpen) return;
+    if (!routerStatus?.configured) {
+      setModelCatalog(null);
+      return;
+    }
+    void refreshModelCatalog();
+  }, [modelPickerOpen, routerStatus?.configured, routerStatus?.provider, refreshModelCatalog]);
+
+  const modelCatalogOptions = useMemo(() => {
+    const models = modelCatalog?.ok ? modelCatalog.models : [];
+    const query = modelSearchQuery.trim().toLowerCase();
+    return models
+      .filter(model => modelCostFilter === 'all' || model.costTier === modelCostFilter)
+      .filter(model => !query || [model.id, model.name, model.ownedBy, ...(model.inputModalities ?? []), ...(model.outputModalities ?? [])]
+        .some(value => (value ?? '').toLowerCase().includes(query)))
+      .sort((a, b) => {
+        const activeA = a.id === routerStatus?.model ? 0 : 1;
+        const activeB = b.id === routerStatus?.model ? 0 : 1;
+        return activeA - activeB || a.id.localeCompare(b.id);
+      });
+  }, [modelCatalog, modelSearchQuery, modelCostFilter, routerStatus?.model]);
+
+  const modelCostCounts = useMemo(() => {
+    const models = modelCatalog?.ok ? modelCatalog.models : [];
+    return {
+      all: models.length,
+      free: models.filter(model => model.costTier === 'free').length,
+      premium: models.filter(model => model.costTier === 'premium').length,
+      unknown: models.filter(model => model.costTier === 'unknown').length,
+    };
+  }, [modelCatalog]);
+
   const saveSelectedModel = useCallback(async () => {
     if (!selectedModelDraft.trim() || savingModel) return;
     setSavingModel(true);
@@ -1305,9 +1351,11 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     try {
       const result = await window.rk.agentSelectModel(selectedModelDraft.trim());
       if (!result.ok) throw new Error(result.error || 'Gagal menyimpan model.');
+      setModelPickerOpen(false);
       await refreshRouterStatus();
       setActivity('Model AI berhasil disimpan.');
       setError(null);
+      inputRef.current?.focus();
     } catch (error) {
       setError((error as Error).message || 'Gagal menyimpan model.');
     } finally {
@@ -1552,9 +1600,13 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
 
     setHistoryOpen(false);
     setCheckpointsOpen(false);
-    setSettingsFocusTarget(command === '/model' ? 'model' : 'connect');
+    if (command === '/model') {
+      openModelPicker();
+      return;
+    }
+    setSettingsFocusTarget('connect');
     setSettingsOpen(true);
-  }, []);
+  }, [openModelPicker]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const trimmedInput = input.trim();
@@ -1684,70 +1736,209 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             <div><span>Endpoint</span><code>{routerStatus?.endpoint ?? 'https://openrouter.ai/api/v1'}</code></div>
             {routerStatus?.fallbackEndpoint ? <div><span>Endpoint cadangan</span><code>{routerStatus.fallbackEndpoint}</code></div> : null}
           </div>
-          <div className="ai-model-manager" ref={modelManagerRef}>
-            <div className="ai-model-manager-head">
-              <div>
-                <strong>Model & kemampuan</strong>
-                <p>Pilih model yang digunakan agent dan uji dukungan chat, function calling, serta input gambar.</p>
-              </div>
-              <button type="button" className="ai-settings-test" onClick={() => void refreshModelCatalog()} disabled={!routerStatus?.configured || loadingModels}>
-                {loadingModels ? 'Memuat…' : 'Muat katalog'}
-              </button>
+          <div className="ai-settings-model-shortcut">
+            <div>
+              <span>Model aktif</span>
+              <strong>{routerStatus?.model ?? 'Belum dipilih'}</strong>
+              <small>{routerStatus?.providerName ?? 'Provider AI'}</small>
             </div>
-            <label className="ai-settings-label" htmlFor="rk-model-id">ID model aktif</label>
-            <div className="ai-model-select-row">
-              <input id="rk-model-id" className="ai-settings-key" type="text" value={selectedModelDraft}
-                onChange={(event) => setSelectedModelDraft(event.target.value)} maxLength={200} spellCheck={false}
-                placeholder="mis. provider/model-name" disabled={savingModel || loading} />
-              <button type="button" className="ai-settings-save" onClick={() => void saveSelectedModel()}
-                disabled={!selectedModelDraft.trim() || savingModel || loading || selectedModelDraft.trim() === routerStatus?.model}>
-                {savingModel ? 'Menyimpan…' : selectedModelDraft.trim() === routerStatus?.model ? 'Model aktif' : 'Gunakan model'}
-              </button>
-            </div>
-            {modelCatalog ? (
-              <div className={'ai-model-catalog-result ' + (modelCatalog.ok ? 'success' : 'failure')} role={modelCatalog.ok ? 'status' : 'alert'}>
-                <span>{modelCatalog.message}</span>
-                {modelCatalog.ok ? <small>{modelCatalog.models.length} model · {modelCatalog.endpoint} · {modelCatalog.retrievedAt}</small> : null}
-                {modelCatalog.ok && modelCatalog.models.length ? (
-                  <label className="ai-model-catalog-select">
-                    <span>Model dari provider</span>
-                    <select value={selectedModelDraft} onChange={(event) => setSelectedModelDraft(event.target.value)} disabled={savingModel || loading}>
-                      <option value="">Pilih model dari katalog…</option>
-                      {modelCatalog.models.map((model) => <option key={model.id} value={model.id}>{model.id}{model.ownedBy ? ' · ' + model.ownedBy : ''}</option>)}
-                    </select>
-                  </label>
-                ) : null}
-              </div>
-            ) : null}
-            <div className="ai-model-diagnostic-actions">
-              <button type="button" className="ai-settings-test" onClick={() => void diagnoseSelectedModel()}
-                disabled={!routerStatus?.configured || loading || diagnosingModel || savingModel || selectedModelDraft.trim() !== routerStatus?.model}>
-                {diagnosingModel ? 'Menguji kemampuan…' : 'Diagnostik kemampuan'}
-              </button>
-              {selectedModelDraft.trim() !== routerStatus?.model ? <small>Simpan pilihan model sebelum menjalankan diagnostik.</small> : null}
-            </div>
-            {modelReport ? (
-              <div className="ai-model-report" role={modelReport.ok ? 'status' : 'alert'}>
-                <div className="ai-model-report-head">
-                  <strong>{modelReport.ok ? 'Hasil diagnostik' : 'Model belum siap'}</strong>
-                  <small>{modelReport.model} · {modelReport.checkedAt}</small>
-                </div>
-                {modelReport.checks.map((check) => (
-                  <div className="ai-model-check" key={check.id}>
-                    <span className={'ai-model-check-state ' + check.status}>{check.status === 'supported' ? 'Lolos' : check.status === 'unsupported' ? 'Tidak didukung' : 'Belum pasti'}</span>
-                    <div>
-                      <strong>{check.label}</strong>
-                      <p>{check.message}</p>
-                      <small>{check.durationMs} ms</small>
-                    </div>
-                  </div>
-                ))}
-                <p className="ai-model-report-note">{modelReport.message}</p>
-              </div>
-            ) : null}
+            <button type="button" className="ai-settings-save" onClick={openModelPicker}>
+              Pilih model
+            </button>
           </div>
           <p className="ai-settings-note">API key disimpan terenkripsi di perangkat ini dan tidak ditulis ke file proyek atau dibagikan ke anggota LAN. Setiap provider memakai adapter request, autentikasi, katalog model, dan format streaming yang sesuai. Katalog serta diagnostik tidak menampilkan nilai API key.</p>
         </section>
+      ) : null}
+
+      {modelPickerOpen ? (
+        <div className="ai-model-overlay" role="presentation"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) { setModelPickerOpen(false); inputRef.current?.focus(); } }}>
+          <section className="ai-model-dialog" role="dialog" aria-modal="true"
+            aria-label="Pilih model AI" tabIndex={-1}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                setModelPickerOpen(false);
+                inputRef.current?.focus();
+              }
+            }}>
+            <header className="ai-model-dialog-head">
+              <div>
+                <span className="ai-model-eyebrow">MODEL PROVIDER</span>
+                <h2>Pilih model AI</h2>
+                <p>Katalog berasal dari provider yang sedang aktif. Informasi biaya dan kemampuan hanya ditampilkan jika disediakan metadata.</p>
+              </div>
+              <button type="button" className="ai-icon-btn" aria-label="Tutup pemilih model"
+                onClick={() => { setModelPickerOpen(false); inputRef.current?.focus(); }}><IconX size={16} /></button>
+            </header>
+
+            <div className="ai-model-active-card">
+              <div className="ai-model-active-mark"><span>✓</span></div>
+              <div className="ai-model-active-copy">
+                <small>MODEL AKTIF · {routerStatus?.providerName ?? 'Provider belum dipilih'}</small>
+                <strong>{routerStatus?.model ?? 'Belum ada model aktif'}</strong>
+                <code>{routerStatus?.endpoint ?? ''}</code>
+              </div>
+              <button type="button" className="ai-settings-test ai-model-diagnostic-button"
+                onClick={() => void diagnoseSelectedModel()}
+                disabled={!routerStatus?.configured || loading || diagnosingModel || savingModel || selectedModelDraft.trim() !== routerStatus?.model}>
+                {diagnosingModel ? 'Menguji…' : 'Uji kemampuan'}
+              </button>
+            </div>
+
+            {!routerStatus?.configured ? (
+              <div className="ai-model-empty-state" role="status">
+                <strong>Hubungkan provider terlebih dahulu</strong>
+                <p>Daftar model belum bisa dimuat karena API key provider belum dikonfigurasi.</p>
+                <button type="button" className="ai-settings-save" onClick={() => {
+                  setModelPickerOpen(false);
+                  setSettingsFocusTarget('connect');
+                  setSettingsOpen(true);
+                }}>Buka /connect</button>
+              </div>
+            ) : (
+              <>
+                <div className="ai-model-catalog-toolbar">
+                  <label className="ai-model-search-wrap" htmlFor="rk-model-search">
+                    <span aria-hidden="true">⌕</span>
+                    <input id="rk-model-search" type="search" autoFocus value={modelSearchQuery}
+                      onChange={(event) => setModelSearchQuery(event.target.value)}
+                      placeholder="Cari nama model, ID, provider, modalitas…"
+                      autoComplete="off" spellCheck={false} />
+                    {modelSearchQuery ? <button type="button" aria-label="Hapus pencarian"
+                      onClick={() => setModelSearchQuery('')}>×</button> : null}
+                  </label>
+                  <button type="button" className="ai-settings-test ai-model-refresh"
+                    onClick={() => void refreshModelCatalog()} disabled={loadingModels}>
+                    {loadingModels ? 'Memuat…' : 'Muat ulang'}
+                  </button>
+                </div>
+
+                <div className="ai-model-price-filters" role="group" aria-label="Filter biaya model">
+                  {([
+                    ['all', 'Semua', modelCostCounts.all],
+                    ['free', 'Gratis', modelCostCounts.free],
+                    ['premium', 'Premium', modelCostCounts.premium],
+                    ['unknown', 'Harga belum diketahui', modelCostCounts.unknown],
+                  ] as Array<[ModelCostFilter, string, number]>).map(([value, label, count]) => (
+                    <button key={value} type="button" className={modelCostFilter === value ? 'active' : ''}
+                      aria-pressed={modelCostFilter === value}
+                      onClick={() => setModelCostFilter(value)}>
+                      {label}<span>{count}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="ai-model-catalog-state" aria-live="polite">
+                  {loadingModels ? <span><Spinner size={12} /> Mengambil katalog dari {routerStatus.providerName}…</span>
+                    : modelCatalog?.ok
+                      ? <span>{modelCatalogOptions.length} model cocok · diperbarui {modelCatalog.retrievedAt ? new Date(modelCatalog.retrievedAt).toLocaleTimeString() : 'baru saja'}</span>
+                      : modelCatalog?.message
+                        ? <span className="ai-model-catalog-error">{modelCatalog.message}</span>
+                        : <span>Katalog model belum dimuat.</span>}
+                </div>
+
+                <div className="ai-model-options" role="list" aria-label="Daftar model tersedia">
+                  {loadingModels && !modelCatalog ? (
+                    <div className="ai-model-empty-state"><Spinner size={18} /><strong>Memuat katalog model…</strong></div>
+                  ) : !modelCatalog?.ok ? (
+                    <div className="ai-model-empty-state">
+                      <strong>Katalog belum tersedia</strong>
+                      <p>Pastikan API key memiliki akses ke endpoint model, lalu coba muat ulang.</p>
+                    </div>
+                  ) : modelCatalogOptions.length === 0 ? (
+                    <div className="ai-model-empty-state">
+                      <strong>Tidak ada model yang cocok</strong>
+                      <p>Coba ubah kata pencarian atau pilih filter biaya yang lain.</p>
+                    </div>
+                  ) : modelCatalogOptions.map((model: AgentModelInfo) => {
+                    const isActive = model.id === routerStatus.model;
+                    const isDraft = model.id === selectedModelDraft.trim();
+                    const toolMetadata = model.supportedParameters?.some(parameter => /tools?|tool_choice|function/.test(parameter)) ?? false;
+                    const modalityTags = [
+                      ...(model.inputModalities ?? []).map(modality => ({ label: 'Input ' + modality, key: 'in-' + modality })),
+                      ...(model.outputModalities ?? []).map(modality => ({ label: 'Output ' + modality, key: 'out-' + modality })),
+                    ];
+                    return (
+                      <div key={model.id} role="listitem">
+                        <button type="button"
+                          className={'ai-model-option' + (isActive ? ' is-active' : '') + (isDraft ? ' is-selected' : '')}
+                          aria-pressed={isDraft}
+                          onClick={() => setSelectedModelDraft(model.id)}>
+                        <div className="ai-model-option-heading">
+                          <div>
+                            <strong>{model.name || model.id}</strong>
+                            <code>{model.id}</code>
+                          </div>
+                          <div className="ai-model-option-flags">
+                            {isActive ? <span className="ai-model-tag active">Aktif</span> : null}
+                            {isDraft && !isActive ? <span className="ai-model-tag selected">Dipilih</span> : null}
+                            <span className={'ai-model-tag cost-' + model.costTier}>
+                              {model.costTier === 'free' ? 'Gratis'
+                                : model.costTier === 'premium' ? 'Premium'
+                                  : 'Harga belum diketahui'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="ai-model-option-meta">
+                          {model.ownedBy ? <span>{model.ownedBy}</span> : null}
+                          {model.contextLength !== undefined ? <span>{model.contextLength.toLocaleString()} token konteks</span> : null}
+                          {modalityTags.map(tag => <span key={tag.key}>{tag.label}</span>)}
+                          {toolMetadata ? <span>Tool calling tercantum</span> : null}
+                          {model.supportedGenerationMethods?.length ? <span>API: {model.supportedGenerationMethods.join(', ')}</span> : null}
+                          {model.promptPrice !== undefined && model.completionPrice !== undefined ? (
+                            <span>Input ${((model.promptPrice ?? 0) * 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 4 })} · Output ${((model.completionPrice ?? 0) * 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 4 })} / 1 juta token</span>
+                          ) : null}
+                          {!modalityTags.length && !toolMetadata && !model.supportedGenerationMethods?.length
+                            ? <span>Modalitas dan dukungan tools belum tercantum di metadata</span> : null}
+                        </div>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="ai-model-dialog-footer">
+                  <label className="ai-model-custom-id" htmlFor="rk-model-custom-id">
+                    <span>ID model pilihan</span>
+                    <input id="rk-model-custom-id" value={selectedModelDraft}
+                      onChange={(event) => setSelectedModelDraft(event.target.value)}
+                      maxLength={200} spellCheck={false} placeholder="Pilih dari katalog atau masukkan ID model…" />
+                  </label>
+                  <button type="button" className="ai-settings-save ai-model-apply"
+                    disabled={!selectedModelDraft.trim() || savingModel || loading || selectedModelDraft.trim() === routerStatus?.model}
+                    onClick={() => void saveSelectedModel()}>
+                    {savingModel ? 'Menyimpan…' : selectedModelDraft.trim() === routerStatus?.model ? 'Model sedang aktif' : 'Gunakan model'}
+                  </button>
+                </div>
+
+                {error ? <div className="ai-model-catalog-error" role="alert">{error}</div> : null}
+                {modelReport ? (
+                  <div className="ai-model-report" role={modelReport.ok ? 'status' : 'alert'}>
+                    <div className="ai-model-report-head">
+                      <strong>{modelReport.ok ? 'Hasil diagnostik' : 'Model belum siap'}</strong>
+                      <small>{modelReport.model} · {new Date(modelReport.checkedAt).toLocaleString()}</small>
+                    </div>
+                    {modelReport.checks.map(check => (
+                      <div className="ai-model-check" key={check.id}>
+                        <span className={'ai-model-check-state ' + check.status}>
+                          {check.status === 'supported' ? 'Lolos' : check.status === 'unsupported' ? 'Tidak didukung' : 'Belum pasti'}
+                        </span>
+                        <div>
+                          <strong>{check.label}</strong>
+                          <p>{check.message}</p>
+                          <small>{check.durationMs} ms</small>
+                        </div>
+                      </div>
+                    ))}
+                    <p className="ai-model-report-note">{modelReport.message}</p>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </section>
+        </div>
       ) : null}
 
       {historyOpen ? (

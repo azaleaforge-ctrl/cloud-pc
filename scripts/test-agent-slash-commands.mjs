@@ -19,8 +19,15 @@ assert.ok(chat.includes("const exactCommand = AGENT_SLASH_COMMANDS.find"), 'full
 assert.ok(chat.includes("if (trimmedInput.startsWith('/'))"), 'slash inputs must be handled by the command router before normal chat send');
 assert.ok(chat.includes('Perintah ') && chat.includes('typedCommand') && chat.includes('tidak dikenal.'),
   'unknown slash commands must report an error instead of being sent to the AI');
-assert.ok(chat.includes("setSettingsFocusTarget(command === '/model' ? 'model' : 'connect')"),
-  '/connect and /model must open the existing connection/model panel until provider/model modals are introduced');
+assert.ok(chat.includes("if (command === '/model') {") && chat.includes('openModelPicker();'),
+  '/model must open a dedicated model picker modal, not the connection settings panel');
+assert.ok(chat.includes("setSettingsFocusTarget('connect')"), '/connect must focus the provider connection settings');
+assert.ok(chat.includes('className="ai-model-dialog" role="dialog" aria-modal="true"'),
+  '/model must open an accessible, dedicated modal dialog');
+assert.ok(chat.includes('modelCostFilter') && chat.includes('modelSearchQuery'),
+  'the model picker must have functional cost filters and search');
+assert.ok(chat.includes("model.costTier === 'free'") && chat.includes("model.costTier === 'premium'"),
+  'cost filters must use cost tier exposed by provider metadata');
 
 assert.ok(chat.includes('className="ai-session-overlay"') && chat.includes('className="ai-session-history ai-sessions-modal"'),
   '/sessions must open a centered modal');
@@ -39,7 +46,9 @@ assert.ok(css.includes('.ai-slash-menu {') && css.includes('max-height: 320px;')
 assert.ok(css.includes('.ai-session-overlay {') && css.includes('justify-content: center;') && css.includes('align-items: center;'),
   'the session picker must be centered on screen');
 assert.ok(css.includes('.ai-panel.fullsize .ai-settings {') && css.includes('max-height: min(48vh, 420px);'),
-  '/connect and /model settings must be independently scrollable while their dedicated modals are pending');
+  '/connect settings must remain independently scrollable');
+assert.ok(css.includes('.ai-model-overlay {') && css.includes('.ai-model-options {') && css.includes('overscroll-behavior: contain;'),
+  'the model picker must be a centered overlay with an internally scrollable model list');
 assert.ok(css.includes('.ai-sessions-modal-list {') && css.includes('max-height: min(255px, 42vh);') && css.includes('overflow-y: auto;'),
   'the session list must scroll internally after roughly three rows');
 assert.ok(chat.includes('disabled={loading || !sessionReady || !activeAgent}'),

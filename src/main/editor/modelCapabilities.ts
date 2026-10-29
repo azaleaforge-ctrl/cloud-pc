@@ -81,13 +81,27 @@ async function requestJson(url: string, apiKey: string, body?: unknown, provider
   return { response, data };
 }
 
+function finiteNonNegativeNumber(value: unknown): number | undefined {
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+  if (typeof value === 'string' && !value.trim()) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function metadataStrings(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const values = [...new Set(value.filter((item): item is string => typeof item === 'string')
+    .map(item => item.trim().toLowerCase()).filter(Boolean))].slice(0, 32);
+  return values.length ? values : undefined;
+}
+
 export function parseModels(data: Record<string, unknown>, provider: AgentProviderId = 'legacy'): AgentModelInfo[] {
   const raw: unknown[] = provider === 'gemini'
     ? (Array.isArray(data.models) ? data.models : []).flatMap(item => {
         if (!item || typeof item !== 'object') return [];
         const record = item as Record<string, unknown>;
-        const methods = Array.isArray(record.supportedGenerationMethods) ? record.supportedGenerationMethods : null;
-        if (methods && !methods.some(method => method === 'generateContent' || method === 'streamGenerateContent')) return [];
+        const methods = metadataStrings(record.supportedGenerationMethods);
+        if (methods && !methods.some(method => method === 'generatecontent' || method === 'streamgeneratecontent')) return [];
         const rawName = typeof record.name === 'string' ? record.name : '';
         const id = rawName.replace(/^models\//, '');
         if (!id) return [];
@@ -95,6 +109,10 @@ export function parseModels(data: Record<string, unknown>, provider: AgentProvid
           id,
           name: typeof record.displayName === 'string' ? record.displayName : id,
           owned_by: 'Google',
+          context_length: record.inputTokenLimit,
+          output_token_limit: record.outputTokenLimit,
+          supported_generation_methods: record.supportedGenerationMethods,
+          description: record.description,
         }];
       })
     : (Array.isArray(data.data) ? data.data : Array.isArray(data.models) ? data.models : []);
@@ -108,10 +126,36 @@ export function parseModels(data: Record<string, unknown>, provider: AgentProvid
     try { id = normalizeModelId(record.id); } catch { continue; }
     if (seen.has(id)) continue;
     seen.add(id);
+
+    const architecture = record.architecture && typeof record.architecture === 'object'
+      ? record.architecture as Record<string, unknown>
+      : {};
+    const pricing = record.pricing && typeof record.pricing === 'object'
+      ? record.pricing as Record<string, unknown>
+      : {};
+    const promptPrice = finiteNonNegativeNumber(pricing.prompt);
+    const completionPrice = finiteNonNegativeNumber(pricing.completion);
+    const costTier: AgentModelInfo['costTier'] = promptPrice !== undefined && completionPrice !== undefined
+      ? (promptPrice === 0 && completionPrice === 0 ? 'free' : 'premium')
+      : 'unknown';
+    const contextLength = finiteNonNegativeNumber(record.context_length);
+    const inputModalities = metadataStrings(architecture.input_modalities);
+    const outputModalities = metadataStrings(architecture.output_modalities);
+    const supportedParameters = metadataStrings(record.supported_parameters);
+    const supportedGenerationMethods = metadataStrings(record.supported_generation_methods);
+
     result.push({
       id,
       ...(typeof record.name === 'string' ? { name: record.name.slice(0, 180) } : {}),
       ...(typeof record.owned_by === 'string' ? { ownedBy: record.owned_by.slice(0, 100) } : {}),
+      ...(contextLength !== undefined ? { contextLength } : {}),
+      ...(inputModalities ? { inputModalities } : {}),
+      ...(outputModalities ? { outputModalities } : {}),
+      ...(supportedParameters ? { supportedParameters } : {}),
+      ...(supportedGenerationMethods ? { supportedGenerationMethods } : {}),
+      ...(promptPrice !== undefined ? { promptPrice } : {}),
+      ...(completionPrice !== undefined ? { completionPrice } : {}),
+      costTier,
     });
     if (result.length >= 500) break;
   }

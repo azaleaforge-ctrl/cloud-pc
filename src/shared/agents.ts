@@ -188,10 +188,20 @@ export interface AgentRouterTestResult {
   model?: string;
 }
 
+export type AgentModelCostTier = 'free' | 'premium' | 'unknown';
+
 export interface AgentModelInfo {
   id: string;
   name?: string;
   ownedBy?: string;
+  contextLength?: number;
+  inputModalities?: string[];
+  outputModalities?: string[];
+  supportedParameters?: string[];
+  supportedGenerationMethods?: string[];
+  promptPrice?: number;
+  completionPrice?: number;
+  costTier: AgentModelCostTier;
 }
 
 export interface AgentModelCatalogResult {
