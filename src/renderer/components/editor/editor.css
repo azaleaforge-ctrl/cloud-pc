@@ -3590,3 +3590,39 @@ button.ed-status-item:hover {
   .ai-question-submit { width: 100%; }
   .ai-panel.fullsize .ai-composer { padding-left: 8px; padding-right: 8px; }
 }
+
+
+/* ---------- v1.0.7 Stage 1: bounded, independently scrollable right-panel cards ---------- */
+.ai-agent-sidepanel {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+}
+.ai-agent-sidepanel > .ai-side-card {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.ai-agent-sidepanel > .ai-side-card.ai-side-workspace-card {
+  max-height: 150px;
+}
+.ai-agent-sidepanel > .ai-side-card.ai-side-skills-card {
+  max-height: 210px;
+}
+.ai-agent-sidepanel > .ai-side-card.ai-side-tools-card {
+  max-height: 210px;
+}
+.ai-agent-sidepanel > .ai-side-card.ai-side-todo-card,
+.ai-agent-sidepanel > .ai-side-card.ai-side-changes-card {
+  min-height: 130px;
+  max-height: 265px;
+}
+.ai-agent-sidepanel .ai-side-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+}
