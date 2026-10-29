@@ -46,7 +46,7 @@ const textExts = new Set(Object.keys(MIME).filter((ext) =>
 const records = new Map<string, Stored>();
 
 function safeZip(buffer: Buffer): ZipArchive {
-  const zip = safeZip(buffer);
+  const zip = new AdmZip(buffer);
   const entries = zip.getEntries();
   if (entries.length > ZIP_ENTRY_COUNT_MAX) throw new Error('Arsip Office memiliki terlalu banyak bagian.');
   let unpacked = 0;
@@ -79,7 +79,7 @@ function decodeXml(value: string): string {
   const decodeCodepoint = (raw: string, radix: number): string => {
     const codepoint = Number.parseInt(raw, radix);
     if (!Number.isInteger(codepoint) || codepoint < 0 || codepoint > 0x10ffff ||
-        (codepoint >= 0xd800 && codepoint <= 0xdfff)) return '\\uFFFD';
+        (codepoint >= 0xd800 && codepoint <= 0xdfff)) return '\uFFFD';
     return String.fromCodePoint(codepoint);
   };
   return value.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
