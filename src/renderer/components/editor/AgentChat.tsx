@@ -305,7 +305,7 @@ function MessageBubble({
           <summary aria-label="Buka aksi pesan" title="Aksi pesan">•••</summary>
           <div className="ai-message-actions-menu" role="group" aria-label="Aksi pesan pengguna">
             <button type="button" onClick={() => onCopy(msg.content)}>
-              <IconCopy size={13} /> Salin prompt
+              {copied ? <IconCheck size={13} /> : <IconCopy size={13} />} {copied ? 'Prompt tersalin' : 'Salin prompt'}
             </button>
             <button type="button" disabled={actionsDisabled} onClick={() => onRefork(msg)}>
               Revert / Refork
@@ -749,6 +749,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [checkpoints, setCheckpoints] = useState<AgentCheckpointSummary[]>([]);
   const [checkpointsOpen, setCheckpointsOpen] = useState(false);
   const [checkpointActionBusy, setCheckpointActionBusy] = useState<string | null>(null);
+  const checkpointActionInFlightRef = useRef<string | null>(null);
   const firstSessionLoadRef = useRef(true);
   const [activeSkills, setActiveSkills] = useState<AgentSkillSelection[]>([]);
   const [todos, setTodos] = useState<AgentTodo[]>([]);
@@ -1196,10 +1197,16 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     return () => window.clearTimeout(timer);
   }, [testResult]);
 
-  const saveCopied = useCallback((text: string) => {
-    void navigator.clipboard?.writeText(text).catch(() => undefined);
-    setCopiedMsg(text);
-    window.setTimeout(() => setCopiedMsg(null), 1800);
+  const saveCopied = useCallback(async (text: string) => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard browser tidak tersedia.');
+      await navigator.clipboard.writeText(text);
+      setCopiedMsg(text);
+      setError(null);
+      window.setTimeout(() => setCopiedMsg(current => current === text ? null : current), 1800);
+    } catch {
+      setError('Tidak dapat menyalin pesan. Periksa izin clipboard aplikasi lalu coba lagi.');
+    }
   }, []);
 
   const pickAttachments = useCallback(async () => {
@@ -1566,7 +1573,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   }, [sessions, conversationId, wb.root]);
 
   const runCheckpointAction = useCallback(async (checkpointId: string, action: 'rewind' | 'redo') => {
-    if (loading || checkpointActionBusy) return;
+    if (loading || checkpointActionInFlightRef.current !== null) return;
+    checkpointActionInFlightRef.current = checkpointId;
     setCheckpointActionBusy(checkpointId);
     setError(null);
     try {
@@ -1584,9 +1592,10 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     } catch (error) {
       setError((error as Error).message || 'Operasi checkpoint gagal.');
     } finally {
+      if (checkpointActionInFlightRef.current === checkpointId) checkpointActionInFlightRef.current = null;
       setCheckpointActionBusy(null);
     }
-  }, [loading, checkpointActionBusy, conversationId]);
+  }, [loading, conversationId]);
 
   const reforkFromMessage = useCallback(async (message: ChatMessage) => {
     if (loading || !sessionReady || !wb.root) return;
