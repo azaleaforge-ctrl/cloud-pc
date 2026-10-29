@@ -170,7 +170,7 @@ async function testRequest(
     let requestUrl = endpoint + '/chat/completions';
     let requestBody: unknown = body;
     if (provider === 'gemini') {
-      const model = normalizeModelId(String(body.model ?? config.models[0] ?? 'gemini-2.5-flash'));
+      const model = normalizeModelId(String(body.model ?? config.models[0] ?? 'gemini-3.8-flash'));
       requestUrl = endpoint.replace(/\/+$/, '') + '/models/' + encodeURIComponent(model.replace(/^models\//, '')) + ':generateContent';
       const rawChoice = body.tool_choice;
       const toolChoice = rawChoice === 'required' || (rawChoice && typeof rawChoice === 'object')
@@ -337,7 +337,7 @@ export async function diagnoseModelCapabilities(config: RouterConfig, requestedM
 
 export async function testProviderConnection(config: RouterConfig): Promise<AgentRouterTestResult> {
   if (!config.apiKey) return { ok: false, message: 'API key provider belum disetel.' };
-  const model = config.models[0] || (config.provider === 'gemini' ? 'gemini-2.5-flash' : 'openai/gpt-4o-mini');
+  const model = config.models[0] || (config.provider === 'gemini' ? 'gemini-3.8-flash' : 'openai/gpt-4o-mini');
   const endpoint = uniqueEndpoints(config)[0];
   if (!endpoint) return { ok: false, message: 'Endpoint provider belum tersedia.' };
   const outcome = await testRequest(endpoint, { ...config, models: [model] }, {
