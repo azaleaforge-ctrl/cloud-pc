@@ -22,7 +22,8 @@ function parseFunctionArguments(value: unknown): unknown {
 }
 
 interface GeminiMediaBudget { bytes: number; }
-const GEMINI_INLINE_MEDIA_MAX = 14 * 1024 * 1024;
+const GEMINI_INLINE_MEDIA_MAX = 12 * 1024 * 1024;
+const GEMINI_INLINE_REQUEST_MAX = 19_000_000;
 
 function geminiInlineData(url: string, mediaBudget: GeminiMediaBudget, expectedType: 'image' | 'media'): JsonRecord {
   const match = /^data:([^;,]+);base64,([A-Za-z0-9+/=\r\n]+)$/.exec(url);
@@ -43,7 +44,7 @@ function geminiInlineData(url: string, mediaBudget: GeminiMediaBudget, expectedT
   const decodedBytes = Buffer.from(data, 'base64').byteLength;
   mediaBudget.bytes += decodedBytes;
   if (mediaBudget.bytes > GEMINI_INLINE_MEDIA_MAX) {
-    throw new Error('Total gambar/audio/video/PDF yang dikirim langsung ke Gemini maksimal 14 MiB per permintaan. Kurangi jumlah atau ukuran media.');
+    throw new Error('Total gambar/audio/video/PDF yang dikirim langsung ke Gemini maksimal 12 MiB per permintaan. Kurangi jumlah atau ukuran media.');
   }
   return { inlineData: { mimeType, data } };
 }
@@ -231,6 +232,11 @@ export function buildGeminiRequestBody(options: GeminiRequestOptions): JsonRecor
         mode: options.toolChoice === 'required' ? 'ANY' : 'AUTO',
       },
     };
+  }
+  // Gemini inline media is limited by the complete JSON request size, not just
+  // raw bytes. Base64 expands the file and the prompt/tool schema add overhead.
+  if (mediaBudget.bytes > 0 && Buffer.byteLength(JSON.stringify(body), 'utf8') > GEMINI_INLINE_REQUEST_MAX) {
+    throw new Error('Ukuran total permintaan media inline ke Gemini terlalu besar (batas aman 19 MB). Kurangi ukuran/jumlah media atau ringkas prompt dan konteks sebelum mengirim.');
   }
   return body;
 }
