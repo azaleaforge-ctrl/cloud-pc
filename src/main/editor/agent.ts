@@ -13,6 +13,7 @@ import type { IPty } from '@lydell/node-pty';
 import type { AgentAttachmentRef, AgentEntry, AgentEvent, AgentFileChange, AgentQuestionOption, AgentRunResult, AgentSkillInfo, AgentSkillSelection, AgentTodo, AgentToolActivity, ChatMessage, RouterConfig } from '../../shared/agents';
 import { applyAgentTodoUpdate } from './agentTodo';
 import { installBuiltinSkills, loadAgentSkillInstructions, selectAgentSkills } from './skills';
+import { loadInstalledSkillInstructions } from './installedSkills';
 import { startTerminalCommand } from './terminalRuntime';
 import { getAgentTerminalGuidance, resolveTerminalShell } from './terminalShell';
 import { getToolRecoveryHint, isToolFailureResult, repeatedFailureSignature, repeatedNoProgressActionSignature } from './agentFailureGuard';
@@ -1165,7 +1166,9 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         .slice(-6000);
       await installBuiltinSkills(userDataDir);
       const skillSelections = selectAgentSkills(latestUserText + ' ' + attachmentHints, activePath, inventory, priorUserContext);
-      const skillInstructions = await loadAgentSkillInstructions(userDataDir, skillSelections);
+      const builtinSkillInstructions = await loadAgentSkillInstructions(userDataDir, skillSelections);
+      const installedSkillInstructions = await loadInstalledSkillInstructions(userDataDir);
+      const skillInstructions = [builtinSkillInstructions, installedSkillInstructions].filter(Boolean).join('\n\n');
       const sessionMemory = session.isConversationCurrent()
         ? await readFile(session.memoryPath, 'utf8').catch(() => '')
         : '';

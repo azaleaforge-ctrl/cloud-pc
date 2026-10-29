@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict';
+import { build } from 'esbuild';
+import { createRequire } from 'node:module';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const temp = await mkdtemp(join(tmpdir(), 'rk-installed-skills-'));
+try {
+  const bundlePath = join(temp, 'installed-skills.cjs');
+  await build({ entryPoints: [join(root, 'src/main/editor/installedSkills.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: bundlePath, logLevel: 'silent' });
+  const require = createRequire(import.meta.url);
+  const api = require(bundlePath);
+  const userData = join(temp, 'user-data');
+  const source = join(temp, 'SKILL.md');
+  await writeFile(source, '---\nname: "Regression Skill"\n---\n# Regression Skill\n\nUse tests for every bug fix.\n');
+  const installed = await api.importAgentSkill(userData, source);
+  assert.equal(installed.ok, true);
+  assert.equal(installed.skill.name, 'Regression Skill');
+  assert.match(installed.skill.id, /^regression-skill-[a-f0-9]{8}$/);
+  const listed = await api.listInstalledAgentSkills(userData);
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].id, installed.skill.id);
+  const prompt = await api.loadInstalledSkillInstructions(userData);
+  assert.ok(prompt.includes('Regression Skill') && prompt.includes('Use tests for every bug fix.'));
+  assert.deepEqual(await api.uninstallAgentSkill(userData, '../SKILL.md'), { ok: false, error: 'ID skill impor tidak valid.' });
+  assert.equal((await api.uninstallAgentSkill(userData, installed.skill.id)).ok, true);
+  assert.equal((await api.listInstalledAgentSkills(userData)).length, 0);
+  const invalid = join(temp, 'invalid.txt');
+  await writeFile(invalid, '# not a supported extension');
+  assert.equal((await api.importAgentSkill(userData, invalid)).ok, false);
+  const malformed = join(temp, 'malformed.md');
+  await writeFile(malformed, 'plain text without a markdown heading or frontmatter');
+  assert.equal((await api.importAgentSkill(userData, malformed)).ok, false);
+  const oversized = join(temp, 'oversized.md');
+  await writeFile(oversized, '# Too large\n' + 'x'.repeat(50 * 1024));
+  assert.equal((await api.importAgentSkill(userData, oversized)).ok, false);
+  console.log('Installed skill manager tests: all assertions passed.');
+} finally { await rm(temp, { recursive: true, force: true }); }

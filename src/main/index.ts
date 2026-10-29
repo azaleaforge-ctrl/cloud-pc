@@ -42,6 +42,7 @@ import {
   saveAgentSession,
 } from './editor/agentSessionStore';
 import type { RouterConfig } from '../shared/agents';
+import { importAgentSkill, listInstalledAgentSkills, uninstallAgentSkill } from './editor/installedSkills';
 import { scanProjectEntries } from './fsScan';
 import { watchProjectFileChanges, type ProjectFileWatch } from './projectFileWatcher';
 import { openEmbeddedIde, closeEmbeddedIde, resizeEmbeddedIde, focusEmbeddedIde } from './nativeHost';
@@ -1262,6 +1263,27 @@ function registerIpc(): void {
     return diagnoseModelCapabilities(config, selected);
   });
   ipcMain.handle('rk:agent:list-skills', () => agentService.listSkills());
+  ipcMain.handle('rk:agent:list-installed-skills', () => listInstalledAgentSkills(app.getPath('userData')));
+  ipcMain.handle('rk:agent:import-skill', async () => {
+    try {
+      const selected = await dialog.showOpenDialog({
+        properties: ['openFile'],
+        filters: [{ name: 'Agent Skill Markdown', extensions: ['md', 'markdown'] }],
+        title: 'Pilih file SKILL.md untuk diimpor',
+      });
+      if (selected.canceled || selected.filePaths.length === 0) return { ok: false, cancelled: true };
+      return await importAgentSkill(app.getPath('userData'), selected.filePaths[0]);
+    } catch (error) {
+      return { ok: false, error: (error as Error).message || 'Skill gagal diimpor.' };
+    }
+  });
+  ipcMain.handle('rk:agent:uninstall-skill', async (_e, id: string) => {
+    try {
+      return await uninstallAgentSkill(app.getPath('userData'), id);
+    } catch (error) {
+      return { ok: false, error: (error as Error).message || 'Skill gagal dihapus.' };
+    }
+  });
   ipcMain.handle('rk:agent:pick-attachments', async () => {
     try {
       const selected = await dialog.showOpenDialog({
