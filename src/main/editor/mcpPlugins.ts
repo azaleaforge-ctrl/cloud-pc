@@ -276,7 +276,9 @@ function notifyInitialized(runtime: RuntimeMcpPlugin): void {
 function runtimeEnv(plugin: StoredMcpPlugin): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && !SENSITIVE_ENV_NAME.test(key) && !BLOCKED_ENV_OVERRIDES.test(key)) env[key] = value;
+    // Keep execution essentials (PATH, SystemRoot, ComSpec, TEMP, etc.) so package managers work,
+    // but do not leak common API tokens or permit Node/Electron runtime injection into plugins.
+    if (value !== undefined && !SENSITIVE_ENV_NAME.test(key) && !/^(?:NODE_OPTIONS|ELECTRON_RUN_AS_NODE)$/i.test(key)) env[key] = value;
   }
   for (const [key, raw] of Object.entries(plugin.env)) {
     const reference = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(raw);
