@@ -1257,17 +1257,11 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         ...inputMessages.filter((message) => message.role === 'user' || message.role === 'assistant')
           .map((message) => {
             const resolved = resolveAgentAttachments(message.attachments ?? []);
+            // The resolver rejects missing/expired refs. Never let a request continue
+            // with only a note pretending the original document/audio/video was present.
             const documents = resolved.filter(item => item.text)
               .map(item => '--- LAMPIRAN: ' + item.name + ' (' + item.mimeType + ') ---\n' + item.text);
-            const missing = (message.attachments ?? []).filter(ref => !resolved.some(item => item.id === ref.id));
-            const unavailableDirectMedia = missing.filter(item => /^(audio|video)\//i.test(item.mimeType));
-            if (unavailableDirectMedia.length && config.provider !== 'gemini') {
-              throw new Error('Lampiran audio/video pada riwayat ini tidak tersedia lagi atau belum bisa diproses oleh provider yang aktif. Hubungkan Google Gemini melalui /connect dan lampirkan ulang media tersebut.');
-            }
-            const expiryNote = missing.length
-              ? '[Lampiran sudah kedaluwarsa dari memori lokal; minta pengguna melampirkan ulang: ' + missing.map(item => item.name).join(', ') + ']'
-              : '';
-            const baseTextContent = [message.content, ...documents, expiryNote].filter(Boolean).join('\n\n');
+            const baseTextContent = [message.content, ...documents].filter(Boolean).join('\n\n');
             const images = resolved.filter(item => item.dataUrl && item.mimeType.startsWith('image/'));
             const mediaCandidates = resolved.filter(item => item.dataUrl && !item.mimeType.startsWith('image/'));
             const pdfNeedsOcr = resolved.some(item =>
