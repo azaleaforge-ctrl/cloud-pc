@@ -84,6 +84,23 @@ try {
     );
   });
 
+  test('groups repeated lint diagnostics when only file locations change', () => {
+    const first = [
+      'Status: failed',
+      'Exit code: 1',
+      "src/app/profile/page.tsx:232:18 - Error: ' character must be escaped (react/no-unescaped-entities)",
+    ].join('\\n');
+    const second = [
+      'Status: failed',
+      'Exit code: 1',
+      "src/app/posts/page.tsx:87:3 - Error: ' character must be escaped (react/no-unescaped-entities)",
+    ].join('\\n');
+    assert.equal(
+      guard.repeatedFailureSignature('run_terminal', first),
+      guard.repeatedFailureSignature('run_terminal', second),
+    );
+  });
+
   test('classifies recurring npm network failures consistently', () => {
     const first = 'Status: failed\nExit code: 1\nnpm ERR! code ECONNRESET\nrequest reset';
     const second = 'Status: failed\nExit code: 1\nnpm ERR! code ECONNRESET\nconnection lost';
