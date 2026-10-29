@@ -1392,6 +1392,29 @@ async function createWindow(): Promise<void> {
       webviewTag: true,
     },
   });
+  // Treat the embedded browser as untrusted remote content. Do not allow a
+  // page to smuggle a preload, enable Node integration, or start on an unsafe URL.
+  win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    let target: URL;
+    try {
+      target = new URL(params.src);
+    } catch {
+      event.preventDefault();
+      return;
+    }
+    if ((target.protocol !== 'http:' && target.protocol !== 'https:') || target.username || target.password) {
+      event.preventDefault();
+      return;
+    }
+    delete webPreferences.preload;
+    webPreferences.nodeIntegration = false;
+    webPreferences.nodeIntegrationInSubFrames = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+    webPreferences.webSecurity = true;
+    webPreferences.allowRunningInsecureContent = false;
+  });
+
   win.once('ready-to-show', () => {
     if (!win || win.isDestroyed()) return;
     // The workspace is designed as a full desktop workspace, not a half-sized utility window.
@@ -1438,7 +1461,15 @@ async function createWindow(): Promise<void> {
     }
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    try {
+      const target = new URL(url);
+      if ((target.protocol === 'http:' || target.protocol === 'https:') &&
+          !target.username && !target.password) {
+        void shell.openExternal(target.toString()).catch(() => undefined);
+      }
+    } catch {
+      // Invalid or non-web schemes are intentionally denied.
+    }
     return { action: 'deny' };
   });
   await win.loadFile(join(__dirname, '../renderer/index.html'));
