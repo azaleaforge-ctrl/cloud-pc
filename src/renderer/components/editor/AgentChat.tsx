@@ -839,7 +839,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setSelectedChange(null);
     setActiveSkills([]);
     setToolActivities([]);
-remove terminal reset duplicate    setTerminalHistory([]);
+    setTerminalHistory([]);
     setLastRunResult(null);
     setError(null);
 
