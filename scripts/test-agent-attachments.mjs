@@ -35,9 +35,26 @@ try{
  slideZip.addFile('ppt/slides/slide1.xml',Buffer.from('<p:sld xmlns:p="urn:p" xmlns:a="urn:a"><a:t>Quarterly Report</a:t></p:sld>'));
  const slide=await make('slides.pptx',slideZip.toBuffer()),slideRefs=await prepareAgentAttachments([slide]);
  test('PPTX extraction reads slide text',()=>assert.match(resolveAgentAttachments(slideRefs)[0].text,/Quarterly Report/));
- const image=await make('photo.png',Buffer.from([137,80,78,71,13,10,26,10]));
+ const image=await make('photo.png',Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC','base64'));
  const imageRefs=await prepareAgentAttachments([image]);
  test('image data stays in main-process payload, not renderer ref',()=>{assert.equal('dataUrl' in imageRefs[0],false);assert.match(resolveAgentAttachments(imageRefs)[0].dataUrl,/^data:image\/png;base64,/);});
+ const scannedPdf=await make('scan.pdf',Buffer.from('%PDF-1.4\\n%%EOF','utf8'));
+ const scannedRefs=await prepareAgentAttachments([scannedPdf]);
+ test('scanned PDF retains its original file for provider-side OCR fallback',()=>{const item=resolveAgentAttachments(scannedRefs)[0];assert.match(item.text,/OCR/i);assert.match(item.dataUrl,/^data:application\/pdf;base64,/);});
+ const mp3=await make('recording.mp3',Buffer.from('ID3\\u0004\\u0000\\u0000\\u0000','binary'));
+ const mp3Refs=await prepareAgentAttachments([mp3]);
+ test('audio attachments retain MIME-tagged main-process payloads',()=>{const item=resolveAgentAttachments(mp3Refs)[0];assert.equal(item.mimeType,'audio/mpeg');assert.match(item.dataUrl,/^data:audio\/mpeg;base64,/);});
+ const mp4=await make('clip.mp4',Buffer.from([0,0,0,24,0x66,0x74,0x79,0x70,0x69,0x73,0x6f,0x6d]));
+ const mp4Refs=await prepareAgentAttachments([mp4]);
+ test('video attachments retain MIME-tagged main-process payloads',()=>{const item=resolveAgentAttachments(mp4Refs)[0];assert.equal(item.mimeType,'video/mp4');assert.match(item.dataUrl,/^data:video\/mp4;base64,/);});
+ const malformedImage=await make('fake.png',Buffer.from([137,80,78,71,13,10,26,10]));
+ let malformedImageRejected=false;
+ try{await prepareAgentAttachments([malformedImage]);}catch(error){malformedImageRejected=/signature|header/i.test(error.message);}
+ test('rejects image files that contain only a PNG signature without a valid header',()=>assert.equal(malformedImageRejected,true));
+ const malformedAudio=await make('fake.mp3',Buffer.from('not audio'));
+ let malformedAudioRejected=false;
+ try{await prepareAgentAttachments([malformedAudio]);}catch(error){malformedAudioRejected=/signature/i.test(error.message);}
+ test('rejects audio files with invalid signatures',()=>assert.equal(malformedAudioRejected,true));
  const bad=await make('legacy.doc',Buffer.from('binary'));let rejected=false;
  try{await prepareAgentAttachments([bad]);}catch(error){rejected=/belum didukung/i.test(error.message);}
  test('unsupported document type is rejected',()=>assert.equal(rejected,true));
