@@ -2018,7 +2018,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 onKeyDown={handleKeyDown}
                 placeholder={permission ? 'Setujui atau tolak command di panel di atas…' : agentQuestion ? 'Pilih opsi atau tulis jawaban custom pada panel di atas…' : loading ? 'Agent sedang bekerja…' : !sessionReady ? 'Menyiapkan sesi AI baru…' : !routerStatus?.configured ? 'Ketik /connect untuk menghubungkan AI, atau tulis instruksi…' : !wb.root ? 'Buka workspace proyek terlebih dahulu…' : 'Tulis instruksi atau ketik / untuk perintah…'}
                 rows={3}
-                disabled={loading || !sessionReady || !activeAgent || !wb.root}
+                disabled={loading || !sessionReady || !activeAgent}
                 aria-label="Pesan AI coding agent"
               />
               <button
