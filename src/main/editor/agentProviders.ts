@@ -36,6 +36,10 @@ function geminiInlineData(url: string, mediaBudget: GeminiMediaBudget, expectedT
     throw new Error('Jenis media tidak didukung pada jalur Gemini: ' + mimeType);
   }
   const data = match[2].replace(/\s+/g, '');
+  if (data.length === 0 || data.length % 4 !== 0 ||
+      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data)) {
+    throw new Error('Encoding base64 media tidak valid.');
+  }
   const decodedBytes = Buffer.from(data, 'base64').byteLength;
   mediaBudget.bytes += decodedBytes;
   if (mediaBudget.bytes > GEMINI_INLINE_MEDIA_MAX) {
