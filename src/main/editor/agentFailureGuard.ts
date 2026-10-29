@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { getAgentTerminalGuidance } from './terminalShell';
 
+// Runtime guard helpers classify failures before the model is asked to recover.
 export function isToolFailureResult(result: string): boolean {
   if (/^(?:Tool gagal:|Tool ditahan:|Tool tidak dikenal:|Akses ditolak|Path ditolak|Memory ditolak|Pengguna menolak)/i.test(result.trim())) return true;
   if (/^Status:\s*(?:failed|timed_out|cancelled)/im.test(result)) return true;
@@ -62,6 +63,37 @@ export function repeatedFailureSignature(toolName: string, result: string): stri
   }
 
   return toolName + ':' + category;
+}
+
+/**
+ * Produce a stable key for repeated tool calls. Object keys are sorted so the
+ * same JSON arguments do not evade loop protection merely by changing key order.
+ * Read-only repetition is tracked too: reading the same file forever is not
+ * progress, and successful tool status alone must not reset the agent loop.
+ */
+export function repeatedNoProgressActionSignature(toolName: string, argumentsJson: string): string | null {
+  const trackedTools = new Set([
+    'todo_read', 'todo_write', 'list_project_files', 'read_project_file',
+    'write_project_file', 'search_project_files', 'run_terminal',
+    'search_web', 'read_web_page', 'check_package_version',
+  ]);
+  if (!trackedTools.has(toolName)) return null;
+
+  let args: unknown;
+  try {
+    args = JSON.parse(argumentsJson || '{}');
+  } catch {
+    return toolName + ':invalid-json';
+  }
+
+  const normalize = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(normalize);
+    if (!value || typeof value !== 'object') return value;
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(Object.keys(record).sort().map((key) => [key, normalize(record[key])]));
+  };
+  const canonical = JSON.stringify(normalize(args));
+  return toolName + ':' + createHash('sha256').update(canonical).digest('hex');
 }
 
 export function getToolRecoveryHint(toolName: string, result: string): string {
