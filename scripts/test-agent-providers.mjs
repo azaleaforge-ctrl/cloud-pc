@@ -186,7 +186,7 @@ try {
       observedHeaders = new Headers(init.headers);
       observedBody = JSON.parse(init.body);
       const first = { candidates: [{ content: { role: 'model', parts: [{ text: 'Hello from Gemini.' }] } }] };
-      const second = { candidates: [{ content: { role: 'model', parts: [{ functionCall: { name: 'read_file', args: { path: 'README.md' } } }] }, finishReason: 'STOP' }] };
+      const second = { candidates: [{ content: { role: 'model', parts: [{ functionCall: { name: 'read_file', id: 'google-call-123', args: { path: 'README.md' } }, thoughtSignature: 'gemini-thought-signature' }] }, finishReason: 'STOP' }] };
       return new Response('data: ' + JSON.stringify(first) + '\n\n' + 'data: ' + JSON.stringify(second) + '\n\n', {
         status: 200,
         headers: { 'content-type': 'text/event-stream' },
@@ -215,6 +215,8 @@ try {
     const toolPayload = payloads.find(payload => payload.choices?.[0]?.delta?.tool_calls?.length);
     assert.ok(toolPayload);
     assert.equal(toolPayload.choices[0].delta.tool_calls[0].function.name, 'read_file');
+    assert.equal(toolPayload.choices[0].delta.tool_calls[0].thought_signature, 'gemini-thought-signature');
+    assert.equal(toolPayload.choices[0].delta.tool_calls[0].gemini_function_call_id, 'google-call-123');
     assert.deepEqual(JSON.parse(toolPayload.choices[0].delta.tool_calls[0].function.arguments), { path: 'README.md' });
     assert.match(stream, /data: \[DONE\]/);
   });
