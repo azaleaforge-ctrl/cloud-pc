@@ -434,7 +434,10 @@ async function applyCheckpoint(
   }
 
   const staged: Array<{ temp: string; target: string; file: AgentCheckpointFile }> = [];
+  const applied: typeof pending = [];
   try {
+    // Stage all destination content before mutating any target. This makes
+    // disk-full/permission/encoding errors fail before the first replacement.
     for (const item of pending) {
       const destinationContent = direction === 'rewind' ? item.file.oldContent : item.file.newContent;
       const destinationExists = direction === 'rewind' ? item.file.oldExists : true;
@@ -449,16 +452,49 @@ async function applyCheckpoint(
       const temp = staged.find(candidate => candidate.target === item.target)?.temp;
       if (destinationExists && temp) await rename(temp, item.target);
       else if (!destinationExists) await rm(item.target, { force: true });
+      applied.push(item);
     }
+    const previousStatus = checkpoint.status;
     checkpoint.status = direction === 'rewind' ? 'rewound' : 'applied';
     record.updatedAt = Date.now();
-    await writeRecord(userDataDir, record);
+    try {
+      // The file mutation and the persisted checkpoint state must agree. If
+      // session metadata cannot be written, roll the files back below.
+      await writeRecord(userDataDir, record);
+    } catch (error) {
+      checkpoint.status = previousStatus;
+      throw error;
+    }
     return { ok: true, message: direction === 'rewind'
       ? 'Checkpoint dipulihkan. File dikembalikan ke keadaan sebelum perubahan agent.'
       : 'Perubahan checkpoint diterapkan kembali.',
       checkpoint };
   } catch (error) {
-    return { ok: false, message: 'Pemulihan tidak selesai sepenuhnya: ' + ((error as Error).message || 'kesalahan file system') };
+    const rollbackErrors: string[] = [];
+    for (const item of [...applied].reverse()) {
+      try {
+        if (!item.currentExists) {
+          await rm(item.target, { force: true });
+          continue;
+        }
+        const restoreTemp = item.target + '.' + randomUUID() + '.rk-checkpoint-rollback.tmp';
+        try {
+          await writeFile(restoreTemp, item.currentContent, { encoding: 'utf8', flag: 'wx' });
+          await rename(restoreTemp, item.target);
+        } finally {
+          await rm(restoreTemp, { force: true }).catch(() => undefined);
+        }
+      } catch (rollbackError) {
+        rollbackErrors.push(item.file.path + ': ' + ((rollbackError as Error).message || 'rollback gagal'));
+      }
+    }
+    const original = (error as Error).message || 'kesalahan file system';
+    return {
+      ok: false,
+      message: 'Pemulihan tidak berhasil: ' + original + (rollbackErrors.length
+        ? '. PERINGATAN: rollback parsial gagal untuk ' + rollbackErrors.join('; ') + '. Segera periksa file workspace.'
+        : '. File yang sempat diubah sudah dikembalikan ke kondisi sebelum operasi.'),
+    };
   } finally {
     for (const item of staged) await rm(item.temp, { force: true }).catch(() => undefined);
   }
