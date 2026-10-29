@@ -1861,10 +1861,11 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                       ...(model.outputModalities ?? []).map(modality => ({ label: 'Output ' + modality, key: 'out-' + modality })),
                     ];
                     return (
-                      <button key={model.id} type="button" role="listitem"
-                        className={'ai-model-option' + (isActive ? ' is-active' : '') + (isDraft ? ' is-selected' : '')}
-                        aria-pressed={isDraft}
-                        onClick={() => setSelectedModelDraft(model.id)}>
+                      <div key={model.id} role="listitem">
+                        <button type="button"
+                          className={'ai-model-option' + (isActive ? ' is-active' : '') + (isDraft ? ' is-selected' : '')}
+                          aria-pressed={isDraft}
+                          onClick={() => setSelectedModelDraft(model.id)}>
                         <div className="ai-model-option-heading">
                           <div>
                             <strong>{model.name || model.id}</strong>
@@ -1892,7 +1893,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                           {!modalityTags.length && !toolMetadata && !model.supportedGenerationMethods?.length
                             ? <span>Modalitas dan dukungan tools belum tercantum di metadata</span> : null}
                         </div>
-                      </button>
+                        </button>
+                      </div>
                     );
                   })}
                 </div>
