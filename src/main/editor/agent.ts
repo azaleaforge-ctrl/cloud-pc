@@ -17,6 +17,7 @@ import { startTerminalCommand } from './terminalRuntime';
 import { getAgentTerminalGuidance, resolveTerminalShell } from './terminalShell';
 import { getToolRecoveryHint, isToolFailureResult, repeatedFailureSignature, repeatedNoProgressActionSignature } from './agentFailureGuard';
 import { listBuiltinAgentSkills } from './skills';
+import { hasSuccessfulTerminalVerification } from './agentVerification';
 import { prepareAgentAttachments, resolveAgentAttachments } from './agentAttachments';
 import { checkPackageVersion, getCurrentTime, readWebPage, searchWeb, type PackageEcosystem } from './agentResearch';
 import { loadAgentSession, recordAgentFileCheckpoint, saveAgentSession } from './agentSessionStore';
@@ -63,7 +64,8 @@ interface LlmSession {
   lastCodeChangeAt?: number;
   lastWorkspaceChangeAt?: number;
   todoStartedAt: Map<string, number>;
-  successfulTerminalChecks: Array<{ command: string; startedAt: number; finishedAt: number; exitCode: 0 }>;
+  codeChangeVersion: number;
+  successfulTerminalChecks: Array<{ command: string; startedAt: number; finishedAt: number; exitCode: 0; codeChangeVersion: number }>;
 }
 interface ToolCall { id: string; name: string; arguments: string }
 interface ToolDefinition {
@@ -652,6 +654,8 @@ async function executeTerminalCommand(
   if (remainingRunMs <= 0) return 'Tool gagal: batas waktu keseluruhan run agent sudah tercapai sebelum command dimulai.';
   const timeoutMs = Math.max(100, Math.min(timeoutSeconds * 1000, remainingRunMs));
   const effectiveTimeoutSeconds = Math.ceil(timeoutMs / 1000);
+  // A check only validates the exact code generation present when the command started.
+  const codeChangeVersionAtStart = session.codeChangeVersion;
   const handle = startTerminalCommand({
     commandId,
     command,
@@ -673,6 +677,7 @@ async function executeTerminalCommand(
         startedAt: result.startedAt,
         finishedAt: result.finishedAt,
         exitCode: 0,
+        codeChangeVersion: codeChangeVersionAtStart,
       });
       if (session.successfulTerminalChecks.length > 50) session.successfulTerminalChecks.splice(0, session.successfulTerminalChecks.length - 50);
     }
@@ -730,6 +735,7 @@ function agentProgressFingerprint(session: LlmSession): string {
   return JSON.stringify({
     lastCodeChangeAt: session.lastCodeChangeAt ?? 0,
     lastWorkspaceChangeAt: session.lastWorkspaceChangeAt ?? 0,
+    codeChangeVersion: session.codeChangeVersion,
     todos,
   });
 }
@@ -766,7 +772,10 @@ async function executeTool(
       const result = await writeProjectFile(root, path, args.content);
       if (result.change) {
         session.lastWorkspaceChangeAt = Date.now();
-        if (isSourceCodeOrBuildConfigPath(result.change.path)) session.lastCodeChangeAt = Date.now();
+        if (isSourceCodeOrBuildConfigPath(result.change.path)) {
+          session.lastCodeChangeAt = Date.now();
+          session.codeChangeVersion += 1;
+        }
         const change: AgentFileChange = {
           id: randomUUID(),
           ...result.change,
@@ -805,7 +814,7 @@ async function executeTool(
         const previous = previousById.get(todo.id);
         if (todo.status === 'completed' && previous?.status === 'in_progress' && todoRequiresTerminalVerification(todo)) {
           const taskStartedAt = session.todoStartedAt.get(todo.id) ?? previous.updatedAt;
-          const verified = session.successfulTerminalChecks.some((check) => check.exitCode === 0 && check.finishedAt >= taskStartedAt);
+          const verified = hasSuccessfulTerminalVerification(session.successfulTerminalChecks, session.codeChangeVersion, taskStartedAt);
           if (!verified) {
             throw new Error('Task belum bisa completed: "' + todo.title + '" membutuhkan build/test/lint/typecheck yang benar-benar berakhir dengan exit code 0 setelah task dimulai. Jalankan pemeriksaan yang sesuai lewat run_terminal, perbaiki error jika gagal, lalu coba lagi.');
           }
@@ -1261,7 +1270,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
 
         if (completion.toolCalls.length === 0) {
           const needsPostChangeVerification = session.lastCodeChangeAt !== undefined &&
-            !session.successfulTerminalChecks.some((check) => check.exitCode === 0 && check.finishedAt >= (session.lastCodeChangeAt ?? Number.POSITIVE_INFINITY));
+            !hasSuccessfulTerminalVerification(session.successfulTerminalChecks, session.codeChangeVersion);
           if (needsPostChangeVerification) {
             if (noProgressReplies < MAX_NO_PROGRESS_REPLIES) {
               noProgressReplies += 1;
@@ -1517,6 +1526,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
           })).catch(() => undefined);
         },
         todoStartedAt: new Map(initialTodos.filter((todo) => todo.status === 'in_progress').map((todo): [string, number] => [todo.id, todo.updatedAt])),
+        codeChangeVersion: 0,
         successfulTerminalChecks: [],
         runStartedAt: Date.now(),
         totalToolCalls: 0,
