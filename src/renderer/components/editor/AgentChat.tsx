@@ -2265,7 +2265,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             ) : null}
             <div className="ai-input-row">
               <button type="button" className="ai-attach-btn" aria-label="Lampirkan file"
-                title="Lampirkan foto, dokumen, atau file teks"
+                title="Lampirkan gambar, dokumen, audio, video, atau file teks"
                 disabled={loading || selectingAttachments || !sessionReady || !wb.root}
                 onClick={() => void pickAttachments()}>
                 {selectingAttachments ? <Spinner size={16} /> : <IconPlus size={17} />}
