@@ -61,6 +61,7 @@ interface LlmSession {
   totalToolCalls: number;
   cancelTerminal?: () => void;
   lastCodeChangeAt?: number;
+  lastWorkspaceChangeAt?: number;
   todoStartedAt: Map<string, number>;
   successfulTerminalChecks: Array<{ command: string; startedAt: number; finishedAt: number; exitCode: 0 }>;
 }
@@ -726,7 +727,11 @@ function agentProgressFingerprint(session: LlmSession): string {
     blockedReason: todo.blockedReason ?? '',
     completionEvidence: todo.completionEvidence ?? '',
   }));
-  return JSON.stringify({ lastCodeChangeAt: session.lastCodeChangeAt ?? 0, todos });
+  return JSON.stringify({
+    lastCodeChangeAt: session.lastCodeChangeAt ?? 0,
+    lastWorkspaceChangeAt: session.lastWorkspaceChangeAt ?? 0,
+    todos,
+  });
 }
 
 async function executeTool(
@@ -760,6 +765,7 @@ async function executeTool(
       emit(session, { type: 'activity', message: 'Menulis perubahan ke workspace: ' + path });
       const result = await writeProjectFile(root, path, args.content);
       if (result.change) {
+        session.lastWorkspaceChangeAt = Date.now();
         if (isSourceCodeOrBuildConfigPath(result.change.path)) session.lastCodeChangeAt = Date.now();
         const change: AgentFileChange = {
           id: randomUUID(),
