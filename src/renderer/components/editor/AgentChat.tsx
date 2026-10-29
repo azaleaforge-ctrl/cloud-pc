@@ -751,6 +751,17 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const sessionWorkspaceRef = useRef<string | null>(wb.root);
   const cancelRequestedRef = useRef(false);
 
+  const openModelPicker = useCallback(() => {
+    setSettingsOpen(false);
+    setSettingsFocusTarget(null);
+    setHistoryOpen(false);
+    setCheckpointsOpen(false);
+    setModelSearchQuery('');
+    setModelCostFilter('all');
+    setSelectedModelDraft(routerStatus?.model ?? '');
+    setModelReport(null);
+    setModelPickerOpen(true);
+  }, [routerStatus?.model]);
 
   const refreshRouterStatus = useCallback(async () => {
     try {
@@ -1558,9 +1569,13 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
 
     setHistoryOpen(false);
     setCheckpointsOpen(false);
-    setSettingsFocusTarget(command === '/model' ? 'model' : 'connect');
+    if (command === '/model') {
+      openModelPicker();
+      return;
+    }
+    setSettingsFocusTarget('connect');
     setSettingsOpen(true);
-  }, []);
+  }, [openModelPicker]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const trimmedInput = input.trim();
