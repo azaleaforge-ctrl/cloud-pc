@@ -5,6 +5,7 @@ import type {
   AgentEvent,
   AgentQuestionOption,
   AgentFileChange,
+  AgentProviderId,
   AgentRouterStatus,
   AgentRouterTestResult,
   AgentSkillSelection,
@@ -712,6 +713,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [activity, setActivity] = useState('');
   const [copiedMsg, setCopiedMsg] = useState<string | null>(null);
   const [routerStatus, setRouterStatus] = useState<AgentRouterStatus | null>(null);
+  const [selectedProviderDraft, setSelectedProviderDraft] = useState<AgentProviderId>('openrouter');
   const [apiKey, setApiKey] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsFocusTarget, setSettingsFocusTarget] = useState<'connect' | 'model' | null>(null);
@@ -748,12 +750,46 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     try {
       const status = await window.rk.agentGetConfig();
       setRouterStatus(status);
+      setSelectedProviderDraft(status.provider);
       setSelectedModelDraft(status.model);
       if (!status.configured) setSettingsOpen(true);
     } catch (err) {
-      setError('Gagal membaca konfigurasi 9router: ' + (err as Error).message);
+      setError('Gagal membaca konfigurasi provider AI: ' + (err as Error).message);
     }
   }, []);
+
+  const selectProviderDraft = useCallback(async (provider: AgentProviderId) => {
+    if (provider === selectedProviderDraft) return;
+    setSelectedProviderDraft(provider);
+    setApiKey('');
+    setTestResult(null);
+    setModelCatalog(null);
+    setModelReport(null);
+    setError(null);
+    try {
+      const result = await window.rk.agentSelectProvider(provider);
+      if (!result.ok) throw new Error(result.error || 'Gagal memilih provider.');
+      await refreshRouterStatus();
+    } catch (err) {
+      setError('Gagal memilih provider: ' + ((err as Error).message || 'kesalahan tidak diketahui'));
+    }
+  }, [selectedProviderDraft, refreshRouterStatus]);
+
+  const openProviderKeyPage = useCallback(async () => {
+    const provider = selectedProviderDraft;
+    const selectedInfo = routerStatus?.providers.find(item => item.id === provider);
+    if (!selectedInfo?.keyUrl) {
+      setError('Halaman pembuatan API key belum tersedia untuk provider lama ini.');
+      return;
+    }
+    try {
+      const result = await window.rk.agentOpenProviderKeyPage(provider);
+      if (!result.ok) throw new Error(result.error || 'Gagal membuka halaman API key.');
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message || 'Gagal membuka halaman API key.');
+    }
+  }, [selectedProviderDraft, routerStatus?.providers]);
 
   useEffect(() => {
     let alive = true;
@@ -1129,7 +1165,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     if ((!text && pendingAttachments.length === 0) || loading || !sessionReady || !activeAgent) return;
     if (!routerStatus?.configured) {
       setSettingsOpen(true);
-      setError('Hubungkan 9router terlebih dahulu. Masukkan API key baru yang aktif, lalu tekan Simpan & uji.');
+      setError('Hubungkan provider AI terlebih dahulu. Pilih provider, masukkan API key aktif, lalu tekan Simpan & uji.');
       return;
     }
     if (!wb.root) {
@@ -1239,7 +1275,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     } catch (err) {
       const result: AgentRouterTestResult = {
         ok: false,
-        message: 'Gagal menguji koneksi: ' + ((err as Error).message || 'kesalahan tidak diketahui'),
+        message: 'Gagal menguji koneksi provider: ' + ((err as Error).message || 'kesalahan tidak diketahui'),
       };
       setTestResult(result);
       setActivity('');
@@ -1298,7 +1334,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setSavingKey(true);
     setTestResult(null);
     try {
-      const result = await window.rk.agentSaveConfig(apiKey);
+      const result = await window.rk.agentSaveConfig({ provider: selectedProviderDraft, apiKey });
       if (!result.ok) throw new Error(result.error ?? 'Gagal menyimpan API key.');
       setApiKey('');
       await refreshRouterStatus();
@@ -1307,7 +1343,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       const connectivity = await window.rk.agentTestConfig();
       setTestResult(connectivity);
       if (connectivity.ok) {
-        setActivity('Koneksi 9router dan model berhasil diuji.');
+        setActivity('Koneksi ' + (routerStatus?.providers.find(item => item.id === selectedProviderDraft)?.name ?? selectedProviderDraft) + ' berhasil diuji.');
         setSettingsOpen(false);
       }
     } catch (err) {
@@ -1315,7 +1351,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     } finally {
       setSavingKey(false);
     }
-  }, [apiKey, savingKey, refreshRouterStatus]);
+  }, [apiKey, savingKey, refreshRouterStatus, selectedProviderDraft, routerStatus?.providers]);
 
   const copyTerminalDiagnostics = useCallback(async (entry: AgentTerminalHistoryEntry) => {
     try {
