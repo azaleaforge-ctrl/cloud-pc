@@ -1132,7 +1132,9 @@ function registerIpc(): void {
   };
   ipcMain.handle('rk:agent:list', () => agentService.listAgents());
   ipcMain.handle('rk:agent:get-config', () => getAgentRouterStatus());
-  ipcMain.handle('rk:agent:save-config', (_e, apiKey: string) => saveAgentRouterKey(apiKey));
+  ipcMain.handle('rk:agent:save-config', (_e, input: unknown) => saveAgentRouterKey(input));
+  ipcMain.handle('rk:agent:select-provider', (_e, provider: AgentProviderId) => saveAgentProviderSelection(provider));
+  ipcMain.handle('rk:agent:open-provider-key-page', (_e, provider: AgentProviderId) => openProviderKeyPage(provider));
   ipcMain.handle('rk:agent:test-config', () => testAgentRouter());
   ipcMain.handle('rk:agent:list-sessions', () => listAgentSessions(app.getPath('userData')));
   ipcMain.handle('rk:agent:load-session', async (_e, id: string) => {
@@ -1250,13 +1252,9 @@ function registerIpc(): void {
   });
   ipcMain.handle('rk:agent:select-model', (_e, model: string) => saveSelectedAgentModel(model));
   ipcMain.handle('rk:agent:diagnose-model', async () => {
-    const selected = getSelectedAgentModel();
-    const config = getRouterConfig() ?? {
-      apiKey: '',
-      endpoint: ROUTER_ENDPOINT,
-      models: [selected],
-      fallbackEndpoint: ROUTER_FALLBACK_ENDPOINT,
-    };
+    const provider = getSelectedAgentProvider();
+    const selected = getSelectedAgentModel(provider);
+    const config = getProviderConfig(provider, true)!;
     return diagnoseModelCapabilities(config, selected);
   });
   ipcMain.handle('rk:agent:list-skills', () => agentService.listSkills());
