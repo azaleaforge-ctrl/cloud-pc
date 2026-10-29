@@ -263,10 +263,18 @@ function MessageBubble({
   msg,
   onCopy,
   copied,
+  checkpoint,
+  onRefork,
+  onRewind,
+  actionsDisabled,
 }: {
   msg: ChatMessage;
   onCopy: (content: string) => void;
   copied: boolean;
+  checkpoint?: AgentCheckpointSummary;
+  onRefork: (message: ChatMessage) => void;
+  onRewind: (message: ChatMessage) => void;
+  actionsDisabled: boolean;
 }) {
   const isUser = msg.role === 'user';
   if (msg.role === 'system' || !msg.content) return null;
@@ -291,6 +299,27 @@ function MessageBubble({
           </button>
         ) : null}
       </div>
+      {isUser ? (
+        <details className="ai-message-actions">
+          <summary aria-label="Buka aksi pesan" title="Aksi pesan">•••</summary>
+          <div className="ai-message-actions-menu" role="group" aria-label="Aksi pesan pengguna">
+            <button type="button" onClick={() => onCopy(msg.content)}>
+              <IconCopy size={13} /> Salin prompt
+            </button>
+            <button type="button" disabled={actionsDisabled} onClick={() => onRefork(msg)}>
+              Revert / Refork
+            </button>
+            {checkpoint?.status === 'applied' ? (
+              <button type="button" disabled={actionsDisabled} onClick={() => onRewind(msg)}>
+                Rewind perubahan
+              </button>
+            ) : null}
+            {checkpoint?.status === 'rewound' ? (
+              <span className="ai-message-actions-note">Checkpoint sudah di-rewind. Gunakan Ctrl+R untuk memulihkan.</span>
+            ) : null}
+          </div>
+        </details>
+      ) : null}
       {msg.streaming ? <span className="ai-streaming-dot" aria-label="Jawaban sedang ditulis" /> : null}
     </article>
   );
@@ -603,7 +632,11 @@ function AgentWorkTimeline({
   lastRunResult,
   copiedMessage,
   copiedTerminalId,
+  checkpoints,
   onMessageCopy,
+  onMessageRefork,
+  onMessageRewind,
+  messageActionsDisabled,
   onTerminalCopy,
 }: {
   messages: ChatMessage[];
@@ -612,7 +645,11 @@ function AgentWorkTimeline({
   lastRunResult: AgentRunResult | null;
   copiedMessage: string | null;
   copiedTerminalId: string | null;
+  checkpoints: AgentCheckpointSummary[];
   onMessageCopy: (text: string) => void;
+  onMessageRefork: (message: ChatMessage) => void;
+  onMessageRewind: (message: ChatMessage) => void;
+  messageActionsDisabled: boolean;
   onTerminalCopy: (entry: AgentTerminalHistoryEntry) => void;
 }) {
   // A terminal tool call and its terminal-process event describe the same job.
@@ -649,7 +686,19 @@ function AgentWorkTimeline({
     <>
       {items.map((item) => {
         if (item.kind === 'message') {
-          return <MessageBubble key={item.key} msg={item.message} onCopy={onMessageCopy} copied={copiedMessage === item.message.content} />;
+          const checkpoint = item.message.runId
+            ? checkpoints.find(candidate => candidate.runId === item.message.runId)
+            : undefined;
+          return <MessageBubble
+            key={item.key}
+            msg={item.message}
+            onCopy={onMessageCopy}
+            copied={copiedMessage === item.message.content}
+            checkpoint={checkpoint}
+            onRefork={onMessageRefork}
+            onRewind={onMessageRewind}
+            actionsDisabled={messageActionsDisabled}
+          />;
         }
         if (item.kind === 'tool') {
           return <ToolActivityList key={item.key} activity={item.activity} />;
@@ -1029,6 +1078,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             role: 'assistant',
             content: event.data,
             ts,
+            runId: sessionId,
             streaming: true,
           };
           return [...previous, nextMessage];
@@ -1227,6 +1277,13 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       if (!result.ok || !result.sessionId) throw new Error(result.error ?? 'Agent gagal dimulai.');
       activeSessionRef.current = result.sessionId;
       setActiveSessionId(result.sessionId);
+      // The returned ID is also the checkpoint runId recorded by write_project_file.
+      // Persist it on both sides of this user turn so actions stay available after reload.
+      setMessages(previous => previous.map(message =>
+        message.id === userMessage.id || message.id === assistantMessage.id
+          ? { ...message, runId: result.sessionId }
+          : message,
+      ));
       setPendingAttachments([]);
       if (cancelRequestedRef.current) {
         setActivity('Membatalkan agent…');
