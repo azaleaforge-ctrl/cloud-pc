@@ -337,6 +337,8 @@ function readStoredProviderKey(provider: AgentProviderId): string {
     if (!providerKeyEncryptionAvailable()) return '';
     const path = providerKeyPath(provider);
     if (!existsSync(path)) return '';
+    // Tighten permissions for keys written by older releases on POSIX systems.
+    if (process.platform !== 'win32') chmodSync(path, 0o600);
     return safeStorage.decryptString(readFileSync(path));
   } catch {
     return '';
