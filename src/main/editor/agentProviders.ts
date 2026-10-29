@@ -229,7 +229,7 @@ export async function openGeminiCompletionStream(
   toolChoice: 'auto' | 'required',
   signal: AbortSignal,
 ): Promise<Response> {
-  const model = config.models[0] || 'gemini-2.5-flash';
+  const model = config.models[0] || 'gemini-3.8-flash';
   const endpoint = (config.endpoint || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '');
   const url = endpoint + '/models/' + encodeURIComponent(model.replace(/^models\//, '')) + ':streamGenerateContent?alt=sse';
   const requestBody = buildGeminiRequestBody({
