@@ -63,12 +63,12 @@ try {
       'Status: failed',
       'Exit code: 1',
       "src/components/ui/button.tsx(18,7): error TS2322: Type 'DragHandler' is not assignable to type 'MouseHandler'.",
-    ].join('\\n');
+    ].join('\n');
     const second = [
       'Status: failed',
       'Exit code: 1',
       "src/components/ui/card.tsx(91,22): error TS2322: Type 'DragHandler' is not assignable to type 'MouseHandler'.",
-    ].join('\\n');
+    ].join('\n');
     assert.equal(
       guard.repeatedFailureSignature('run_terminal', first),
       guard.repeatedFailureSignature('run_terminal', second),
@@ -76,8 +76,8 @@ try {
   });
 
   test('keeps different TypeScript build diagnostics in different failure groups', () => {
-    const first = 'Status: failed\\nExit code: 1\\nsrc/button.tsx(18,7): error TS2322: Type A is not assignable to type B.';
-    const second = 'Status: failed\\nExit code: 1\\nsrc/button.tsx(18,7): error TS2304: Cannot find name X.';
+    const first = 'Status: failed\nExit code: 1\nsrc/button.tsx(18,7): error TS2322: Type A is not assignable to type B.';
+    const second = 'Status: failed\nExit code: 1\nsrc/button.tsx(18,7): error TS2304: Cannot find name X.';
     assert.notEqual(
       guard.repeatedFailureSignature('run_terminal', first),
       guard.repeatedFailureSignature('run_terminal', second),
@@ -85,8 +85,8 @@ try {
   });
 
   test('classifies recurring npm network failures consistently', () => {
-    const first = 'Status: failed\\nExit code: 1\\nnpm ERR! code ECONNRESET\\nrequest reset';
-    const second = 'Status: failed\\nExit code: 1\\nnpm ERR! code ECONNRESET\\nconnection lost';
+    const first = 'Status: failed\nExit code: 1\nnpm ERR! code ECONNRESET\nrequest reset';
+    const second = 'Status: failed\nExit code: 1\nnpm ERR! code ECONNRESET\nconnection lost';
     assert.equal(
       guard.repeatedFailureSignature('run_terminal', first),
       guard.repeatedFailureSignature('run_terminal', second),
