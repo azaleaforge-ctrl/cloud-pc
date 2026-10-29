@@ -1133,11 +1133,18 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       if (!projectPath) throw new Error('Belum ada folder proyek. Buka atau buat ruangan terlebih dahulu.');
       const root = await realpath(projectPath);
       const inventory = await listProjectFiles(root, '.');
-      const latestUserMessage = [...inputMessages].reverse().find((message) => message.role === 'user');
+      const userMessages = inputMessages.filter((message) => message.role === 'user');
+      const latestUserMessage = userMessages[userMessages.length - 1];
       const latestUserText = latestUserMessage?.content ?? '';
       const attachmentHints = (latestUserMessage?.attachments ?? []).map(item => item.name + ' ' + item.mimeType).join(' ');
+      const priorUserContext = userMessages
+        .slice(Math.max(0, userMessages.length - 4), -1)
+        .map((message) => message.content)
+        .filter(Boolean)
+        .join('\n')
+        .slice(-6000);
       await installBuiltinSkills(userDataDir);
-      const skillSelections = selectAgentSkills(latestUserText + ' ' + attachmentHints, activePath, inventory);
+      const skillSelections = selectAgentSkills(latestUserText + ' ' + attachmentHints, activePath, inventory, priorUserContext);
       const skillInstructions = await loadAgentSkillInstructions(userDataDir, skillSelections);
       const sessionMemory = session.isConversationCurrent()
         ? await readFile(session.memoryPath, 'utf8').catch(() => '')

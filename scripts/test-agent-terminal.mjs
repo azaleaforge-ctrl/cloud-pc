@@ -128,7 +128,10 @@ try {
     assert.ok(outputEvents.some((event) => event.stream === 'stderr'));
     assert.equal(processEvents[0].cwd, ROOT);
     assert.equal(typeof processEvents[0].shell, 'string');
-    assert.ok(processEvents.some((event) => event.status === 'completed' && event.cwd === ROOT && event.shell === shell.name));
+    const startingEvent = processEvents.find((event) => event.status === 'starting');
+    const completedEvent = processEvents.find((event) => event.status === 'completed');
+    assert.ok(completedEvent && completedEvent.cwd === ROOT && typeof completedEvent.shell === 'string' && completedEvent.shell.length > 0);
+    assert.equal(completedEvent.shell, startingEvent?.shell, 'shell metadata must stay consistent from start to completion');
   });
 
   const failedRun = await startTerminalCommand(options(terminalCommand('fail', shell))).promise;

@@ -216,16 +216,23 @@ export function listBuiltinAgentSkills(): AgentSkillInfo[] {
   return SKILLS.map(({ id, name, reason, source }) => ({ id, name, reason, source }));
 }
 
-export function selectAgentSkills(userText: string, activePath: string | null, inventory: string): AgentSkillSelection[] {
+export function selectAgentSkills(userText: string, activePath: string | null, inventory: string, conversationContext = ''): AgentSkillSelection[] {
   const lower = userText.toLowerCase();
-  const text = (userText + ' ' + (activePath ?? '') + ' ' + inventory.slice(0, 9000)).toLowerCase();
-  const codingTask = /\b(buat|bikin|ubah|edit|perbaiki|perbaikan|fix|implement|implementasi|refactor|tambah|tambahkan|hapus|delete|create|write|modify|change|update|code|kode|coding|debug|bug|file|folder|fungsi|function|komponen|component|script|program|aplikasi|project|proyek|build|test|testing|lint|repair|perbaiki)\b/.test(lower);
+  const hasContinuationReference = /\b(lanjut(?:kan)?|lanjutin|teruskan|yang tadi|sebelumnya|itu|tersebut|di atas|bagian ini|bagian tadi|hasilnya|opsi tadi|continue|proceed|go ahead|finish it|do that|fix it|implement it|same as before|previous|that part|those changes|it|them)\b|\b[\w-]+nya\b/i.test(lower);
+  const hasStandaloneTaskIntent = /\b(buat|bikin|ubah|edit|perbaiki|perbaikan|fix|implement|implementasi|refactor|tambah|tambahkan|hapus|delete|create|write|modify|change|update|code|kode|coding|debug|bug|file|folder|fungsi|function|komponen|component|script|program|aplikasi|project|proyek|build|test|testing|lint|repair|jelaskan|explain|kenapa|why|gimana|how)\b/.test(lower);
+  const wordCount = lower.trim() ? lower.trim().split(/\s+/).length : 0;
+  const shouldReuseConversation = Boolean(conversationContext.trim()) && (hasContinuationReference || (wordCount <= 4 && !hasStandaloneTaskIntent));
+  const intentText = (shouldReuseConversation ? conversationContext + ' ' : '') + userText;
+  const intentLower = intentText.toLowerCase();
+  const documentIntentText = (intentText + ' ' + (activePath ?? '')).toLowerCase();
+  const text = (intentText + ' ' + (activePath ?? '') + ' ' + inventory.slice(0, 9000)).toLowerCase();
+  const codingTask = /\b(buat|bikin|ubah|edit|perbaiki|perbaikan|fix|implement|implementasi|refactor|tambah|tambahkan|hapus|delete|create|write|modify|change|update|code|kode|coding|debug|bug|file|folder|fungsi|function|komponen|component|script|program|aplikasi|project|proyek|build|test|testing|lint|repair|perbaiki)\b/.test(intentLower);
   const frontEnd = /\b(ui|ux|frontend|front-end|website|web app|halaman|desain|design|tampilan|dashboard|layout|css|html|react|next\.js|responsive|responsif|landing page|komponen visual|styling)\b/.test(text);
-  const visualDesign = /\b(desain|design|ui\/ux|ux|website|landing page|dashboard|tampilan|warna|tipografi|visual|slop|generic|generik)\b/.test(lower);
+  const visualDesign = /\b(desain|design|ui\/ux|ux|website|landing page|dashboard|tampilan|warna|tipografi|visual|slop|generic|generik)\b/.test(intentLower);
   const backEnd = /\b(backend|back-end|api|database|mysql|postgres|postgresql|sqlite|sql|laravel|php|controller|route|middleware|schema|migration|autentikasi|authorization|auth|server|endpoint|webhook|background job|query|orm)\b/.test(text) || /\.(php|sql|prisma|graphql)$/i.test(activePath ?? '');
-  const debugging = /\b(error|bug|rusak|gagal|crash|debug|debugging|exception|stack trace|tidak jalan|bermasalah|broken|regression)\b/.test(lower);
-  const security = /\b(security|keamanan|auth|login|password|token|secret|credential|payment|pembayaran|permission|izin|role|akses|api key)\b/.test(lower);
-  const testing = /\b(test|testing|tes|pengujian|build|lint|verifikasi|regression|validasi)\b/.test(lower) || (codingTask && (frontEnd || backEnd));
+  const debugging = /\b(error|bug|rusak|gagal|crash|debug|debugging|exception|stack trace|tidak jalan|bermasalah|broken|regression)\b/.test(intentLower);
+  const security = /\b(security|keamanan|auth|login|password|token|secret|credential|payment|pembayaran|permission|izin|role|akses|api key)\b/.test(intentLower);
+  const testing = /\b(test|testing|tes|pengujian|build|lint|verifikasi|regression|validasi)\b/.test(intentLower) || (codingTask && (frontEnd || backEnd));
   const chosen = new Map<string, AgentSkillSelection>();
   const add = (id: string) => {
     const skill = SKILLS.find((item) => item.id === id);
@@ -236,7 +243,7 @@ export function selectAgentSkills(userText: string, activePath: string | null, i
     add('lazy-dev');
     add('safe-code-changes');
     if (debugging) add('debugging');
-    if (security && (backEnd || /auth|login|password|api|payment|pembayaran/i.test(lower))) add('security');
+    if (security && (backEnd || /auth|login|password|api|payment|pembayaran/i.test(intentLower))) add('security');
     if (testing) add('tdd');
     if (frontEnd) add('frontend-ui-engineering');
     if (visualDesign) {
@@ -245,7 +252,7 @@ export function selectAgentSkills(userText: string, activePath: string | null, i
     }
     if (backEnd) add('backend-development');
   }
-  if (/\.(pdf|docx|xlsx|pptx|png|jpe?g|webp|gif)\b|\b(lampiran|attachment|dokumen|document analysis)\b/i.test(text)) add('document-analysis');
+  if (/\.(pdf|docx|xlsx|pptx|png|jpe?g|webp|gif)\b|\b(lampiran|attachment|dokumen|document analysis)\b/i.test(documentIntentText)) add('document-analysis');
   return [...chosen.values()];
 }
 
