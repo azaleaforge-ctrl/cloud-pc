@@ -135,6 +135,48 @@ try {
     }), /URL gambar eksternal/);
   });
 
+  await test('routes audio, video and scanned PDF data URLs through Gemini native inlineData', () => {
+    const body = providers.buildGeminiRequestBody({
+      model: 'gemini-3.8-flash',
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Transcribe the recording and analyze the clip.' },
+          { type: 'media_url', media_url: { url: 'data:audio/mpeg;base64,aGVsbG8=', mimeType: 'audio/mpeg' } },
+          { type: 'media_url', media_url: { url: 'data:video/mp4;base64,aGVsbG8=', mimeType: 'video/mp4' } },
+          { type: 'media_url', media_url: { url: 'data:application/pdf;base64,aGVsbG8=', mimeType: 'application/pdf' } },
+        ],
+      }],
+    });
+    const parts = body.contents[0].parts;
+    assert.deepEqual(parts.slice(1).map(part => part.inlineData.mimeType), ['audio/mpeg', 'video/mp4', 'application/pdf']);
+    assert.deepEqual(parts.slice(1).map(part => part.inlineData.data), ['aGVsbG8=', 'aGVsbG8=', 'aGVsbG8=']);
+  });
+
+  await test('rejects mismatched media MIME and external or non-media payloads', () => {
+    assert.throws(() => providers.buildGeminiRequestBody({
+      model: 'gemini-3.8-flash',
+      messages: [{ role: 'user', content: [{
+        type: 'media_url',
+        media_url: { url: 'data:audio/mpeg;base64,aGVsbG8=', mimeType: 'video/mp4' },
+      }] }],
+    }), /MIME media tidak cocok/);
+    assert.throws(() => providers.buildGeminiRequestBody({
+      model: 'gemini-3.8-flash',
+      messages: [{ role: 'user', content: [{
+        type: 'media_url',
+        media_url: { url: 'https://example.com/clip.mp4', mimeType: 'video/mp4' },
+      }] }],
+    }), /data URL base64 lokal/);
+    assert.throws(() => providers.buildGeminiRequestBody({
+      model: 'gemini-3.8-flash',
+      messages: [{ role: 'user', content: [{
+        type: 'media_url',
+        media_url: { url: 'data:text/html;base64,aGVsbG8=', mimeType: 'text/html' },
+      }] }],
+    }), /Jenis media tidak didukung/);
+  });
+
   await test('normalizes Gemini text and function calls into the agent OpenAI-shaped response contract', () => {
     const normalized = providers.normalizeGeminiResponse({
       responseId: 'resp-1',
