@@ -126,6 +126,9 @@ export function buildGeminiRequestBody(options: GeminiRequestOptions): JsonRecor
         functionResponse: {
           name,
           response: { result: asText(message.content) },
+          ...(typeof message.geminiFunctionCallId === 'string' && message.geminiFunctionCallId
+            ? { id: message.geminiFunctionCallId }
+            : {}),
         },
       };
       const previous = contents[contents.length - 1];
