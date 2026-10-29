@@ -191,7 +191,7 @@ function parseFile(ext: string, mime: string, buffer: Buffer): { text?: string; 
   if (imageExts.has(ext)) {
     if (buffer.length > IMAGE_MAX) throw new Error('Ukuran foto maksimal 12 MiB.');
     const valid = (ext === '.png' && buffer.length >= 24 && buffer.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) && buffer.subarray(12, 16).toString() === 'IHDR')
-      || (['.jpg','.jpeg'].includes(ext) && buffer.length >= 4 && buffer[0] === 255 && buffer[1] === 216 && buffer.subarray(-2).equals(Buffer.from([255,217]))
+      || (['.jpg','.jpeg'].includes(ext) && buffer.length >= 4 && buffer[0] === 255 && buffer[1] === 216 && buffer.subarray(-2).equals(Buffer.from([255,217])))
       || (ext === '.gif' && buffer.length >= 13 && /^GIF8[79]a$/.test(buffer.subarray(0, 6).toString()))
       || (ext === '.webp' && buffer.length >= 20 && buffer.subarray(0, 4).toString() === 'RIFF' && buffer.subarray(8, 12).toString() === 'WEBP');
     if (!valid) throw new Error('Signature atau header file gambar tidak valid: ' + ext);
