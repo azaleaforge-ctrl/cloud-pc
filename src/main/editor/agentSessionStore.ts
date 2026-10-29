@@ -351,6 +351,7 @@ export async function recordAgentFileCheckpoint(
     throw new Error('File terlalu besar untuk checkpoint yang dapat dipulihkan (maksimal 1 MB).');
   }
   let checkpoint = record.checkpoints.find(item => item.runId === runId);
+  const createdCheckpoint = !checkpoint;
   if (!checkpoint) {
     checkpoint = {
       id: 'cp-' + randomUUID(),
@@ -362,6 +363,9 @@ export async function recordAgentFileCheckpoint(
     };
     record.checkpoints.push(checkpoint);
   }
+  // Save the pre-mutation snapshot: a size limit hit must not destroy an
+  // existing checkpoint or accidentally pop a different file after an update.
+  const previousFiles = checkpoint.files.map(file => ({ ...file }));
   const oldExists = change.operation !== 'create';
   const index = checkpoint.files.findIndex(item => item.path === rel);
   const previous = index >= 0 ? checkpoint.files[index] : null;
@@ -379,8 +383,11 @@ export async function recordAgentFileCheckpoint(
   const checkpointBytes = checkpoint.files.reduce((total, item) =>
     total + Buffer.byteLength(item.oldContent, 'utf8') + Buffer.byteLength(item.newContent, 'utf8'), 0);
   if (checkpoint.files.length > MAX_CHECKPOINT_FILES || checkpointBytes > MAX_CHECKPOINT_BYTES) {
-    checkpoint.files.pop();
-    record.checkpoints = record.checkpoints.filter(item => item.id !== checkpoint!.id);
+    if (createdCheckpoint) {
+      record.checkpoints = record.checkpoints.filter(item => item.id !== checkpoint!.id);
+    } else {
+      checkpoint.files = previousFiles;
+    }
     throw new Error('Checkpoint melebihi batas ukuran. Perubahan file tetap tersimpan, tetapi tidak dapat di-rewind otomatis.');
   }
   record.checkpoints = record.checkpoints.slice(-MAX_CHECKPOINTS);
