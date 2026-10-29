@@ -27,7 +27,7 @@ try{
 
   await test('saves and reloads full session data without localStorage',async()=>{
     const messages=[
-      {id:'u1',role:'user',content:'Buat komponen dashboard',ts:100},
+      {id:'u1',role:'user',content:'Buat komponen dashboard',ts:100,runId:'llm_run_123'},
       {id:'a1',role:'assistant',content:'Saya akan memeriksa project dahulu.',ts:101},
     ];
     const saved=await api.saveAgentSession(userData,{id:'chat-one',messages,projectPath:workspace,activeAgentId:'poolside',todos:[]});
@@ -36,6 +36,8 @@ try{
     assert.ok(loaded);
     assert.equal(loaded.messages.length,2);
     assert.equal(loaded.messages[0].content,'Buat komponen dashboard');
+    assert.equal(loaded.messages[0].runId,'llm_run_123');
+    assert.equal(loaded.messages[1].runId,undefined);
     assert.equal(loaded.projectPath,workspace);
     assert.equal(loaded.activeAgentId,'poolside');
     assert.equal(loaded.schemaVersion,1);
