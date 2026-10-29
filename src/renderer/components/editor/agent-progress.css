@@ -114,6 +114,9 @@
   .ai-run-result > small { grid-column: 1; }
 }
 
+.ai-terminal-run.status-completed { border-color: rgba(52,211,153,.28); }
+.ai-terminal-run.status-failed,
+.ai-terminal-run.status-timed_out { border-color: rgba(251,113,133,.42); }
 .ai-terminal-run {
   flex: none;
   width: 100%;
