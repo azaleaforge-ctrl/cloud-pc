@@ -542,13 +542,19 @@ function TerminalRunPanel({
     timed_out: 'Timeout',
     cancelled: 'Dibatalkan',
   };
+  const statusMark = process.status === 'completed'
+    ? '✓'
+    : process.status === 'failed' || process.status === 'timed_out'
+      ? '×'
+      : process.status === 'cancelled' ? '!' : '◌';
   const elapsed = Math.max(0, Math.round(((process.finishedAt ?? Date.now()) - process.startedAt) / 1000));
   const output = entry.outputs.length ? formatAgentTerminalOutput(entry.outputs) : (outputOverride ?? '');
   return (
-    <section className={'ai-terminal-run status-' + process.status} aria-label="Detail proses terminal agent">
+    <section className={'ai-terminal-run status-' + process.status} aria-label={'Hasil terminal: ' + statusLabel[process.status]}>
       <header className="ai-terminal-run-header">
         <div>
-          <strong>Terminal agent</strong>
+          <span className={'ai-terminal-status-mark status-' + process.status} aria-hidden="true">{statusMark}</span>
+          <strong>Terminal</strong>
           <span className={'ai-terminal-status status-' + process.status}>{statusLabel[process.status]}</span>
         </div>
         <small>{process.exitCode === undefined ? 'Exit code menunggu' : 'Exit code: ' + (process.exitCode === null ? 'unknown' : process.exitCode)} · {elapsed} detik</small>
