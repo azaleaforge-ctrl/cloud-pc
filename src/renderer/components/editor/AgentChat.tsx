@@ -719,7 +719,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [selectedProviderDraft, setSelectedProviderDraft] = useState<AgentProviderId>('openrouter');
   const [apiKey, setApiKey] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsFocusTarget, setSettingsFocusTarget] = useState<'connect' | 'model' | null>(null);
+  const [settingsFocusTarget, setSettingsFocusTarget] = useState<'connect' | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [modelCostFilter, setModelCostFilter] = useState<ModelCostFilter>('all');
