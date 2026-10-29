@@ -481,22 +481,43 @@ function TodoPanel({ todos }: { todos: AgentTodo[] }) {
   );
 }
 
-function ToolActivityList({ activities }: { activities: AgentToolActivity[] }) {
-  if (activities.length === 0) return null;
+function ToolActivityList({ activity }: { activity: AgentToolActivity }) {
+  const toolName: Record<string, string> = {
+    todo_read: 'Todo List',
+    todo_write: 'Todo List',
+    list_project_files: 'Jelajahi struktur proyek',
+    read_project_file: 'Baca file',
+    write_project_file: 'Tulis kode',
+    search_project_files: 'Cari dalam proyek',
+    read_session_memory: 'Baca konteks sesi',
+    write_session_memory: 'Simpan konteks sesi',
+    run_terminal: 'Terminal',
+    search_web: 'Cari di web',
+    read_web_page: 'Baca halaman web',
+    check_package_version: 'Periksa versi package',
+    get_current_time: 'Periksa waktu',
+  };
+  const statusLabel: Record<AgentToolActivity['status'], string> = {
+    running: 'Berjalan',
+    completed: 'Selesai',
+    failed: 'Gagal',
+  };
+  const mark = activity.status === 'running' ? '◌' : activity.status === 'completed' ? '✓' : '×';
   return (
-    <section className="ai-tool-activities" aria-label="Aktivitas tool agent" aria-live="polite">
-      <header>Aktivitas agent</header>
-      <div className="ai-tool-activity-list">
-        {activities.slice(-6).map((activity) => (
-          <div className={'ai-tool-activity status-' + activity.status} key={activity.id}>
-            <span className="ai-tool-activity-mark" aria-hidden="true">
-              {activity.status === 'running' ? '◌' : activity.status === 'completed' ? '✓' : '!'}
-            </span>
-            <span className="ai-tool-activity-name">{activity.name}</span>
-            <span className="ai-tool-activity-detail">{activity.detail}</span>
-          </div>
-        ))}
-      </div>
+    <section
+      className={'ai-tool-activities status-' + activity.status}
+      aria-label={toolName[activity.name] || activity.name}
+      aria-live={activity.status === 'running' ? 'polite' : undefined}
+      role={activity.status === 'failed' ? 'alert' : 'status'}
+      key={activity.id}
+    >
+      <header>
+        <span className="ai-tool-activity-mark" aria-hidden="true">{mark}</span>
+        <strong className="ai-tool-activity-name">{toolName[activity.name] || activity.name}</strong>
+        <span className={'ai-tool-activity-status status-' + activity.status}>{statusLabel[activity.status]}</span>
+      </header>
+      <p className="ai-tool-activity-detail">{activity.detail}</p>
+      <small className="ai-tool-activity-time">{new Date(activity.ts).toLocaleTimeString()}</small>
     </section>
   );
 }
@@ -547,41 +568,63 @@ function TerminalRunPanel({
   );
 }
 
-function TerminalRunHistory({
-  history,
+
+
+type AgentWorkTimelineItem =
+  | { kind: 'tool'; key: string; ts: number; activity: AgentToolActivity }
+  | { kind: 'terminal'; key: string; ts: number; entry: AgentTerminalHistoryEntry };
+
+function AgentWorkTimeline({
+  activities,
+  terminalHistory,
+  lastRunResult,
   copiedId,
   onCopy,
-  currentProcess,
-  currentOutput,
 }: {
-  history: AgentTerminalHistoryEntry[];
+  activities: AgentToolActivity[];
+  terminalHistory: AgentTerminalHistoryEntry[];
+  lastRunResult: AgentRunResult | null;
   copiedId: string | null;
   onCopy: (entry: AgentTerminalHistoryEntry) => void;
-  currentProcess: AgentTerminalProcess | null;
-  currentOutput: string;
 }) {
-  if (history.length === 0) return null;
-  const latest = history[history.length - 1];
-  const previous = history.slice(0, -1).reverse();
+  // A terminal tool call and its terminal-process event describe the same job.
+  // Match them so the chat shows one complete terminal card, not two duplicates.
+  const terminalToolIds = new Set<string>();
+  const terminalActivities = activities
+    .filter((activity) => activity.name === 'run_terminal')
+    .slice()
+    .sort((left, right) => left.ts - right.ts);
+  for (const entry of terminalHistory) {
+    const processStart = entry.process.startedAt;
+    const candidate = terminalActivities
+      .filter((activity) => !terminalToolIds.has(activity.id) && activity.ts <= processStart && processStart - activity.ts <= 120_000)
+      .sort((left, right) => right.ts - left.ts)[0];
+    if (candidate) terminalToolIds.add(candidate.id);
+  }
+
+  const items: AgentWorkTimelineItem[] = [
+    ...activities
+      .filter((activity) => activity.name !== 'run_terminal' || !terminalToolIds.has(activity.id))
+      .map((activity) => ({ kind: 'tool' as const, key: 'tool-' + activity.id, ts: activity.ts, activity })),
+    ...terminalHistory.map((entry) => ({
+      kind: 'terminal' as const,
+      key: 'terminal-' + entry.process.commandId,
+      ts: entry.process.startedAt,
+      entry,
+    })),
+  ].sort((left, right) => left.ts - right.ts);
+
   return (
     <>
-      {previous.length > 0 ? (
-        <details className="ai-terminal-history">
-          <summary>Riwayat terminal sebelumnya ({previous.length})</summary>
-          <div className="ai-terminal-history-list">
-            {previous.map((entry) => (
-              <TerminalRunPanel key={entry.process.commandId} entry={entry} copied={copiedId === entry.process.commandId} onCopy={onCopy} />
-            ))}
-          </div>
-        </details>
-      ) : null}
-      <TerminalRunPanel
-        key={latest.process.commandId}
-        entry={latest}
-        copied={copiedId === latest.process.commandId}
-        onCopy={onCopy}
-        outputOverride={currentProcess?.commandId === latest.process.commandId ? currentOutput : undefined}
-      />
+      {items.map((item) => item.kind === 'tool'
+        ? <ToolActivityList key={item.key} activity={item.activity} />
+        : <TerminalRunPanel
+            key={item.key}
+            entry={item.entry}
+            copied={copiedId === item.entry.process.commandId}
+            onCopy={onCopy}
+          />)}
+      {lastRunResult ? <RunResultBanner result={lastRunResult} /> : null}
     </>
   );
 }
