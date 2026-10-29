@@ -153,6 +153,7 @@ function compactStoredMessage(message: ChatMessage): ChatMessage {
     role: message.role,
     content: message.content,
     ts: message.ts,
+    ...(typeof message.runId === 'string' && /^[a-zA-Z0-9_-]{1,200}$/.test(message.runId) ? { runId: message.runId } : {}),
     ...(attachments?.length ? { attachments } : {}),
   };
 }
