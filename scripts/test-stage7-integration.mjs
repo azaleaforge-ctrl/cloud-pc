@@ -106,7 +106,7 @@ try {
     assert.match(providers, /providerHttpErrorMessage\(response\.status, detail, config\.apiKey\)/);
     assert.match(providers, /redactSecretValues\(message, \[config\.apiKey\]\)/);
     assert.match(capabilities, /providerHttpErrorMessage\(response\.status, detail, config\.apiKey\)/);
-    assert.match(capabilities, /redactSecretValues\(\(\(error as Error\)\.message/);
+    assert.match(capabilities, /redactSecretValues\(\(error as Error\)\.message/);
   });
 
   test('legacy session/checkpoint schema remains readable and conflict-safe regressions are in the suite', () => {
