@@ -159,15 +159,17 @@ function extractPdf(buffer: Buffer): string {
 function hasMediaSignature(ext: string, buffer: Buffer): boolean {
   switch (ext) {
     case '.mp3':
-      return buffer.subarray(0, 3).toString() === 'ID3'
-        || (buffer.length > 1 && buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0);
+      return (buffer.length >= 10 && buffer.subarray(0, 3).toString() === 'ID3')
+        || (buffer.length >= 4 && buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0);
     case '.wav':
       return buffer.length >= 12 && buffer.subarray(0, 4).toString() === 'RIFF' && buffer.subarray(8, 12).toString() === 'WAVE';
     case '.m4a':
     case '.mp4':
-      return buffer.length >= 12 && buffer.subarray(4, 8).toString() === 'ftyp';
-    case '.mov':
-      return buffer.length >= 12 && buffer.subarray(4, 8).toString() === 'ftyp';
+    case '.mov': {
+      if (buffer.length < 16 || buffer.subarray(4, 8).toString() !== 'ftyp') return false;
+      const boxSize = buffer.readUInt32BE(0);
+      return boxSize === 0 || (boxSize >= 16 && boxSize <= buffer.length);
+    }
     case '.aac':
       return buffer.length > 1 && buffer[0] === 0xff && (buffer[1] & 0xf6) === 0xf0;
     case '.flac':
@@ -177,7 +179,7 @@ function hasMediaSignature(ext: string, buffer: Buffer): boolean {
     case '.avi':
       return buffer.length >= 12 && buffer.subarray(0, 4).toString() === 'RIFF' && buffer.subarray(8, 12).toString() === 'AVI ';
     case '.webm':
-      return buffer.length >= 4 && buffer.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
+      return buffer.length >= 12 && buffer.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
     case '.mpeg':
     case '.mpg':
       return buffer.length >= 4 && buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0x01;
