@@ -1061,11 +1061,10 @@ remove terminal reset duplicate    setTerminalHistory([]);
     setChanges([]);
     setSelectedChange(null);
     setToolActivities([]);
-    setTerminalProcess(null);
-    setTerminalOutput('');
+    setActiveSkills([]);
     setTerminalHistory([]);
     setTerminalCopiedId(null);
-keep activity for tooltip in loading dock    const userMessage: ChatMessage = {
+const userMessage: ChatMessage = {
       id: 'user-' + Date.now(), role: 'user',
       content: text || 'Tolong analisis lampiran yang saya kirim dan rangkum informasi pentingnya.',
       ts: Date.now(),
@@ -1398,8 +1397,6 @@ keep activity for tooltip in loading dock    const userMessage: ChatMessage = {
     setTodos([]);
     setToolActivities([]);
     setLastRunResult(null);
-    setTerminalProcess(null);
-    setTerminalOutput('');
     setTerminalHistory([]);
     setTerminalCopiedId(null);
     setError(null);
@@ -1660,15 +1657,6 @@ keep activity for tooltip in loading dock    const userMessage: ChatMessage = {
         </button>
       </div>
 
-      {activeSkills.length > 0 ? (
-        <div className="ai-active-skills" aria-label="Skills aktif untuk tugas ini">
-          <span className="ai-active-skills-label">Skills aktif</span>
-          {activeSkills.map((skill) => (
-            <span className="ai-active-skill" key={skill.id} title={skill.reason}>{skill.name}</span>
-          ))}
-        </div>
-      ) : null}
-
       {!routerStatus?.configured ? (
         <section className="ai-setup-needed">
           <div className="ai-setup-icon">⚙</div>
@@ -1700,20 +1688,27 @@ keep activity for tooltip in loading dock    const userMessage: ChatMessage = {
               ))
             )}
 
+            <AgentWorkTimeline
+              activities={toolActivities}
+              terminalHistory={terminalHistory}
+              lastRunResult={lastRunResult}
+              copiedId={terminalCopiedId}
+              onCopy={(entry) => void copyTerminalDiagnostics(entry)}
+            />
             <div ref={bottomRef} />
           </div>
 
           <div
             className="ai-run-dock"
-            data-active={Boolean(loading || activity || permission || agentQuestion || terminalProcess || toolActivities.length || lastRunResult || error)}
+            data-active={Boolean(loading || permission || agentQuestion || error)}
             data-awaiting-response={Boolean(permission || agentQuestion)}
           >
-            {loading || activity ? (
+            {loading || permission || agentQuestion ? (
               <div className="ai-run-status-row" role="status">
-                {loading ? <Spinner size={15} /> : <span className="ai-run-status-dot" />}
+                {loading && !permission && !agentQuestion ? <Spinner size={15} /> : <span className="ai-run-status-dot" />}
                 <div>
-                  <strong>{activity || 'Agent sedang bekerja…'}</strong>
-                  <small>{loading ? 'Agent berjalan · Escape untuk membatalkan' : 'Status terbaru agent'}</small>
+                  <strong>{permission ? 'Menunggu persetujuan terminal' : agentQuestion ? 'Menunggu jawabanmu' : 'AI sedang bekerja…'}</strong>
+                  <small title={activity || undefined}>{permission || agentQuestion ? 'Agent melanjutkan setelah keputusanmu dikirim' : 'Setiap langkah dan hasil tampil sebagai item di percakapan'}</small>
                 </div>
                 {loading ? <button type="button" className="ai-dock-stop" onClick={() => void stopAgent()}>Hentikan</button> : null}
               </div>
@@ -1814,17 +1809,6 @@ keep activity for tooltip in loading dock    const userMessage: ChatMessage = {
             ) : null}
 
             {error ? <div className="ai-error ai-run-dock-error" role="alert">{error}</div> : null}
-            <div className="ai-run-details-scroll">
-              <TerminalRunHistory
-                history={terminalHistory}
-                copiedId={terminalCopiedId}
-                onCopy={(entry) => void copyTerminalDiagnostics(entry)}
-                currentProcess={terminalProcess}
-                currentOutput={terminalOutput}
-              />
-              <ToolActivityList activities={toolActivities} />
-              {lastRunResult ? <RunResultBanner result={lastRunResult} /> : null}
-            </div>
           </div>
 
           <div className={'ai-composer' + (permission || agentQuestion ? ' has-interaction' : '')}>
@@ -1878,6 +1862,21 @@ keep activity for tooltip in loading dock    const userMessage: ChatMessage = {
             <div className="ai-side-card-title"><strong>Workspace aktif</strong><span className="ai-side-dot" /></div>
             <div className="ai-root-path">{wb.root ?? 'Belum ada folder project'}</div>
             {wb.activePath ? <div className="ai-active-file"><span>File terpilih di editor</span><code>{wb.activePath}</code></div> : null}
+          </section>
+
+          <section className="ai-side-card ai-side-skills-card">
+            <div className="ai-side-card-title">
+              <strong>Skill aktif</strong>
+              <span>{activeSkills.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-skills-scroll">
+              {activeSkills.length ? activeSkills.map((skill) => (
+                <div className="ai-side-skill" key={skill.id} title={skill.reason}>
+                  <strong>{skill.name}</strong>
+                  {skill.reason ? <small>{skill.reason}</small> : null}
+                </div>
+              )) : <p className="ai-side-empty">Skill yang digunakan selama tugas akan muncul di sini.</p>}
+            </div>
           </section>
 
           <section className="ai-side-card ai-side-todo-card">
