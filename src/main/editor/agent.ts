@@ -15,7 +15,7 @@ import { applyAgentTodoUpdate } from './agentTodo';
 import { installBuiltinSkills, loadAgentSkillInstructions, selectAgentSkills } from './skills';
 import { startTerminalCommand } from './terminalRuntime';
 import { getAgentTerminalGuidance, resolveTerminalShell } from './terminalShell';
-import { getToolRecoveryHint, isToolFailureResult, repeatedFailureSignature } from './agentFailureGuard';
+import { getToolRecoveryHint, isToolFailureResult, repeatedFailureSignature, repeatedNoProgressActionSignature } from './agentFailureGuard';
 import { listBuiltinAgentSkills } from './skills';
 import { prepareAgentAttachments, resolveAgentAttachments } from './agentAttachments';
 import { checkPackageVersion, getCurrentTime, readWebPage, searchWeb, type PackageEcosystem } from './agentResearch';
@@ -95,6 +95,7 @@ const MAX_AGENT_RUN_MINUTES = boundedIntegerEnvironment('RK_AGENT_MAX_RUN_MINUTE
 const MAX_AGENT_RUN_MS = MAX_AGENT_RUN_MINUTES * 60 * 1000;
 const MAX_REPEATED_TOOL_FAILURES = boundedIntegerEnvironment('RK_AGENT_MAX_REPEATED_FAILURES', 3, 2, 10);
 const MAX_NO_PROGRESS_REPLIES = boundedIntegerEnvironment('RK_AGENT_MAX_NO_PROGRESS_REPLIES', 2, 1, 5);
+const MAX_IDENTICAL_NO_PROGRESS_ACTIONS = boundedIntegerEnvironment('RK_AGENT_MAX_IDENTICAL_NO_PROGRESS_ACTIONS', 3, 2, 10);
 const DEFAULT_COMMAND_TIMEOUT_SECONDS = boundedIntegerEnvironment('RK_AGENT_DEFAULT_COMMAND_TIMEOUT_SECONDS', 600, 10, 3600);
 const MAX_COMMAND_TIMEOUT_SECONDS = 3600;
 const MAX_READ_BYTES = 1024 * 1024;
@@ -713,6 +714,21 @@ function isWorkspaceTool(name: string): boolean {
     name === 'write_project_file' || name === 'search_project_files' || name === 'run_terminal';
 }
 
+function agentProgressFingerprint(session: LlmSession): string {
+  // Exclude updatedAt/createdAt: repeating todo_write with identical status is not progress.
+  const todos = session.todos.map((todo) => ({
+    id: todo.id,
+    title: todo.title,
+    status: todo.status,
+    priority: todo.priority,
+    blockedBy: todo.blockedBy,
+    verification: todo.verification,
+    blockedReason: todo.blockedReason ?? '',
+    completionEvidence: todo.completionEvidence ?? '',
+  }));
+  return JSON.stringify({ lastCodeChangeAt: session.lastCodeChangeAt ?? 0, todos });
+}
+
 async function executeTool(
   session: LlmSession,
   userDataDir: string,
@@ -1192,6 +1208,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       let noProgressReplies = 0;
       let blockedReason: string | null = null;
       const repeatedFailures = new Map<string, number>();
+      const repeatedNoProgressActions = new Map<string, number>();
 
       while (!session.killed) {
         if (Date.now() - runStartedAt >= MAX_AGENT_RUN_MS) {
@@ -1312,6 +1329,9 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
 
           const activityId = call.id || ('tool_' + randomUUID());
           const activityLabel = toolActivityLabel(call);
+          const progressBefore = agentProgressFingerprint(session);
+          const actionSignature = repeatedNoProgressActionSignature(call.name, call.arguments);
+          const noProgressKey = actionSignature ? actionSignature + ':' + progressBefore : null;
           const startedActivity: AgentToolActivity = { id: activityId, name: call.name, status: 'running', detail: activityLabel, ts: Date.now() };
           emit(session, { type: 'tool-status', activity: startedActivity });
 
@@ -1350,6 +1370,17 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
             // failure was recovered; unrelated reads must not reset the counter.
             for (const key of repeatedFailures.keys()) {
               if (key.startsWith(call.name + ':')) repeatedFailures.delete(key);
+            }
+          }
+
+          if (!failed && noProgressKey) {
+            const progressAfter = agentProgressFingerprint(session);
+            if (progressAfter === progressBefore) {
+              const repeatCount = (repeatedNoProgressActions.get(noProgressKey) ?? 0) + 1;
+              repeatedNoProgressActions.set(noProgressKey, repeatCount);
+              if (repeatCount >= MAX_IDENTICAL_NO_PROGRESS_ACTIONS) {
+                blockedReason = 'Agent mengulang tool "' + call.name + '" dengan argumen dan state yang sama tanpa kemajuan ' + repeatCount + ' kali. Run dihentikan untuk mencegah loop. Periksa output tool terakhir, ubah pendekatan, atau lanjutkan setelah ada perubahan nyata.';
+              }
             }
           }
 
