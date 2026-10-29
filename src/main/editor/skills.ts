@@ -224,6 +224,7 @@ export function selectAgentSkills(userText: string, activePath: string | null, i
   const shouldReuseConversation = Boolean(conversationContext.trim()) && (hasContinuationReference || (wordCount <= 4 && !hasStandaloneTaskIntent));
   const intentText = (shouldReuseConversation ? conversationContext + ' ' : '') + userText;
   const intentLower = intentText.toLowerCase();
+  const documentIntentText = (intentText + ' ' + (activePath ?? '')).toLowerCase();
   const text = (intentText + ' ' + (activePath ?? '') + ' ' + inventory.slice(0, 9000)).toLowerCase();
   const codingTask = /\b(buat|bikin|ubah|edit|perbaiki|perbaikan|fix|implement|implementasi|refactor|tambah|tambahkan|hapus|delete|create|write|modify|change|update|code|kode|coding|debug|bug|file|folder|fungsi|function|komponen|component|script|program|aplikasi|project|proyek|build|test|testing|lint|repair|perbaiki)\b/.test(intentLower);
   const frontEnd = /\b(ui|ux|frontend|front-end|website|web app|halaman|desain|design|tampilan|dashboard|layout|css|html|react|next\.js|responsive|responsif|landing page|komponen visual|styling)\b/.test(text);
@@ -251,7 +252,7 @@ export function selectAgentSkills(userText: string, activePath: string | null, i
     }
     if (backEnd) add('backend-development');
   }
-  if (/\.(pdf|docx|xlsx|pptx|png|jpe?g|webp|gif)\b|\b(lampiran|attachment|dokumen|document analysis)\b/i.test(intentLower)) add('document-analysis');
+  if (/\.(pdf|docx|xlsx|pptx|png|jpe?g|webp|gif)\b|\b(lampiran|attachment|dokumen|document analysis)\b/i.test(documentIntentText)) add('document-analysis');
   return [...chosen.values()];
 }
 
