@@ -245,7 +245,7 @@ function parseFile(ext: string, mime: string, buffer: Buffer): { text?: string; 
     // path so the model can perform OCR/layout analysis instead of pretending no OCR is possible.
     return {
       text: '[PDF tidak memiliki teks yang dapat diekstrak. PDF asli akan dikirim ke model multimodal yang mendukung dokumen untuk OCR dan analisis layout.]',
-      dataUrl: 'data:application/pdf;base64,' + buffer.toString('base64)',
+      dataUrl: 'data:application/pdf;base64,' + buffer.toString('base64'),
     };
   }
   if (ext === '.docx') return { text: boundedText(extractDocx(buffer)) };
