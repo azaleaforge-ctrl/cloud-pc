@@ -1260,16 +1260,38 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
             const documents = resolved.filter(item => item.text)
               .map(item => '--- LAMPIRAN: ' + item.name + ' (' + item.mimeType + ') ---\n' + item.text);
             const missing = (message.attachments ?? []).filter(ref => !resolved.some(item => item.id === ref.id));
+            const unavailableDirectMedia = missing.filter(item => /^(audio|video)\//i.test(item.mimeType));
+            if (unavailableDirectMedia.length && config.provider !== 'gemini') {
+              throw new Error('Lampiran audio/video pada riwayat ini tidak tersedia lagi atau belum bisa diproses oleh provider yang aktif. Hubungkan Google Gemini melalui /connect dan lampirkan ulang media tersebut.');
+            }
             const expiryNote = missing.length
-              ? '[Lampiran sudah tidak tersedia di memori lokal; minta pengguna melampirkan ulang: ' + missing.map(item => item.name).join(', ') + ']'
+              ? '[Lampiran sudah kedaluwarsa dari memori lokal; minta pengguna melampirkan ulang: ' + missing.map(item => item.name).join(', ') + ']'
               : '';
             const textContent = [message.content, ...documents, expiryNote].filter(Boolean).join('\n\n');
-            const images = resolved.filter(item => item.dataUrl);
-            if (images.length) return {
+            const images = resolved.filter(item => item.dataUrl && item.mimeType.startsWith('image/'));
+            const directMedia = resolved.filter(item => item.dataUrl && !item.mimeType.startsWith('image/'));
+            if (directMedia.length && config.provider !== 'gemini') {
+              const mediaTypes = Array.from(new Set(directMedia.map(item => item.mimeType.startsWith('audio/') ? 'audio' : item.mimeType.startsWith('video/') ? 'video' : 'PDF scan')));
+              throw new Error('Lampiran ' + mediaTypes.join('/') + ' membutuhkan provider Google Gemini untuk input media langsung. Provider kompatibel OpenAI yang aktif tidak menerima format ini melalui jalur chat standar. Ubah provider lewat /connect, lalu kirim ulang media.');
+            }
+            if (images.length || directMedia.length) return {
               role: message.role,
               content: [
-                { type: 'text', text: textContent || 'Analisis gambar terlampir berdasarkan detail yang dapat diamati.' },
+                {
+                  type: 'text',
+                  text: textContent || (directMedia.some(item => item.mimeType.startsWith('audio/'))
+                    ? 'Transkripsikan audio terlampir, ringkas isinya, dan sebutkan bagian yang tidak jelas.'
+                    : directMedia.some(item => item.mimeType.startsWith('video/'))
+                      ? 'Analisis video terlampir: rangkum adegan, urutan peristiwa, teks yang terlihat, dan audio/ucapan jika tersedia.'
+                      : directMedia.length
+                        ? 'Baca dan analisis PDF terlampir, termasuk OCR untuk halaman hasil scan dan struktur layout.'
+                        : 'Analisis gambar terlampir berdasarkan detail yang dapat diamati.'),
+                },
                 ...images.map(item => ({ type: 'image_url', image_url: { url: item.dataUrl } })),
+                ...directMedia.map(item => ({
+                  type: 'media_url',
+                  media_url: { url: item.dataUrl, mimeType: item.mimeType },
+                })),
               ],
             };
             return { role: message.role, content: textContent };
