@@ -132,7 +132,7 @@ try {
     assert.throws(() => providers.buildGeminiRequestBody({
       model: 'gemini-3.8-flash',
       messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: 'https://example.com/image.png' } }] }],
-    }), /URL gambar eksternal/);
+    }), /URL media eksternal/);
   });
 
   await test('routes audio, video and scanned PDF data URLs through Gemini native inlineData', () => {
