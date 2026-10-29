@@ -14,7 +14,7 @@ const AdmZip = require('adm-zip') as new (data: Buffer) => ZipArchive;
 const FILE_MAX = 25 * 1024 * 1024;
 const IMAGE_MAX = 12 * 1024 * 1024;
 const DIRECT_MEDIA_MAX = 12 * 1024 * 1024;
-const DIRECT_MEDIA_BATCH_MAX = 14 * 1024 * 1024;
+const DIRECT_MEDIA_BATCH_MAX = 12 * 1024 * 1024;
 const BATCH_MAX = 50 * 1024 * 1024;
 const PART_MAX = 30 * 1024 * 1024;
 const TEXT_MAX = 24_000;
@@ -321,7 +321,7 @@ export async function prepareAgentAttachments(filePaths: string[]): Promise<Agen
     if (payload.dataUrl) {
       directMediaBytes += buffer.length;
       if (directMediaBytes > DIRECT_MEDIA_BATCH_MAX) {
-        throw new Error('Total media yang dikirim langsung ke model maksimal 14 MiB per pesan. Kurangi jumlah/ukuran gambar, audio, video, atau PDF scan.');
+        throw new Error('Total media yang dikirim langsung ke model maksimal 12 MiB per pesan. Kurangi jumlah/ukuran gambar, audio, video, atau PDF scan.');
       }
     }
     parsed.push({ id: 'att-' + randomUUID(), name: basename(path), mimeType: mime, size: buffer.length, ...payload, expiresAt: Date.now() + TTL });
