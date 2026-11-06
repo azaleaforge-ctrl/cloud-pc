@@ -19,10 +19,10 @@ const READ_ONLY_DISCOVERY_TOOLS = new Set([
 
 export function shouldBlockToolUntilTodoPlan(
   requiresTodoPlan: boolean,
-  hasTodoPlan: boolean,
+  hasActiveTodo: boolean,
   toolName: string,
 ): boolean {
-  if (!requiresTodoPlan || hasTodoPlan) return false;
+  if (!requiresTodoPlan || hasActiveTodo) return false;
   if (toolName === 'todo_write' || READ_ONLY_DISCOVERY_TOOLS.has(toolName)) return false;
   // Unknown/plugin tools are treated as potentially state-changing.
   return true;
