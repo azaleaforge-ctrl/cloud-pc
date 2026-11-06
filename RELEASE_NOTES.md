@@ -1,3 +1,35 @@
+# Ruang Kerja v1.1.1
+
+## Agentic Coding AI — perbaikan deadlock Todo Orchestrator dan discovery workspace
+
+### 1. Perbaikan akar masalah tool yang terus ditahan
+- Memperbaiki kebijakan Todo Orchestrator yang sebelumnya menahan `read_project_file`, `list_project_files`, dan `search_project_files` ketika Todo List belum dibuat.
+- Agent sekarang boleh melakukan discovery read-only terlebih dahulu untuk memahami struktur proyek dan membaca file relevan.
+- Todo List tetap wajib dibuat sebelum tindakan yang mengubah workspace atau state, seperti menulis file, menjalankan terminal, menulis session memory, atau memanggil tool/plugin yang tidak dikenal.
+- Menghilangkan false-positive deteksi Todo yang sebelumnya menganggap kata benda umum seperti "project", "proyek", "website", dan "aplikasi" sebagai bukti bahwa permintaan pasti multi-langkah.
+
+### 2. Perbaikan instruksi Agent
+- Memperjelas urutan kerja: pahami workspace melalui inventory/read/search, susun rencana berdasarkan temuan, buat Todo untuk pekerjaan substantif, lalu lakukan perubahan secara berurutan.
+- Discovery tidak lagi terjebak oleh prasyarat Todo yang justru membutuhkan discovery untuk disusun.
+- Tool mutatif tetap dilindungi oleh prasyarat Todo untuk pekerjaan multi-langkah.
+
+### 3. Regression tests
+- Menambahkan test policy untuk memastikan read-only discovery diizinkan sebelum Todo.
+- Memastikan write, terminal, session-memory write, dan tool/plugin yang tidak dikenal tetap ditahan sampai Todo tersedia.
+- Memastikan permintaan sederhana yang tidak memerlukan Todo tidak diblokir, dan tool dapat berjalan normal setelah Todo dibuat.
+- Test policy baru dimasukkan ke gerbang Agent Runtime CI.
+
+### 4. Terminal runtime dan verifikasi
+- Memperbaiki wrapper PowerShell agar command dijalankan pada scope yang sama dengan pembacaan `$LASTEXITCODE`; exit code native program seperti `node`, `npm`, dan `git` tidak lagi berisiko terbaca sukses padahal proses mengembalikan kode non-zero.
+- Menambahkan regression test khusus untuk memastikan wrapper PowerShell mempertahankan exit code native.
+- Agent Runtime Tests, TypeScript typecheck, dan Windows installer build harus lulus sebelum release.
+- Tes ini memverifikasi kebijakan orkestrasi dan format alur eksekusi; pengujian end-to-end tetap perlu memakai 9Router lokal yang aktif dan model yang mendukung tool-calling.
+
+### Detail Version di dalam aplikasi
+Buka nomor versi pada bilah status bawah untuk melihat Detail Version. Riwayat menampilkan maksimal tiga rilis terbaru beserta deskripsi perubahan masing-masing versi. Gunakan tombol Muat Ulang Versi untuk mengambil ulang daftar dan deskripsi terbaru dari GitHub.
+
+---
+
 # Ruang Kerja v1.1.0
 
 ## AI Coding Agent — 9Router local-only, stabilisasi tool-calling, dan alur coding yang lebih dapat diandalkan
