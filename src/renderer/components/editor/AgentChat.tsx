@@ -2019,7 +2019,11 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 <div className="ai-model-catalog-state" aria-live="polite">
                   {loadingModels ? <span><Spinner size={12} /> Mengambil katalog dari {routerStatus.providerName}…</span>
                     : modelCatalog?.ok
-                      ? <span>{modelCatalogOptions.length} model cocok · diperbarui {modelCatalog.retrievedAt ? new Date(modelCatalog.retrievedAt).toLocaleTimeString() : 'baru saja'}</span>
+                      ? <span className={modelCatalog.retrievedAt ? undefined : 'ai-model-catalog-error'}>
+                          {modelCatalog.retrievedAt
+                            ? modelCatalogOptions.length + ' model cocok · diperbarui ' + new Date(modelCatalog.retrievedAt).toLocaleTimeString()
+                            : modelCatalog.message}
+                        </span>
                       : modelCatalog?.message
                         ? <span className="ai-model-catalog-error">{modelCatalog.message}</span>
                         : <span>Katalog model belum dimuat.</span>}
