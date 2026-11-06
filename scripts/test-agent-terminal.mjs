@@ -112,6 +112,19 @@ try {
     }
   });
 
+  test('PowerShell executes the command in the wrapper scope so native LASTEXITCODE is preserved', () => {
+    const powershellProfile = {
+      file: 'pwsh.exe',
+      name: 'PowerShell test',
+      family: 'powershell',
+      interactiveArgs: [],
+      commandArgs: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command'],
+    };
+    const invocation = buildTerminalCommandInvocation('node -e "process.exit(7)"', powershellProfile);
+    assert.match(invocation.args.at(-1), /\. \(\[scriptblock\]::Create\(\$scriptText\)\)/);
+    assert.match(invocation.args.at(-1), /\$nativeExitCode = \$global:\LASTEXITCODE/);
+  });
+
   const outputEvents = [];
   const processEvents = [];
   const successHandle = startTerminalCommand(options(
