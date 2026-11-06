@@ -69,17 +69,19 @@ assert.ok(runtime.includes(`const DEFAULT_MODEL = 'groq/openai/gpt-oss-120b(high
 assert.ok(main.includes(`const LEGACY_ROUTER_MODEL = 'groq/openai/gpt-oss-120b(high)';`) &&
   main.includes('RETIRED_LEGACY_ROUTER_MODEL'),
   'saved installations must migrate away from the retired model and use the new fallback');
-assert.ok(main.includes("process.env.RK_ROUTER_ENDPOINT ?? 'http://localhost:20128/v1'") &&
-  main.includes("process.env.RK_ROUTER_FALLBACK ?? 'https://bxludp.tailf34d89.ts.net/v1'"),
-  '9router must prefer the local endpoint and use the requested Tailscale endpoint as fallback');
+assert.ok(main.includes("const LEGACY_ROUTER_ENDPOINT = 'http://localhost:20128/v1';") &&
+  !main.includes('LEGACY_ROUTER_FALLBACK_ENDPOINT') &&
+  !main.includes('tailf34d89.ts.net'),
+  '9Router must use localhost only; Tailscale and other remote fallbacks must be removed');
 assert.ok(runtime.includes("const DEFAULT_ENDPOINT = 'http://localhost:20128/v1';") &&
-  runtime.includes("const DEFAULT_FALLBACK_ENDPOINT = 'https://bxludp.tailf34d89.ts.net/v1';"),
-  'runtime defaults must match the local-first endpoint order');
-assert.ok(runtime.includes('if (response.ok) return response;') &&
-  runtime.includes('A non-2xx response (including HTTP 503) falls through to the next endpoint.'),
-  'HTTP 503 and other non-2xx responses must proceed to the fallback endpoint');
-assert.ok(runtime.includes('AbortSignal.timeout(endpoint === endpoints[0] && endpoints.length > 1 ? 15_000 : 120_000)'),
-  'an unreachable local endpoint must fail over without waiting for the full remote request timeout');
+  !runtime.includes('DEFAULT_FALLBACK_ENDPOINT') &&
+  !runtime.includes('tailf34d89.ts.net'),
+  'agent runtime must have exactly one local 9Router endpoint');
+assert.ok(runtime.includes('const requestMessages = normalizeOpenAiToolCallMessages(messages);') &&
+  runtime.includes('messages: requestMessages'),
+  'strict OpenAI-compatible tool-call messages must be normalized before sending');
+assert.ok(runtime.includes('Local-only mode intentionally does not retry against a remote service.'),
+  'a failed local request must not silently leave the local machine');
 assert.ok(!chat.includes('className="ai-agent-switcher"') && !chat.includes('Poolside Coding Agent'),
   'the Poolside agent switcher and branding must no longer appear in the editor chat UI');
 
@@ -88,6 +90,7 @@ assert.ok(!editorShell.includes('<span className="ed-ai-tab-title">AI Coding Age
 assert.ok(editorShell.includes('className="ed-ai-tab-icon"') && editorShell.includes('className="ed-ai-tab-close"'),
   'the compact AI tab icon and close action must remain available');
 
+assert.ok(parser.includes('const endpoints = [config.endpoint];'), 'model catalogue and diagnostics must also stay local-only');
 assert.ok(parser.includes('architecture.input_modalities') && parser.includes('pricing.prompt') &&
   parser.includes('supported_parameters') && parser.includes("'unknown'"),
   'the model metadata parser must preserve source capability fields and an unknown-price state');
