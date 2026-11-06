@@ -1,3 +1,35 @@
+# Ruang Kerja v1.0.8
+
+## Agentic Coding AI — katalog model 9router dan tampilan lebih ringkas
+
+Ruang Kerja v1.0.8 memperbarui pilihan model untuk Agentic Coding AI melalui 9router dan merapikan area kerja editor. Perubahan ini mempertahankan alur coding agent, workspace tools, terminal dengan persetujuan, serta sistem riwayat versi yang sudah ada.
+
+### 1. Pilihan model 9router
+- Menambahkan `groq/openai/gpt-oss-120b(high)` — GPT-OSS 120B (High) — ke katalog model yang dapat dipilih.
+- Menambahkan `cf/@cf/qwen/qwen2.5-coder-32b-instruct(high)` — Qwen 2.5 Coder 32B Instruct (High) — ke katalog model yang dapat dipilih.
+- Menambahkan `cf/@cf/meta/llama-3.3-70b-instruct-fp8-fast` — Llama 3.3 70B Instruct FP8 Fast — ke katalog model yang dapat dipilih.
+- Menghapus `ps/poolside/laguna-s-2.1(high)` dari daftar model aktif 9router dan menolak pemilihan ulang ID tersebut melalui input model manual.
+- Instalasi lama yang masih menyimpan pilihan Poolside/Laguna otomatis beralih ke model GPT-OSS 120B (High), tanpa menghapus API key atau pengaturan provider.
+- Model yang disematkan tetap diberi status harga belum diketahui dan tidak diberi klaim kemampuan vision/tool-calling sebelum metadata atau pengujian provider membuktikannya.
+- Jika endpoint katalog live 9router gagal, tiga pilihan model tersebut tetap tersedia dengan peringatan yang menjelaskan bahwa akses dan kemampuan perlu diverifikasi saat model digunakan.
+
+### 2. Penyederhanaan tampilan AI Coding Agent
+- Menghapus teks tab **AI Coding Agent** yang sebelumnya muncul tepat di atas pemilih **Poolside Coding Agent**.
+- Mempertahankan ikon tab dan tombol tutup agar akses kembali ke editor tetap tersedia.
+- Tombol pemilih agent dan area percakapan tidak diubah oleh perapian ini.
+
+### 3. Validasi dan kompatibilitas
+- Menambahkan regression test untuk ketiga ID model 9router, filter model Laguna, metadata model, dan fallback katalog ketika endpoint live tidak tersedia.
+- Memperbarui pemeriksaan UI agar memastikan label tab yang berulang dihapus sementara kontrol navigasi tetap dipertahankan.
+- Memperbarui versi aplikasi dan lockfile menjadi **1.0.8** agar versi di bilah status aplikasi sesuai dengan release.
+- CI Windows menjalankan Agent Runtime tests, TypeScript typecheck, dan build installer sebelum GitHub Release diterbitkan.
+- Ketersediaan model, batas pemakaian, harga, dan dukungan tool-calling tetap mengikuti akun serta endpoint 9router; lakukan **Uji kemampuan** untuk model aktif sebelum mengandalkan operasi coding otomatis.
+
+### Detail Version di dalam aplikasi
+Buka nomor versi pada bilah status bawah untuk melihat **Detail Version**. Setelah rilis v1.0.8 diterbitkan, aplikasi mengambil deskripsi perubahan ini dari GitHub dan menampilkannya di urutan teratas bersama maksimal dua rilis sebelumnya. Gunakan **Muat Ulang Versi** untuk memperbarui daftar dan deskripsi release.
+
+---
+
 # Ruang Kerja v1.0.7
 
 ## Agentic Coding AI — lampiran multimodal dan kontrol pesan yang lebih tangguh
