@@ -1317,7 +1317,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       emit(session, { type: 'todo-update', todos: session.todos });
       emit(session, { type: 'state', state: { status: 'running', agentId: session.agent.id } });
       const codingIntent = /\b(buat|bikin|ubah|edit|perbaiki|perbaikan|fix|implement|implementasi|refactor|tambah|tambahkan|hapus|delete|create|write|modify|change|update|code|kode|coding|debug|bug|file|folder|fungsi|function|komponen|component|script|program|aplikasi|project|proyek|read|baca|cari|search|test|lint|build)\b/i.test(latestUserText);
-      const requiresTodoPlan = /\\b(buat|bikin|ubah|edit|perbaiki|perbaikan|fix|implement|implementasi|refactor|tambah|tambahkan|hapus|delete|create|write|modify|change|update|build|migrasi)\\b/i.test(latestUserText);
+      const requiresTodoPlan = /\b(buat|bikin|ubah|edit|perbaiki|perbaikan|fix|implement|implementasi|refactor|tambah|tambahkan|hapus|delete|create|write|modify|change|update|build|migrasi)\b/i.test(latestUserText);
       let finished = false;
       let hasUsedWorkspaceTools = false;
       let forcedToolRetryUsed = false;
