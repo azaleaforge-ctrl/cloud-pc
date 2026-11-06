@@ -12,7 +12,7 @@ import * as pty from '@lydell/node-pty';
 import type { IPty } from '@lydell/node-pty';
 import type { AgentAttachmentRef, AgentEntry, AgentEvent, AgentFileChange, AgentQuestionOption, AgentRunResult, AgentSkillInfo, AgentSkillSelection, AgentTodo, AgentToolActivity, ChatMessage, McpExposedTool, RouterConfig } from '../../shared/agents';
 import { applyAgentTodoUpdate } from './agentTodo';
-import { shouldBlockToolUntilTodoPlan } from './agentTodoPolicy';
+import { requiresTodoPlanForRequest, shouldBlockToolUntilTodoPlan } from './agentTodoPolicy';
 import { installBuiltinSkills, loadAgentSkillInstructions, selectAgentSkills } from './skills';
 import { loadInstalledSkillInstructions } from './installedSkills';
 import { callMcpPluginTool, disposeMcpPluginRuntimes, listEnabledMcpTools } from './mcpPlugins';
@@ -1317,7 +1317,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       emit(session, { type: 'todo-update', todos: session.todos });
       emit(session, { type: 'state', state: { status: 'running', agentId: session.agent.id } });
       const codingIntent = /\b(buat|bikin|ubah|edit|perbaiki|perbaikan|fix|implement|implementasi|refactor|tambah|tambahkan|hapus|delete|create|write|modify|change|update|code|kode|coding|debug|bug|file|folder|fungsi|function|komponen|component|script|program|aplikasi|project|proyek|read|baca|cari|search|test|lint|build)\b/i.test(latestUserText);
-      const requiresTodoPlan = /\b(buat|bikin|ubah|edit|perbaiki|perbaikan|fix|implement|implementasi|refactor|tambah|tambahkan|hapus|delete|create|write|modify|change|update|build|migrasi)\b/i.test(latestUserText);
+      const requiresTodoPlan = requiresTodoPlanForRequest(latestUserText);
       let finished = false;
       let hasUsedWorkspaceTools = false;
       let forcedToolRetryUsed = false;
