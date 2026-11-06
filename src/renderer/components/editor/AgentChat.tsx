@@ -281,7 +281,7 @@ function MessageBubble({
   if (msg.role === 'system' || !msg.content) return null;
   return (
     <article className={'ai-message ' + (isUser ? 'ai-message-user' : 'ai-message-assistant')}>
-      <div className="ai-message-author">{isUser ? 'Kamu' : 'Poolside Coding Agent'}</div>
+      <div className="ai-message-author">{isUser ? 'Kamu' : 'Ruang Kerja AI'}</div>
       <div className="ai-message-body">
         {isUser ? <div className="ai-user-text">{msg.content}</div> : <MarkdownContent content={msg.content} />}
         {isUser && msg.attachments?.length ? (
