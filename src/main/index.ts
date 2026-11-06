@@ -278,8 +278,8 @@ const editorExtensions = createExtensionService(() => join(app.getPath('userData
 const editorDebugger = createDebugService({ onEvent: (event) => send('rk:editor:debug-event', event) });
 
 // AI Agent service — API key disimpan terenkripsi per-user; tidak dibundel ke aplikasi.
-const LEGACY_ROUTER_ENDPOINT = process.env.RK_ROUTER_ENDPOINT ?? 'https://rbxludp.abc-tunnel.us/v1';
-const LEGACY_ROUTER_FALLBACK_ENDPOINT = process.env.RK_ROUTER_FALLBACK ?? 'http://localhost:20128/v1';
+const LEGACY_ROUTER_ENDPOINT = process.env.RK_ROUTER_ENDPOINT ?? 'http://localhost:20128/v1';
+const LEGACY_ROUTER_FALLBACK_ENDPOINT = process.env.RK_ROUTER_FALLBACK ?? 'https://bxludp.tailf34d89.ts.net/v1';
 const LEGACY_ROUTER_MODEL = 'groq/openai/gpt-oss-120b(high)';
 const RETIRED_LEGACY_ROUTER_MODEL = 'ps/poolside/laguna-s-2.1(high)';
 const PROVIDER_ENDPOINTS: Record<AgentProviderId, string> = {
