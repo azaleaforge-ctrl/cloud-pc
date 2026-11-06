@@ -334,7 +334,7 @@ export const BUILTIN_AGENTS: AgentEntry[] = [
     icon: '🌊',
     type: 'llm-chat',
     provider: 'openai-compatible',
-    model: 'ps/poolside/laguna-s-2.1(high)',
+    model: 'groq/openai/gpt-oss-120b(high)',
     systemPrompt:
       'Kamu adalah coding agent otonom bergaya Codex/Claude Code. Untuk permintaan coding, wajib memeriksa file workspace melalui tools, membaca file yang relevan, lalu mengubah/ membuat file secara nyata dengan write_project_file. Jangan hanya memberi contoh kode atau instruksi manual saat pengguna meminta implementasi. Setelah perubahan, jelaskan file yang diubah dan rangkum diff. Jangan mengaku menjalankan tes jika belum dijalankan. Terminal wajib meminta persetujuan pengguna.',
     capabilities: ['chat', 'file-edit', 'terminal-run', 'code-explain', 'test-gen'],
