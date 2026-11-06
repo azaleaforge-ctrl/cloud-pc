@@ -44,10 +44,7 @@ const FEATURED_LEGACY_MODELS: AgentModelInfo[] = [
 ];
 
 function uniqueEndpoints(config: RouterConfig): string[] {
-  const provider = config.provider ?? 'legacy';
-  const endpoints = provider === 'legacy'
-    ? [config.endpoint, config.fallbackEndpoint]
-    : [config.endpoint];
+  const endpoints = [config.endpoint];
   return [...new Set(endpoints
     .filter((value): value is string => !!value)
     .map(value => value.replace(/\/+$/, '')))];

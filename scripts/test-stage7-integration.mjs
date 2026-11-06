@@ -95,7 +95,8 @@ try {
     assert.match(attachment, /return parsed\.map\(\(\{ id, name, mimeType, size \}\)/);
     assert.match(agent, /resolveAgentAttachments\(message\.attachments \?\? \[\]\)/);
     assert.match(agent, /type: 'image_url', image_url: \{ url: item\.dataUrl \}/);
-    assert.match(agent, /body: JSON\.stringify\(\{[\s\S]*?messages,[\s\S]*?stream: true/);
+    assert.match(agent, /body: JSON\.stringify\(\{[\s\S]*?messages: requestMessages,[\s\S]*?stream: true/);
+    assert.match(agent, /normalizeOpenAiToolCallMessages\(messages\)/);
     assert.match(providers, /return \{ inlineData: \{ mimeType, data \} \}/);
     assert.match(providers, /'x-goog-api-key': config\.apiKey/);
     assert.match(providerTests, /converts embedded image data URLs to Gemini inlineData/);

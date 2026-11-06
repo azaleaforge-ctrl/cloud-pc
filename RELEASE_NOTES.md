@@ -1,3 +1,33 @@
+# Ruang Kerja v1.1.0
+
+## AI Coding Agent — 9Router local-only, stabilisasi tool-calling, dan alur coding yang lebih dapat diandalkan
+
+### 1. 9Router Local Only
+- Endpoint Agentic Coding AI dikunci ke `http://localhost:20128/v1`; tidak ada endpoint cadangan.
+- Seluruh permintaan chat, daftar model, uji koneksi, dan pemeriksaan kemampuan 9Router hanya menggunakan localhost.
+- Tailscale, tunnel publik, dan remote fallback tidak lagi dipakai atau dihubungi oleh provider 9Router.
+- Saat endpoint lokal gagal, aplikasi melaporkan error koneksi secara langsung dan tidak mengirim API key, prompt, attachment, maupun konteks workspace ke layanan jarak jauh.
+- Karena endpoint menggunakan localhost, setiap perangkat yang ingin memakai 9Router harus menjalankan 9Router secara lokal pada perangkat tersebut.
+
+### 2. Perbaikan HTTP 400 pada tool-calling
+- Memperbaiki format riwayat percakapan OpenAI-compatible saat assistant mengirim teks dan `tool_calls` dalam satu respons.
+- Teks assistant dipisahkan menjadi pesan assistant biasa, sedangkan pesan yang memuat `tool_calls` dikirim dengan `content: null`.
+- Urutan deklarasi tool call dan hasil tool tetap dipertahankan agar operasi Todo, pembacaan file, dan perubahan workspace memiliki pasangan pesan yang valid.
+- Menambahkan regression test untuk pesan assistant biasa, kombinasi teks dan tool call, serta tool call tanpa teks.
+- Memperbarui integration test attachment dan provider agar memeriksa request message yang telah dinormalisasi.
+
+### 3. Ketahanan dan validasi
+- Menambahkan regression test bahwa katalog model 9Router tidak mengakses endpoint remote walaupun konfigurasi lama masih membawa fallback.
+- Menambahkan pemeriksaan bahwa format payload tool-calling sesuai dengan skema OpenAI-compatible yang ketat.
+- Agent Runtime Tests mencakup Todo, terminal, attachments, model capabilities, session, provider, dan integration regression.
+- TypeScript typecheck dan Windows installer build menjadi gerbang sebelum rilis diterbitkan.
+- Tes otomatis menggunakan mock untuk memverifikasi format payload dan routing lokal; tes tersebut tidak dapat menjamin provider upstream 9Router selalu tersedia atau bebas HTTP 503.
+
+### Detail Version di dalam aplikasi
+Buka nomor versi pada bilah status untuk melihat **deskripsi perubahan/fitur/perbaikan** pada setiap versi. Riwayat menampilkan **maksimal tiga rilis terbaru**. Gunakan tombol **Muat Ulang Versi** untuk mengambil ulang detail dan catatan versi dari GitHub.
+
+---
+
 # Ruang Kerja v1.0.9
 
 ## Agentic Coding AI — endpoint lokal + Tailscale dan UI lebih bersih

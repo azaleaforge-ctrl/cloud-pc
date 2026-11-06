@@ -25,6 +25,7 @@ import { providerHttpErrorMessage, redactSecretValues } from './providerSecurity
 import { prepareAgentAttachments, resolveAgentAttachments } from './agentAttachments';
 import { checkPackageVersion, getCurrentTime, readWebPage, searchWeb, type PackageEcosystem } from './agentResearch';
 import { loadAgentSession, recordAgentFileCheckpoint, saveAgentSession } from './agentSessionStore';
+import { normalizeOpenAiToolCallMessages } from './openAiMessages';
 
 type EmitAgentEvent = (event: AgentEvent, sessionId: string) => void;
 
@@ -86,7 +87,6 @@ interface PendingUserQuestion {
 }
 
 const DEFAULT_ENDPOINT = 'http://localhost:20128/v1';
-const DEFAULT_FALLBACK_ENDPOINT = 'https://bxludp.tailf34d89.ts.net/v1';
 const DEFAULT_MODEL = 'groq/openai/gpt-oss-120b(high)';
 
 function boundedIntegerEnvironment(name: string, fallback: number, min: number, max: number): number {
@@ -971,12 +971,10 @@ async function openCompletionStream(
     return openGeminiCompletionStream(config, messages, toolDefinitions, toolChoice, session.controller.signal);
   }
 
-  const endpoints = provider === 'legacy'
-    ? [...new Set([
-        session.agent.endpoint || config.endpoint || DEFAULT_ENDPOINT,
-        config.fallbackEndpoint || DEFAULT_FALLBACK_ENDPOINT,
-      ].map((url) => url.replace(/\/+$/, '')))]
-    : [config.endpoint.replace(/\/+$/, '')];
+  // 9Router is intentionally local-only: never contact a tunnel or remote fallback.
+  const endpoints = [provider === 'legacy' ? (config.endpoint || DEFAULT_ENDPOINT) : config.endpoint]
+    .map((url) => url.replace(/\/+$/, ''));
+  const requestMessages = normalizeOpenAiToolCallMessages(messages);
   let lastError = 'Endpoint provider tidak dapat diakses.';
   const providerName = provider === 'openrouter' ? 'OpenRouter' : '9router';
 
@@ -991,21 +989,19 @@ async function openCompletionStream(
         },
         body: JSON.stringify({
           model: config.models[0] || session.agent.model || DEFAULT_MODEL,
-          messages,
+          messages: requestMessages,
           tools: toolDefinitions,
           tool_choice: toolChoice,
           stream: true,
           max_tokens: 6144,
           temperature: 0.2,
         }),
-        // A local endpoint that is not hosted on this device should fail over quickly;
-        // keep the full response window for the remote Tailscale endpoint.
-        signal: AbortSignal.any([session.controller.signal, AbortSignal.timeout(endpoint === endpoints[0] && endpoints.length > 1 ? 15_000 : 120_000)]),
+        signal: AbortSignal.any([session.controller.signal, AbortSignal.timeout(120_000)]),
       });
       if (response.ok) return response;
       const body = (await response.text()).slice(0, 500);
       lastError = providerHttpErrorMessage(response.status, body, config.apiKey);
-      // A non-2xx response (including HTTP 503) falls through to the next endpoint.
+      // Local-only mode intentionally does not retry against a remote service.
     } catch (error) {
       if (session.controller.signal.aborted || session.killed) throw error;
       lastError = redactSecretValues((error as Error).message || 'Koneksi gagal.', [config.apiKey]);
