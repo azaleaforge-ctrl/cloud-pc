@@ -49,8 +49,12 @@ try {
     assert.equal(shouldBlockToolUntilTodoPlan(false, false, 'write_project_file'), false);
   });
 
-  test('does not block any tool after a Todo plan exists', () => {
+  test('does not block any tool while a Todo task is active', () => {
     assert.equal(shouldBlockToolUntilTodoPlan(true, true, 'run_terminal'), false);
+  });
+
+  test('blocks mutations when Todo entries exist but none is in progress', () => {
+    assert.equal(shouldBlockToolUntilTodoPlan(true, false, 'write_project_file'), true);
   });
 
   console.log('\nAgent Todo policy tests: ' + passed + ' passed, ' + failed + ' failed.');
