@@ -122,7 +122,7 @@ try {
     };
     const invocation = buildTerminalCommandInvocation('node -e "process.exit(7)"', powershellProfile);
     assert.match(invocation.args.at(-1), /\. \(\[scriptblock\]::Create\(\$scriptText\)\)/);
-    assert.match(invocation.args.at(-1), /\$nativeExitCode = \$global:\LASTEXITCODE/);
+    assert.match(invocation.args.at(-1), /\$nativeExitCode = \$global:LASTEXITCODE/);
   });
 
   const outputEvents = [];
