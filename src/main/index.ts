@@ -280,7 +280,8 @@ const editorDebugger = createDebugService({ onEvent: (event) => send('rk:editor:
 // AI Agent service — API key disimpan terenkripsi per-user; tidak dibundel ke aplikasi.
 const LEGACY_ROUTER_ENDPOINT = process.env.RK_ROUTER_ENDPOINT ?? 'https://rbxludp.abc-tunnel.us/v1';
 const LEGACY_ROUTER_FALLBACK_ENDPOINT = process.env.RK_ROUTER_FALLBACK ?? 'http://localhost:20128/v1';
-const LEGACY_ROUTER_MODEL = 'ps/poolside/laguna-s-2.1(high)';
+const LEGACY_ROUTER_MODEL = 'groq/openai/gpt-oss-120b(high)';
+const RETIRED_LEGACY_ROUTER_MODEL = 'ps/poolside/laguna-s-2.1(high)';
 const PROVIDER_ENDPOINTS: Record<AgentProviderId, string> = {
   openrouter: 'https://openrouter.ai/api/v1',
   gemini: 'https://generativelanguage.googleapis.com/v1beta',
@@ -389,9 +390,17 @@ function getSelectedAgentModel(provider: AgentProviderId = getSelectedAgentProvi
       models?: Partial<Record<AgentProviderId, unknown>>;
     };
     const providerModel = raw.models?.[provider];
-    if (typeof providerModel === 'string') return normalizeModelId(providerModel);
+    if (typeof providerModel === 'string') {
+      const normalized = normalizeModelId(providerModel);
+      return provider === 'legacy' && normalized === RETIRED_LEGACY_ROUTER_MODEL
+        ? PROVIDER_DEFAULT_MODELS.legacy
+        : normalized;
+    }
     // Preserve the old single-model preference only for the legacy provider.
-    if (provider === 'legacy' && typeof raw.model === 'string') return normalizeModelId(raw.model);
+    if (provider === 'legacy' && typeof raw.model === 'string') {
+      const normalized = normalizeModelId(raw.model);
+      return normalized === RETIRED_LEGACY_ROUTER_MODEL ? PROVIDER_DEFAULT_MODELS.legacy : normalized;
+    }
   } catch {
     // Use the provider's default model when no selection is saved yet.
   }
@@ -402,6 +411,9 @@ function saveSelectedAgentModel(value: unknown, provider: AgentProviderId = getS
   try {
     if (typeof value !== 'string') throw new Error('ID model harus berupa teks.');
     const model = normalizeModelId(value);
+    if (provider === 'legacy' && model === RETIRED_LEGACY_ROUTER_MODEL) {
+      throw new Error('Model Poolside/Laguna S 2.1 sudah dikeluarkan dari katalog 9router. Pilih model lain.');
+    }
     const path = selectedModelPath();
     let previous: { model?: unknown; models?: Partial<Record<AgentProviderId, unknown>> } = {};
     try { previous = JSON.parse(readFileSync(path, 'utf8')) as typeof previous; } catch { /* initialize */ }
