@@ -69,6 +69,19 @@ try {
     readFile(join(root, 'package.json'), 'utf8'),
   ]);
 
+  const todoPolicy = await readFile(join(root, 'src/main/editor/agentTodoPolicy.ts'), 'utf8');
+
+  test('agent orchestration permits read-only discovery before Todo and gates mutations on an active task', () => {
+    assert.match(agent, /requiresTodoPlanForRequest, shouldBlockToolUntilTodoPlan/);
+    assert.match(agent, /shouldBlockToolUntilTodoPlan\(requiresTodoPlan, session\.todos\.some\(\(todo\) => todo\.status === 'in_progress'\), call\.name\)/);
+    assert.match(todoPolicy, /'read_project_file'/);
+    assert.match(todoPolicy, /'list_project_files'/);
+    assert.match(todoPolicy, /'search_project_files'/);
+    assert.match(todoPolicy, /if \(toolName === 'todo_write' \|\| READ_ONLY_DISCOVERY_TOOLS\.has\(toolName\)\) return false/);
+    assert.match(todoPolicy, /requiresTodoPlanForRequest/);
+    assert.doesNotMatch(agent, /const requiresTodoPlan = .*website\|aplikasi\|project\|proyek/);
+  });
+
   test('provider/model selection is resolved per provider and runtime requests use the selected model', () => {
     assert.match(main, /models:\s*\[getSelectedAgentModel\(provider\)\]/);
     assert.match(main, /saveSelectedAgentModel\(model\)/);
