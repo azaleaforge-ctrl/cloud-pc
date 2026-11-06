@@ -27,13 +27,24 @@ try {
     outfile: bundlePath,
     logLevel: 'silent',
   });
-  const { shouldBlockToolUntilTodoPlan } = require(bundlePath);
+  const { requiresTodoPlanForRequest, shouldBlockToolUntilTodoPlan } = require(bundlePath);
 
   for (const name of ['list_project_files', 'read_project_file', 'search_project_files', 'todo_read', 'read_session_memory', 'search_web', 'read_web_page', 'check_package_version', 'get_current_time']) {
     test('allows read-only discovery before Todo: ' + name, () => {
       assert.equal(shouldBlockToolUntilTodoPlan(true, false, name), false);
     });
   }
+
+  test('does not require Todo for project exploration or read-only requests', () => {
+    assert.equal(requiresTodoPlanForRequest('Jelajahi struktur proyek dan baca README'), false);
+    assert.equal(requiresTodoPlanForRequest('Baca file package.json'), false);
+    assert.equal(requiresTodoPlanForRequest('Cari simbol konfigurasi'), false);
+  });
+
+  test('requires Todo for explicit multi-step change intent', () => {
+    assert.equal(requiresTodoPlanForRequest('Perbaiki Agentic Coding AI dan tambahkan regression tests'), true);
+    assert.equal(requiresTodoPlanForRequest('Refactor dan ubah konfigurasi project'), true);
+  });
 
   test('allows todo_write to create the initial plan', () => {
     assert.equal(shouldBlockToolUntilTodoPlan(true, false, 'todo_write'), false);
