@@ -94,7 +94,7 @@ function wrapPowerShellCommand(command: string): string {
   return [
     "$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)",
     "$scriptText = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromBase64String('" + encodedCommand + "'))",
-    '& ([scriptblock]::Create($scriptText))',
+    '. ([scriptblock]::Create($scriptText))',
     '$commandSucceeded = $?',
     '$nativeExitCode = $global:LASTEXITCODE',
     'if ($null -ne $nativeExitCode) { exit [int]$nativeExitCode }',
