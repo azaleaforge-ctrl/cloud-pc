@@ -69,6 +69,20 @@ assert.ok(runtime.includes(`const DEFAULT_MODEL = 'groq/openai/gpt-oss-120b(high
 assert.ok(main.includes(`const LEGACY_ROUTER_MODEL = 'groq/openai/gpt-oss-120b(high)';`) &&
   main.includes('RETIRED_LEGACY_ROUTER_MODEL'),
   'saved installations must migrate away from the retired model and use the new fallback');
+assert.ok(main.includes("process.env.RK_ROUTER_ENDPOINT ?? 'http://localhost:20128/v1'") &&
+  main.includes("process.env.RK_ROUTER_FALLBACK ?? 'https://bxludp.tailf34d89.ts.net/v1'"),
+  '9router must prefer the local endpoint and use the requested Tailscale endpoint as fallback');
+assert.ok(runtime.includes("const DEFAULT_ENDPOINT = 'http://localhost:20128/v1';") &&
+  runtime.includes("const DEFAULT_FALLBACK_ENDPOINT = 'https://bxludp.tailf34d89.ts.net/v1';"),
+  'runtime defaults must match the local-first endpoint order');
+assert.ok(runtime.includes('if (response.ok) return response;') &&
+  runtime.includes('A non-2xx response (including HTTP 503) falls through to the next endpoint.'),
+  'HTTP 503 and other non-2xx responses must proceed to the fallback endpoint');
+assert.ok(runtime.includes('AbortSignal.timeout(endpoint === endpoints[0] && endpoints.length > 1 ? 15_000 : 120_000)'),
+  'an unreachable local endpoint must fail over without waiting for the full remote request timeout');
+assert.ok(!chat.includes('className="ai-agent-switcher"') && !chat.includes('Poolside Coding Agent'),
+  'the Poolside agent switcher and branding must no longer appear in the editor chat UI');
+
 assert.ok(!editorShell.includes('<span className="ed-ai-tab-title">AI Coding Agent</span>'),
   'the redundant AI Coding Agent label above the model selector must be removed');
 assert.ok(editorShell.includes('className="ed-ai-tab-icon"') && editorShell.includes('className="ed-ai-tab-close"'),
