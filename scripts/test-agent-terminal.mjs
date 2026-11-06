@@ -121,7 +121,8 @@ try {
       commandArgs: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command'],
     };
     const invocation = buildTerminalCommandInvocation('node -e "process.exit(7)"', powershellProfile);
-    assert.match(invocation.args.at(-1), /\. \(\[scriptblock\]::Create\(\$scriptText\)\)/);
+    assert.match(invocation.args.at(-1), /\$global:LASTEXITCODE = 0/);
+    assert.match(invocation.args.at(-1), /Invoke-Expression \$scriptText/);
     assert.match(invocation.args.at(-1), /\$nativeExitCode = \$global:LASTEXITCODE/);
   });
 
