@@ -127,19 +127,20 @@ try{
     assert.ok(result.retrievedAt);
   });
 
-  await test('falls back to the secondary endpoint when primary model listing fails',async()=>{
+  await test('keeps 9Router model catalogue local-only when localhost returns HTTP 503',async()=>{
+    const requests=[];
     globalThis.fetch=async url=>{
-      if(String(url)==='https://primary.example/v1/models') return json({error:{message:'unavailable'}},503);
-      assert.equal(String(url),'https://fallback.example/v1/models');
-      return json({data:[{id:'fallback-model'}]});
+      requests.push(String(url));
+      return json({error:{message:'local router unavailable'}},503);
     };
     const result=await api.listAvailableModels({
-      apiKey:'test-key',endpoint:'https://primary.example/v1',models:['default'],
-      fallbackEndpoint:'https://fallback.example/v1',provider:'legacy',
+      apiKey:'test-key',endpoint:'http://localhost:20128/v1',models:['default'],
+      fallbackEndpoint:'https://remote.example/v1',provider:'legacy',
     });
     assert.equal(result.ok,true);
-    assert.equal(result.endpoint,'https://fallback.example/v1');
-    assert.ok(result.models.some(model=>model.id==='fallback-model'));
+    assert.equal(result.endpoint,undefined);
+    assert.deepEqual(requests,['http://localhost:20128/v1/models'],
+      'legacy provider must never contact the remote fallback, even when one is present in old config');
     assert.ok(result.models.some(model=>model.id==='groq/openai/gpt-oss-120b(high)'));
     assert.equal(result.models.some(model=>model.id==='ps/poolside/laguna-s-2.1(high)'),false);
   });
