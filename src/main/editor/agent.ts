@@ -1458,8 +1458,10 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
 
           let result: string;
           try {
-            if (shouldBlockToolUntilTodoPlan(requiresTodoPlan, session.todos.length > 0, call.name)) {
-              result = 'Tool ditahan: buat Todo List dengan todo_write terlebih dahulu untuk tugas multi-langkah, lalu ulangi tool ini.';
+            if (shouldBlockToolUntilTodoPlan(requiresTodoPlan, session.todos.some((todo) => todo.status === 'in_progress'), call.name)) {
+              result = session.todos.length === 0
+                ? 'Tool ditahan: buat Todo List dengan todo_write terlebih dahulu untuk tugas multi-langkah, lalu ulangi tool ini.'
+                : 'Tool ditahan: tidak ada task Todo berstatus in_progress. Perbarui Todo List dengan todo_write dan aktifkan satu task yang siap dikerjakan; pertahankan ID task lama dan jangan mengubah task completed.';
             } else {
               result = await executeTool(session, userDataDir, root, call, pendingApprovals, pendingQuestions, mcpTools);
             }
