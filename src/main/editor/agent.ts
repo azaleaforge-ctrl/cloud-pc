@@ -87,7 +87,7 @@ interface PendingUserQuestion {
 
 const DEFAULT_ENDPOINT = 'https://rbxludp.abc-tunnel.us/v1';
 const DEFAULT_FALLBACK_ENDPOINT = 'http://localhost:20128/v1';
-const DEFAULT_MODEL = 'ps/poolside/laguna-s-2.1(high)';
+const DEFAULT_MODEL = 'groq/openai/gpt-oss-120b(high)';
 
 function boundedIntegerEnvironment(name: string, fallback: number, min: number, max: number): number {
   const raw = process.env[name];
