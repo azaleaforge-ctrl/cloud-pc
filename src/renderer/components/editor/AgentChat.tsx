@@ -2211,20 +2211,6 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       ) : null}
 
       <div className="ai-agent-toolbar">
-        <div className="ai-agent-switcher">
-          {agents.map((agent) => (
-            <button
-              key={agent.id}
-              type="button"
-              className={'ai-agent-btn' + (activeAgentId === agent.id ? ' active' : '')}
-              disabled={loading}
-              onClick={() => { setActiveAgentId(agent.id); setError(null); }}
-              title={agent.systemPrompt.slice(0, 140)}
-            >
-              <span className="ai-agent-icon">{agent.icon}</span>{agent.name}
-            </button>
-          ))}
-        </div>
         <div className="ai-workspace-status">
           <span className={wb.root ? 'ready' : 'missing'} />
           {wb.root ? 'Agent bekerja di folder project aktif' : 'Belum ada workspace'}
