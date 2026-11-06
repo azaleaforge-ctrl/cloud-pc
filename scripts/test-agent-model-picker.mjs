@@ -8,6 +8,9 @@ const chat = await readFile(join(root, 'src/renderer/components/editor/AgentChat
 const css = await readFile(join(root, 'src/renderer/components/editor/agent-progress.css'), 'utf8');
 const shared = await readFile(join(root, 'src/shared/agents.ts'), 'utf8');
 const parser = await readFile(join(root, 'src/main/editor/modelCapabilities.ts'), 'utf8');
+const editorShell = await readFile(join(root, 'src/renderer/components/editor/EditorShell.tsx'), 'utf8');
+const runtime = await readFile(join(root, 'src/main/editor/agent.ts'), 'utf8');
+const main = await readFile(join(root, 'src/main/index.ts'), 'utf8');
 
 assert.ok(chat.includes("if (command === '/model') {") && chat.includes('openModelPicker();'),
   '/model must open the separate model picker');
@@ -57,6 +60,20 @@ assert.ok(css.includes('.ai-model-options {') && css.includes('overflow-y: auto;
   'the model list must have bounded independent scrolling');
 assert.ok(shared.includes("export type AgentModelCostTier = 'free' | 'premium' | 'unknown'"),
   'the model cost classification must represent unknown metadata explicitly');
+assert.ok(parser.includes('groq/openai/gpt-oss-120b(high)') && parser.includes('cf/@cf/qwen/qwen2.5-coder-32b-instruct(high)') && parser.includes('cf/@cf/meta/llama-3.3-70b-instruct-fp8-fast'),
+  'the three requested 9router models must be pinned in the model catalogue');
+assert.ok(parser.includes('ps/poolside/laguna-s-2.1(high)') && parser.includes('REMOVED_LEGACY_MODEL_IDS'),
+  'the retired Poolside/Laguna model must be filtered from the 9router catalogue');
+assert.ok(runtime.includes(`const DEFAULT_MODEL = 'groq/openai/gpt-oss-120b(high)';`),
+  'the agent runtime fallback must use the new 9router model');
+assert.ok(main.includes(`const LEGACY_ROUTER_MODEL = 'groq/openai/gpt-oss-120b(high)';`) &&
+  main.includes('RETIRED_LEGACY_ROUTER_MODEL'),
+  'saved installations must migrate away from the retired model and use the new fallback');
+assert.ok(!editorShell.includes('<span className="ed-ai-tab-title">AI Coding Agent</span>'),
+  'the redundant AI Coding Agent label above the model selector must be removed');
+assert.ok(editorShell.includes('className="ed-ai-tab-icon"') && editorShell.includes('className="ed-ai-tab-close"'),
+  'the compact AI tab icon and close action must remain available');
+
 assert.ok(parser.includes('architecture.input_modalities') && parser.includes('pricing.prompt') &&
   parser.includes('supported_parameters') && parser.includes("'unknown'"),
   'the model metadata parser must preserve source capability fields and an unknown-price state');

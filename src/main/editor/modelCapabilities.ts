@@ -16,6 +16,33 @@ const MAX_CHAT_BODY = 1_000_000;
 const REQUEST_TIMEOUT_MS = 18_000;
 const USER_AGENT = 'RuangKerja-ModelDiagnostics/1.0';
 
+const REMOVED_LEGACY_MODEL_IDS = new Set([
+  'ps/poolside/laguna-s-2.1(high)',
+]);
+
+// These 9router IDs are intentionally pinned so they remain selectable even
+// when the router's /models catalogue omits a provider-routed model.
+const FEATURED_LEGACY_MODELS: AgentModelInfo[] = [
+  {
+    id: 'groq/openai/gpt-oss-120b(high)',
+    name: 'GPT-OSS 120B (High)',
+    ownedBy: 'Groq',
+    costTier: 'unknown',
+  },
+  {
+    id: 'cf/@cf/qwen/qwen2.5-coder-32b-instruct(high)',
+    name: 'Qwen 2.5 Coder 32B Instruct (High)',
+    ownedBy: 'Cloudflare Workers AI',
+    costTier: 'unknown',
+  },
+  {
+    id: 'cf/@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+    name: 'Llama 3.3 70B Instruct FP8 Fast',
+    ownedBy: 'Cloudflare Workers AI',
+    costTier: 'unknown',
+  },
+];
+
 function uniqueEndpoints(config: RouterConfig): string[] {
   const provider = config.provider ?? 'legacy';
   const endpoints = provider === 'legacy'
@@ -125,6 +152,7 @@ export function parseModels(data: Record<string, unknown>, provider: AgentProvid
     if (typeof record.id !== 'string') continue;
     let id: string;
     try { id = normalizeModelId(record.id); } catch { continue; }
+    if (provider === 'legacy' && REMOVED_LEGACY_MODEL_IDS.has(id)) continue;
     if (seen.has(id)) continue;
     seen.add(id);
 
@@ -160,6 +188,11 @@ export function parseModels(data: Record<string, unknown>, provider: AgentProvid
     });
     if (result.length >= 500) break;
   }
+  if (provider === 'legacy') {
+    for (const model of FEATURED_LEGACY_MODELS) {
+      if (!seen.has(model.id)) result.push({ ...model });
+    }
+  }
   return result.sort((a, b) => a.id.localeCompare(b.id));
 }
 
@@ -193,6 +226,13 @@ export async function listAvailableModels(config: RouterConfig): Promise<AgentMo
     } catch (error) {
       errors.push(endpoint + ': ' + ((error as Error).message || 'permintaan gagal').slice(0, 180));
     }
+  }
+  if ((config.provider ?? 'legacy') === 'legacy') {
+    return {
+      ok: true,
+      message: 'Katalog live 9router tidak dapat dimuat. Tiga model pilihan tetap ditampilkan; akses dan kemampuan model harus diverifikasi saat digunakan.',
+      models: FEATURED_LEGACY_MODELS.map(model => ({ ...model })),
+    };
   }
   return { ok: false, message: 'Gagal memuat katalog model. ' + errors.join(' · '), models: [] };
 }

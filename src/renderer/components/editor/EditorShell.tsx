@@ -468,7 +468,6 @@ export function EditorShell({ state, active, onError }: Props) {
             {agentChatOpen ? (
               <div className="ed-ai-tabbar" role="tab" aria-selected="true" aria-label="Tab AI Coding Agent">
                 <span className="ed-ai-tab-icon" aria-hidden="true">✳</span>
-                <span className="ed-ai-tab-title">AI Coding Agent</span>
                 <span className="ed-ai-tab-flex" />
                 <button
                   type="button"
