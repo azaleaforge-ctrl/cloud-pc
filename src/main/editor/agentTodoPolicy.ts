@@ -33,5 +33,5 @@ export function shouldBlockToolUntilTodoPlan(
  * or "application" as proof that the user requested a multi-step mutation.
  */
 export function requiresTodoPlanForRequest(userText: string): boolean {
-  return /\\b(buat|bikin|ubah|edit|perbaiki|perbaikan|fix|implement|implementasi|refactor|tambah|tambahkan|hapus|delete|create|write|modify|change|update|build|migrasi)\\b/i.test(userText);
+  return /\b(buat|bikin|ubah|edit|perbaiki|perbaikan|fix|implement|implementasi|refactor|tambah|tambahkan|hapus|delete|create|write|modify|change|update|build|migrasi)\b/i.test(userText);
 }
