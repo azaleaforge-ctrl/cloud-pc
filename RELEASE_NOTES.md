@@ -19,7 +19,9 @@
 - Memastikan permintaan sederhana yang tidak memerlukan Todo tidak diblokir, dan tool dapat berjalan normal setelah Todo dibuat.
 - Test policy baru dimasukkan ke gerbang Agent Runtime CI.
 
-### 4. Verifikasi rilis
+### 4. Terminal runtime dan verifikasi
+- Memperbaiki wrapper PowerShell agar command dijalankan pada scope yang sama dengan pembacaan `$LASTEXITCODE`; exit code native program seperti `node`, `npm`, dan `git` tidak lagi berisiko terbaca sukses padahal proses mengembalikan kode non-zero.
+- Menambahkan regression test khusus untuk memastikan wrapper PowerShell mempertahankan exit code native.
 - Agent Runtime Tests, TypeScript typecheck, dan Windows installer build harus lulus sebelum release.
 - Tes ini memverifikasi kebijakan orkestrasi dan format alur eksekusi; pengujian end-to-end tetap perlu memakai 9Router lokal yang aktif dan model yang mendukung tool-calling.
 
