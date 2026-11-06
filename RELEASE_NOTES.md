@@ -1,3 +1,30 @@
+# Ruang Kerja v1.0.9
+
+## Agentic Coding AI — endpoint lokal + Tailscale dan UI lebih bersih
+
+### 1. Koneksi 9Router local-first
+- Mengganti endpoint utama default menjadi `http://localhost:20128/v1` agar Host yang menjalankan 9Router memakai koneksi lokal terlebih dahulu.
+- Mengganti endpoint cadangan default menjadi `https://bxludp.tailf34d89.ts.net/v1` untuk perangkat anggota Room yang tidak menjalankan 9Router secara lokal.
+- Urutan koneksi selalu **Local → Tailscale**. Endpoint lama `abc-tunnel.us` tidak lagi menjadi default.
+- Jika endpoint lokal tidak dapat dijangkau, timeout koneksi lokal dibatasi 15 detik sebelum mencoba Tailscale. Jika endpoint lokal mengembalikan HTTP 4xx/5xx termasuk **HTTP 503**, runtime mencoba endpoint Tailscale berikutnya.
+- Jika kedua endpoint gagal, aplikasi menampilkan kegagalan koneksi yang sudah disanitasi. Keberhasilan failover tetap bergantung pada Tailscale Serve aktif, hostname dapat dijangkau, akses tailnet diizinkan, 9Router Host aktif, serta API key/model provider valid.
+- Endpoint dapat dioverride melalui environment variable `RK_ROUTER_ENDPOINT` dan `RK_ROUTER_FALLBACK`.
+
+### 2. Penyederhanaan UI Agent
+- Menghapus bar pemilih agent berwarna biru/toska yang menampilkan tombol **Poolside Coding Agent** di atas area percakapan.
+- Agent coding bawaan tetap aktif; yang dihilangkan hanya bar pemilih yang tidak diperlukan.
+- Alur percakapan, pemilihan model, status workspace, dan panel Todo/Changes tetap dipertahankan.
+
+### 3. Pengujian dan batas verifikasi
+- Menambahkan regression assertions untuk urutan Local → Tailscale, timeout fallback, dan penanganan HTTP non-2xx termasuk 503.
+- Menjalankan Agent Runtime tests, TypeScript typecheck, dan build installer Windows melalui CI.
+- Tes mock memastikan fallback berjalan saat endpoint lokal gagal/503; tes otomatis tidak dapat menjamin provider eksternal selalu bebas 503. Verifikasi langsung tetap memerlukan 9Router aktif, API key yang valid, serta Tailscale Serve dan akses tailnet yang berfungsi.
+
+### Detail Version di dalam aplikasi
+Buka versi pada bilah status bawah untuk melihat catatan v1.0.9. Gunakan **Muat Ulang Versi** untuk memperbarui daftar rilis.
+
+---
+
 # Ruang Kerja v1.0.8
 
 ## Agentic Coding AI — katalog model 9router dan tampilan lebih ringkas

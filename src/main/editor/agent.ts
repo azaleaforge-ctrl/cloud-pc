@@ -85,8 +85,8 @@ interface PendingUserQuestion {
   timeout: NodeJS.Timeout;
 }
 
-const DEFAULT_ENDPOINT = 'https://rbxludp.abc-tunnel.us/v1';
-const DEFAULT_FALLBACK_ENDPOINT = 'http://localhost:20128/v1';
+const DEFAULT_ENDPOINT = 'http://localhost:20128/v1';
+const DEFAULT_FALLBACK_ENDPOINT = 'https://bxludp.tailf34d89.ts.net/v1';
 const DEFAULT_MODEL = 'groq/openai/gpt-oss-120b(high)';
 
 function boundedIntegerEnvironment(name: string, fallback: number, min: number, max: number): number {
@@ -998,12 +998,14 @@ async function openCompletionStream(
           max_tokens: 6144,
           temperature: 0.2,
         }),
-        signal: AbortSignal.any([session.controller.signal, AbortSignal.timeout(120_000)]),
+        // A local endpoint that is not hosted on this device should fail over quickly;
+        // keep the full response window for the remote Tailscale endpoint.
+        signal: AbortSignal.any([session.controller.signal, AbortSignal.timeout(endpoint === endpoints[0] && endpoints.length > 1 ? 15_000 : 120_000)]),
       });
       if (response.ok) return response;
       const body = (await response.text()).slice(0, 500);
       lastError = providerHttpErrorMessage(response.status, body, config.apiKey);
-      // Only the historical provider has a configured fallback endpoint.
+      // A non-2xx response (including HTTP 503) falls through to the next endpoint.
     } catch (error) {
       if (session.controller.signal.aborted || session.killed) throw error;
       lastError = redactSecretValues((error as Error).message || 'Koneksi gagal.', [config.apiKey]);

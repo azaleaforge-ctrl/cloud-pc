@@ -330,7 +330,7 @@ export interface AgentCheckpointActionResult {
 export const BUILTIN_AGENTS: AgentEntry[] = [
   {
     id: 'poolside',
-    name: 'Poolside Coding Agent',
+    name: 'Ruang Kerja Coding Agent',
     icon: '🌊',
     type: 'llm-chat',
     provider: 'openai-compatible',
