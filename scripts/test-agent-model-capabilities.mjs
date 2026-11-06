@@ -42,7 +42,7 @@ try{
       null,
       {id:'gamma-model'},
     ]};
-    const models=api.parseModelsForTest?api.parseModelsForTest(input):api.parseModels(input);
+    const models=api.parseModelsForTest?api.parseModelsForTest(input):api.parseModels(input,'openrouter');
     assert.deepEqual(models.map(item=>item.id),['alpha-model','gamma-model','zeta-model']);
     assert.equal(models[0].name,'Alpha');
   });
@@ -98,6 +98,20 @@ try{
     assert.deepEqual(result[0].supportedGenerationMethods,['generatecontent','streamgeneratecontent']);
   });
 
+  await test('pins the requested 9router models and excludes the retired Poolside model',()=>{
+    const models=api.parseModels({data:[
+      {id:'ps/poolside/laguna-s-2.1(high)',name:'Retired Poolside model'},
+      {id:'groq/openai/gpt-oss-120b(high)',name:'Provider supplied GPT-OSS label',owned_by:'Groq',pricing:{prompt:'0.1',completion:'0.2'}},
+    ]},'legacy');
+    const ids=models.map(model=>model.id);
+    assert.equal(ids.includes('ps/poolside/laguna-s-2.1(high)'),false);
+    assert.equal(ids.filter(id=>['groq/openai/gpt-oss-120b(high)','cf/@cf/qwen/qwen2.5-coder-32b-instruct(high)','cf/@cf/meta/llama-3.3-70b-instruct-fp8-fast'].includes(id)).length,3);
+    assert.equal(models.find(model=>model.id==='groq/openai/gpt-oss-120b(high)').name,'Provider supplied GPT-OSS label',
+      'live provider metadata must be retained when a pinned ID is also present');
+    assert.equal(models.find(model=>model.id==='cf/@cf/qwen/qwen2.5-coder-32b-instruct(high)').costTier,'unknown',
+      'pinned model pricing must remain unknown rather than being guessed');
+  });
+
   await test('lists models from the primary endpoint and normalizes metadata',async()=>{
     globalThis.fetch=async url=>{
       assert.equal(String(url),'https://primary.example/v1/models');
@@ -105,7 +119,7 @@ try{
     };
     const result=await api.listAvailableModels({
       apiKey:'test-key',endpoint:'https://primary.example/v1',models:['old-model'],
-      fallbackEndpoint:'https://fallback.example/v1',
+      fallbackEndpoint:'https://fallback.example/v1',provider:'openrouter',
     });
     assert.equal(result.ok,true);
     assert.equal(result.endpoint,'https://primary.example/v1');
@@ -121,11 +135,30 @@ try{
     };
     const result=await api.listAvailableModels({
       apiKey:'test-key',endpoint:'https://primary.example/v1',models:['default'],
-      fallbackEndpoint:'https://fallback.example/v1',
+      fallbackEndpoint:'https://fallback.example/v1',provider:'legacy',
     });
     assert.equal(result.ok,true);
     assert.equal(result.endpoint,'https://fallback.example/v1');
-    assert.equal(result.models[0].id,'fallback-model');
+    assert.ok(result.models.some(model=>model.id==='fallback-model'));
+    assert.ok(result.models.some(model=>model.id==='groq/openai/gpt-oss-120b(high)'));
+    assert.equal(result.models.some(model=>model.id==='ps/poolside/laguna-s-2.1(high)'),false);
+  });
+
+  await test('keeps 9router model choices visible when the live catalogue is unavailable',async()=>{
+    globalThis.fetch=async()=>json({error:{message:'catalogue temporarily unavailable'}},503);
+    const result=await api.listAvailableModels({
+      provider:'legacy',
+      apiKey:'test-key',
+      endpoint:'https://primary.example/v1',
+      fallbackEndpoint:'https://fallback.example/v1',
+      models:['groq/openai/gpt-oss-120b(high)'],
+    });
+    assert.equal(result.ok,true);
+    assert.equal(result.retrievedAt,undefined);
+    assert.match(result.message,/Katalog live 9router tidak dapat dimuat/);
+    assert.deepEqual(result.models.map(model=>model.id).sort(),[
+      'cf/@cf/meta/llama-3.3-70b-instruct-fp8-fast','groq/openai/gpt-oss-120b(high)','cf/@cf/qwen/qwen2.5-coder-32b-instruct(high)',
+    ].sort());
   });
 
   await test('reports chat, actual function tool-calling and image-input checks',async()=>{
