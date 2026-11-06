@@ -1,3 +1,30 @@
+# Ruang Kerja v1.0.10
+
+## Agentic Coding AI — koneksi 9Router lokal saja dan kompatibilitas tool-calling
+
+### 1. 9Router local-only
+- Endpoint 9Router dikunci ke `http://localhost:20128/v1`.
+- Menghapus endpoint Tailscale, tunnel, serta fallback jarak jauh dari konfigurasi 9Router.
+- Permintaan katalog model, uji koneksi/kapabilitas, dan chat Agentic Coding AI semuanya hanya mengakses localhost.
+- Kegagalan koneksi lokal ditampilkan sebagai error; aplikasi tidak diam-diam mengirim API key, prompt, atau isi workspace ke endpoint jaringan lain.
+- Setiap perangkat yang menjalankan Agentic Coding AI melalui mode 9Router harus memiliki 9Router aktif di perangkat tersebut. Mode ini tidak membagikan service localhost Host ke perangkat lain.
+
+### 2. Perbaikan HTTP 400 pada tool-calling
+- Memperbaiki payload percakapan OpenAI-compatible ketika assistant mengirim teks dan `tool_calls` dalam pesan yang sama.
+- Teks assistant dipisahkan menjadi pesan assistant biasa; deklarasi `tool_calls` dikirim dengan `content: null` untuk memenuhi skema gateway yang ketat.
+- Mempertahankan urutan deklarasi tool call dan hasil tool sehingga loop baca/tulis workspace tetap konsisten.
+- Menambahkan regression test untuk pesan assistant normal, pesan assistant dengan teks + tool call, dan tool call tanpa teks.
+
+### 3. Validasi
+- Regression tests memastikan 9Router tidak menghubungi endpoint remote walaupun konfigurasi lama masih menyimpan fallback.
+- Agent Runtime Tests, TypeScript typecheck, dan Windows installer build dijalankan melalui GitHub Actions.
+- Pengujian payload memverifikasi format request terhadap validator mock. Uji langsung tetap diperlukan pada 9Router lokal dan model yang dipilih; HTTP 503 dari provider eksternal tidak dapat dicegah oleh aplikasi.
+
+### Detail Version
+Buka versi pada bilah status bawah untuk melihat catatan perubahan v1.0.10. Gunakan **Muat Ulang Versi** untuk memperbarui daftar rilis.
+
+---
+
 # Ruang Kerja v1.0.9
 
 ## Agentic Coding AI — endpoint lokal + Tailscale dan UI lebih bersih
