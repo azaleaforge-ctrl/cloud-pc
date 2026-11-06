@@ -24,7 +24,7 @@
 - Tes ini memverifikasi kebijakan orkestrasi dan format alur eksekusi; pengujian end-to-end tetap perlu memakai 9Router lokal yang aktif dan model yang mendukung tool-calling.
 
 ### Detail Version di dalam aplikasi
-Buka nomor versi pada bilah status bawah untuk melihat Detail Version. Riwayat menampilkan maksimal tiga rilis terbaru beserta deskripsi perubahan masing-masing versi.
+Buka nomor versi pada bilah status bawah untuk melihat Detail Version. Riwayat menampilkan maksimal tiga rilis terbaru beserta deskripsi perubahan masing-masing versi. Gunakan tombol Muat Ulang Versi untuk mengambil ulang daftar dan deskripsi terbaru dari GitHub.
 
 ---
 
