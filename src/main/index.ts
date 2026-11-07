@@ -43,7 +43,7 @@ import {
   rewindAgentCheckpoint,
   saveAgentSession,
 } from './editor/agentSessionStore';
-import type { AgentProviderId, RouterConfig } from '../shared/agents';
+import type { RouterConfig } from '../shared/agents';
 import { importAgentSkill, listInstalledAgentSkills, uninstallAgentSkill } from './editor/installedSkills';
 import { importMcpPluginConfig, listMcpPlugins, probeMcpPlugin, removeMcpPlugin, setMcpPluginEnabled } from './editor/mcpPlugins';
 import { scanProjectEntries } from './fsScan';
