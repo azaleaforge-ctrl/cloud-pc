@@ -84,7 +84,7 @@ try {
   const inFlight=api.openRouterHttpErrorMessage(402,JSON.stringify({
     error:{metadata:{limit_source:'openrouter_in_flight_budget'}},
   }),{get:(name)=>name==='retry-after'?'12':null});
-  assert.match(inFlight,/in-flight/);
+  assert.match(inFlight,/anggaran untuk request yang sedang berjalan penuh/);
   assert.match(inFlight,/12 detik/);
 
   const rateLimit=api.openRouterHttpErrorMessage(429,'{}',{
