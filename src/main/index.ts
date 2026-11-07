@@ -1,5 +1,7 @@
-import { randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { autoUpdater } from 'electron-updater';
@@ -17,7 +19,7 @@ import type {
   ServerState,
   UpdateState,
 } from '../shared/types';
-import type { AgentCheckpointActionResult, AgentEvent, AgentProviderId, AgentRouterStatus, AgentRouterTestResult, AgentSessionData, AgentSessionSaveInput, ChatMessage } from '../shared/agents';
+import type { AgentCheckpointActionResult, AgentEvent, AgentProviderId, AgentRouterStatus, AgentRouterTestResult, OpenRouterAccountStatus, OpenRouterAuthMethod, AgentSessionData, AgentSessionSaveInput, ChatMessage } from '../shared/agents';
 import { diagnoseModelCapabilities, listAvailableModels, normalizeModelId, testProviderConnection } from './editor/modelCapabilities';
 import { APP_VERSION } from '../shared/types';
 import { StateStore } from './store';
@@ -48,7 +50,8 @@ import { scanProjectEntries } from './fsScan';
 import { watchProjectFileChanges, type ProjectFileWatch } from './projectFileWatcher';
 import { openEmbeddedIde, closeEmbeddedIde, resizeEmbeddedIde, focusEmbeddedIde } from './nativeHost';
 import { startActivityMonitor } from './activityMonitor';
-import { canPersistProviderKeySafely } from './editor/providerSecurity';
+import { canPersistProviderKeySafely, redactSecretValues } from './editor/providerSecurity';
+import { buildOpenRouterAuthorizationUrl, createOpenRouterPkcePair, normalizeOpenRouterKeyStatus, openRouterHttpErrorMessage } from './editor/openRouterAccount';
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
