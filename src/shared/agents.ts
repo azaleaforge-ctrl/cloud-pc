@@ -192,6 +192,7 @@ export type AgentEvent =
   | { type: 'todo-update'; todos: AgentTodo[] }
   | { type: 'tool-status'; activity: AgentToolActivity }
   | { type: 'run-result'; result: AgentRunResult }
+  | { type: 'provider-usage'; usage: AgentProviderUsage }
   | { type: 'terminal-process'; process: AgentTerminalProcess }
   | { type: 'terminal-output'; output: AgentTerminalOutput };
 
@@ -204,6 +205,25 @@ export interface AgentProviderOption {
   endpoint: string;
   keyUrl: string;
   docsUrl: string;
+  model: string;
+}
+
+export interface AgentProviderUsage {
+  provider: AgentProviderId;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  /** Actual cost returned by the provider, not an estimate. Null when unavailable. */
+  costUsd: number | null;
+  /** Live quota values supplied by provider response headers. */
+  tokenLimit: number | null;
+  tokenRemaining: number | null;
+  tokenReset: string | null;
+  requestLimit: number | null;
+  requestRemaining: number | null;
+  requestReset: string | null;
+  reportedAt: number;
 }
 
 export interface RouterConfig {
@@ -273,7 +293,12 @@ export interface AgentModelInfo {
   id: string;
   name?: string;
   ownedBy?: string;
+  description?: string;
   contextLength?: number;
+  maxCompletionTokens?: number;
+  createdAt?: number;
+  expirationDate?: string | null;
+  perRequestLimits?: string;
   inputModalities?: string[];
   outputModalities?: string[];
   supportedParameters?: string[];
@@ -282,6 +307,11 @@ export interface AgentModelInfo {
   freePlanEligible?: boolean;
   promptPrice?: number;
   completionPrice?: number;
+  requestPrice?: number;
+  imagePrice?: number;
+  inputCacheReadPrice?: number;
+  inputCacheWritePrice?: number;
+  internalReasoningPrice?: number;
   costTier: AgentModelCostTier;
 }
 
