@@ -977,7 +977,7 @@ async function openCompletionStream(
     .map((url) => url.replace(/\/+$/, ''));
   const requestMessages = normalizeOpenAiToolCallMessages(messages);
   let lastError = 'Endpoint provider tidak dapat diakses.';
-  const providerName = provider === 'openrouter' ? 'OpenRouter' : '9router';
+  const providerName = provider === 'openrouter' ? 'OpenRouter' : provider === 'groq' ? 'Groq' : '9router';
 
   for (const endpoint of endpoints) {
     try {
