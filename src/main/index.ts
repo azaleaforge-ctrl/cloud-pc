@@ -493,6 +493,7 @@ function getProviderInfo(provider: AgentProviderId) {
     docsUrl: provider === 'openrouter' ? 'https://openrouter.ai/docs/quickstart'
       : provider === 'gemini' ? 'https://ai.google.dev/gemini-api/docs'
         : provider === 'groq' ? 'https://console.groq.com/docs/quickstart' : '',
+    model: getSelectedAgentModel(provider),
   };
 }
 
@@ -1566,17 +1567,20 @@ function registerIpc(): void {
       } } : {}),
     };
   });
-  ipcMain.handle('rk:agent:list-models', async () => {
-    const config = getRouterConfig();
-    if (!config) return { ok: false, message: 'API key belum diatur.', models: [] };
+  ipcMain.handle('rk:agent:list-models', async (_e, requestedProvider: AgentProviderId) => {
+    const provider = isAgentProvider(requestedProvider) ? requestedProvider : getSelectedAgentProvider();
+    const config = getProviderConfig(provider);
+    if (!config) return { ok: false, message: 'API key ' + PROVIDER_NAMES[provider] + ' belum diatur. Buka /connect untuk menghubungkan provider ini.', models: [] };
     return listAvailableModels(config);
   });
-  ipcMain.handle('rk:agent:select-model', (_e, model: string) => saveSelectedAgentModel(model));
-  ipcMain.handle('rk:agent:diagnose-model', async () => {
-    const provider = getSelectedAgentProvider();
-    const selected = getSelectedAgentModel(provider);
-    const config = getProviderConfig(provider, true)!;
-    return diagnoseModelCapabilities(config, selected);
+  ipcMain.handle('rk:agent:select-model', (_e, requestedProvider: AgentProviderId, model: string) => {
+    if (!isAgentProvider(requestedProvider)) return { ok: false, error: 'Provider model tidak dikenali.' };
+    return saveSelectedAgentModel(model, requestedProvider);
+  });
+  ipcMain.handle('rk:agent:diagnose-model', async (_e, requestedProvider: AgentProviderId, requestedModel: string) => {
+    if (!isAgentProvider(requestedProvider)) throw new Error('Provider diagnostik tidak dikenali.');
+    const config = getProviderConfig(requestedProvider, true)!;
+    return diagnoseModelCapabilities(config, requestedModel || getSelectedAgentModel(requestedProvider));
   });
   ipcMain.handle('rk:agent:list-skills', () => agentService.listSkills());
   ipcMain.handle('rk:agent:list-installed-skills', () => listInstalledAgentSkills(app.getPath('userData')));
