@@ -1,3 +1,36 @@
+# Ruang Kerja v1.2.1
+
+## OpenRouter account login, API key visibility, and limit diagnostics
+
+### 1. Login akun OpenRouter — dua langkah
+- Menambahkan login akun OpenRouter melalui browser resmi menggunakan OAuth PKCE (S256) dengan callback lokal loopback `127.0.0.1`; password OpenRouter tidak pernah dimasukkan ke Ruang Kerja.
+- Setelah persetujuan, authorization code ditukar menjadi user-controlled API key khusus Ruang Kerja. API key disimpan terenkripsi melalui Electron safeStorage.
+- Menampilkan User ID OpenRouter yang dikembalikan oleh OAuth atau metadata current-key, sehingga pengguna dapat memastikan akun mana yang terhubung. Endpoint current-key yang dipakai aplikasi tidak memberikan email akun.
+- Login akun lain mengganti key aktif lokal untuk OpenRouter; provider lain dan model pilihannya tetap tersimpan terpisah.
+
+### 2. API key dan pemantauan akun
+- Menambahkan panel API key yang menampilkan label key, jenis tier bila tersedia, limit key, sisa limit, total penggunaan, penggunaan harian, reset limit, dan effective budget bila API mengembalikannya.
+- Menambahkan tautan langsung ke halaman detail API key dan halaman aktivitas OpenRouter berdasarkan SHA-256 key hash; nilai API key lengkap tidak pernah ditampilkan.
+- Mempertahankan opsi memasukkan API key OpenRouter yang sudah ada secara manual sebagai alternatif login OAuth.
+- Menambahkan tombol **Logout** yang menghapus API key dan metadata akun dari perangkat ini. Logout lokal tidak mencabut key di akun OpenRouter; key harus dicabut dari dashboard OpenRouter bila tidak ingin tetap aktif.
+
+### 3. Diagnosis limit yang lebih jelas
+- HTTP 402 kini membedakan `openrouter_key_limit`, `openrouter_credits`, dan `openrouter_in_flight_budget` berdasarkan `error.metadata.limit_source`.
+- HTTP 429 kini menampilkan `Retry-After` serta header `X-RateLimit` yang tersedia.
+- Catatan penting: rate limit/capacity OpenRouter dikelola secara global. Membuat akun atau API key tambahan tidak meningkatkan kapasitas rate limit global. Saat terkena 429, gunakan model lain yang memiliki kapasitas berbeda atau tunggu waktu retry.
+- HTTP 401, 403, 402, dan 429 dibedakan agar kesalahan autentikasi, kebijakan akses, kredit/budget, dan kapasitas tidak tercampur.
+
+### 4. Keamanan dan regresi
+- Menambahkan pengujian PKCE verifier/challenge, URL authorization, parsing current-key metadata, identitas akun, key-limit/credit/in-flight-budget, dan Retry-After.
+- API key tetap disimpan terenkripsi per-user; OAuth verifier, authorization code, dan API key tidak dikirim ke renderer.
+- Callback OAuth menerima koneksi hanya melalui loopback lokal, memvalidasi state, dan kedaluwarsa setelah lima menit.
+- Provider Groq, Gemini, 9Router Local Only, model picker, dan Agent Engine tetap dipertahankan.
+
+### Detail Version di dalam aplikasi
+Buka nomor versi pada bilah status bawah untuk melihat **deskripsi perubahan/fitur/perbaikan** v1.2.1. Riwayat menampilkan **maksimal tiga rilis terbaru**. Gunakan tombol **Muat Ulang Versi** untuk memperbarui daftar dan deskripsi dari GitHub.
+
+---
+
 # Ruang Kerja v1.2.0
 
 ## Agentic Coding AI — provider Groq Free Tier

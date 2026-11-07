@@ -1,5 +1,7 @@
-import { randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { autoUpdater } from 'electron-updater';
@@ -17,7 +19,7 @@ import type {
   ServerState,
   UpdateState,
 } from '../shared/types';
-import type { AgentCheckpointActionResult, AgentEvent, AgentProviderId, AgentRouterStatus, AgentRouterTestResult, AgentSessionData, AgentSessionSaveInput, ChatMessage } from '../shared/agents';
+import type { AgentCheckpointActionResult, AgentEvent, AgentProviderId, AgentRouterStatus, AgentRouterTestResult, OpenRouterAccountStatus, OpenRouterAuthMethod, AgentSessionData, AgentSessionSaveInput, ChatMessage } from '../shared/agents';
 import { diagnoseModelCapabilities, listAvailableModels, normalizeModelId, testProviderConnection } from './editor/modelCapabilities';
 import { APP_VERSION } from '../shared/types';
 import { StateStore } from './store';
@@ -48,7 +50,8 @@ import { scanProjectEntries } from './fsScan';
 import { watchProjectFileChanges, type ProjectFileWatch } from './projectFileWatcher';
 import { openEmbeddedIde, closeEmbeddedIde, resizeEmbeddedIde, focusEmbeddedIde } from './nativeHost';
 import { startActivityMonitor } from './activityMonitor';
-import { canPersistProviderKeySafely } from './editor/providerSecurity';
+import { canPersistProviderKeySafely, redactSecretValues } from './editor/providerSecurity';
+import { buildOpenRouterAuthorizationUrl, createOpenRouterPkcePair, normalizeOpenRouterKeyStatus, openRouterHttpErrorMessage } from './editor/openRouterAccount';
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
@@ -293,6 +296,8 @@ const PROVIDER_DEFAULT_MODELS: Record<AgentProviderId, string> = {
   groq: 'qwen/qwen3.8-27b',
   legacy: LEGACY_ROUTER_MODEL,
 };
+let cancelOpenRouterOAuthLogin: (() => void) | null = null;
+
 const PROVIDER_NAMES: Record<AgentProviderId, string> = {
   openrouter: 'OpenRouter',
   gemini: 'Google Gemini API',
@@ -302,6 +307,47 @@ const PROVIDER_NAMES: Record<AgentProviderId, string> = {
 
 function routerKeyPath(): string {
   return join(app.getPath('userData'), '9router-api-key.enc');
+}
+
+function openRouterAccountMetadataPath(): string {
+  return join(app.getPath('userData'), 'openrouter-account.json');
+}
+
+interface OpenRouterAccountMetadata {
+  authMethod?: OpenRouterAuthMethod;
+  userId?: string | null;
+  linkedAt?: string;
+}
+
+function readOpenRouterAccountMetadata(): OpenRouterAccountMetadata {
+  try {
+    const raw = JSON.parse(readFileSync(openRouterAccountMetadataPath(), 'utf8')) as OpenRouterAccountMetadata;
+    return {
+      ...(raw.authMethod === 'oauth' || raw.authMethod === 'api-key' ? { authMethod: raw.authMethod } : {}),
+      ...(typeof raw.userId === 'string' ? { userId: raw.userId } : {}),
+      ...(typeof raw.linkedAt === 'string' ? { linkedAt: raw.linkedAt } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function writeOpenRouterAccountMetadata(metadata: OpenRouterAccountMetadata): void {
+  const path = openRouterAccountMetadataPath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(metadata, null, 2), 'utf8');
+}
+
+function saveEncryptedProviderApiKey(provider: AgentProviderId, apiKey: string): void {
+  if (!providerKeyEncryptionAvailable()) {
+    throw new Error(process.platform === 'linux'
+      ? 'Keyring sistem tidak tersedia atau memakai backend basic_text. Aktifkan GNOME Keyring/KWallet agar API key dapat disimpan dengan aman.'
+      : 'Penyimpanan kunci aman sistem operasi tidak tersedia. API key tidak disimpan.');
+  }
+  const keyPath = providerKeyPath(provider);
+  mkdirSync(dirname(keyPath), { recursive: true });
+  writeFileSync(keyPath, safeStorage.encryptString(apiKey), { mode: 0o600 });
+  if (process.platform !== 'win32') chmodSync(keyPath, 0o600);
 }
 
 function providerKeyPath(provider: AgentProviderId): string {
@@ -503,15 +549,239 @@ function saveAgentRouterKey(input: unknown): { ok: boolean; error?: string } {
     };
   }
   try {
-    mkdirSync(dirname(providerKeyPath(provider)), { recursive: true });
-    const keyPath = providerKeyPath(provider);
-    writeFileSync(keyPath, safeStorage.encryptString(clean), { mode: 0o600 });
-    if (process.platform !== 'win32') chmodSync(keyPath, 0o600);
+    saveEncryptedProviderApiKey(provider, clean);
+    if (provider === 'openrouter') {
+      // Manual key entry replaces any older OAuth account identity metadata.
+      writeOpenRouterAccountMetadata({ authMethod: 'api-key', userId: null, linkedAt: new Date().toISOString() });
+    }
     const selected = saveAgentProviderSelection(provider);
     if (!selected.ok) return selected;
     return { ok: true };
   } catch (error) {
     return { ok: false, error: 'Gagal menyimpan API key terenkripsi: ' + ((error as Error).message || 'kesalahan file') };
+  }
+}
+
+async function connectOpenRouterAccount(): Promise<ActionResult> {
+  if (getProviderEnvironmentKey('openrouter')) {
+    return { ok: false, error: 'OPENROUTER_API_KEY sedang diatur melalui environment. Hapus override tersebut sebelum menghubungkan akun OpenRouter dari aplikasi.' };
+  }
+  if (!providerKeyEncryptionAvailable()) {
+    return {
+      ok: false,
+      error: process.platform === 'linux'
+        ? 'Keyring sistem tidak tersedia atau memakai backend basic_text. Aktifkan GNOME Keyring/KWallet agar API key dapat disimpan dengan aman.'
+        : 'Penyimpanan kunci aman sistem operasi tidak tersedia. API key tidak disimpan.',
+    };
+  }
+  if (cancelOpenRouterOAuthLogin) return { ok: false, error: 'Proses login OpenRouter sedang berjalan.' };
+
+  const pkce = createOpenRouterPkcePair();
+  const expectedState = randomBytes(24).toString('base64url');
+  let server: ReturnType<typeof createServer> | null = null;
+  let timeout: NodeJS.Timeout | null = null;
+  let settled = false;
+  let resolveCode!: (code: string) => void;
+  let rejectCode!: (error: Error) => void;
+  const callbackPromise = new Promise<string>((resolve, reject) => {
+    resolveCode = resolve;
+    rejectCode = reject;
+  });
+
+  const finish = (error?: Error, code?: string): void => {
+    if (settled) return;
+    settled = true;
+    if (timeout) clearTimeout(timeout);
+    cancelOpenRouterOAuthLogin = null;
+    if (server?.listening) server.close();
+    if (error) rejectCode(error);
+    else if (code) resolveCode(code);
+    else rejectCode(new Error('Callback OpenRouter tidak berisi authorization code.'));
+  };
+
+  server = createServer((request, response) => {
+    const callback = new URL(request.url ?? '/', 'http://127.0.0.1');
+    if (request.method !== 'GET' || callback.pathname !== '/callback') {
+      response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+      response.end('Not found');
+      return;
+    }
+    if (callback.searchParams.get('state') !== expectedState) {
+      response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+      response.end('Invalid OAuth state. You can close this tab and return to Ruang Kerja.');
+      return;
+    }
+    const oauthError = callback.searchParams.get('error');
+    if (oauthError) {
+      response.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      response.end('<!doctype html><html><body><h2>OpenRouter login was not completed.</h2><p>You can close this tab and return to Ruang Kerja.</p></body></html>');
+      finish(new Error('Login OpenRouter tidak diselesaikan: ' + oauthError.slice(0, 100)));
+      return;
+    }
+    const code = callback.searchParams.get('code');
+    if (!code || code.length > 4096) {
+      response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+      response.end('Missing authorization code. Return to Ruang Kerja and retry.');
+      finish(new Error('OpenRouter tidak mengirim authorization code yang valid.'));
+      return;
+    }
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    response.end('<!doctype html><html><head><meta charset="utf-8"><title>Ruang Kerja</title></head><body style="font-family:system-ui;padding:48px;color:#172033"><h2>OpenRouter berhasil dihubungkan.</h2><p>Kembali ke aplikasi Ruang Kerja. Tab ini boleh ditutup.</p></body></html>');
+    finish(undefined, code);
+  });
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server!.once('error', reject);
+      server!.listen(0, '127.0.0.1', () => {
+        server!.removeListener('error', reject);
+        resolve();
+      });
+    });
+    const address = server.address() as AddressInfo | null;
+    if (!address || typeof address.port !== 'number') throw new Error('Port callback lokal tidak berhasil dibuat.');
+    const callbackUrl = 'http://127.0.0.1:' + address.port + '/callback';
+    const authorizationUrl = buildOpenRouterAuthorizationUrl(
+      callbackUrl,
+      pkce.challenge,
+      expectedState,
+      'Ruang Kerja Desktop',
+    );
+    timeout = setTimeout(() => finish(new Error('Login OpenRouter kedaluwarsa setelah 5 menit. Silakan mulai login lagi.')), 5 * 60 * 1000);
+    timeout.unref();
+    cancelOpenRouterOAuthLogin = () => finish(new Error('Login OpenRouter dibatalkan.'));
+    await shell.openExternal(authorizationUrl);
+
+    const code = await callbackPromise;
+    const exchange = await fetch('https://openrouter.ai/api/v1/auth/keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        code,
+        code_verifier: pkce.verifier,
+        code_challenge_method: 'S256',
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const exchangeText = await exchange.text();
+    let exchangeData: Record<string, unknown> = {};
+    try { exchangeData = exchangeText ? JSON.parse(exchangeText) as Record<string, unknown> : {}; } catch { /* handled below */ }
+    if (!exchange.ok) {
+      const error = exchangeData.error && typeof exchangeData.error === 'object'
+        ? String((exchangeData.error as Record<string, unknown>).message ?? '')
+        : exchangeText.slice(0, 180);
+      throw new Error('Pertukaran login OpenRouter gagal (HTTP ' + exchange.status + '). ' +
+        redactSecretValues(error, [pkce.verifier, code]).replace(/\s+/g, ' ').slice(0, 200));
+    }
+    const apiKey = typeof exchangeData.key === 'string' ? exchangeData.key : '';
+    if (!apiKey.startsWith('sk-or-v1-')) throw new Error('OpenRouter tidak mengembalikan API key yang valid.');
+    const userId = typeof exchangeData.user_id === 'string' ? exchangeData.user_id.slice(0, 160) : null;
+
+    saveEncryptedProviderApiKey('openrouter', apiKey);
+    writeOpenRouterAccountMetadata({
+      authMethod: 'oauth',
+      userId,
+      linkedAt: new Date().toISOString(),
+    });
+    const selected = saveAgentProviderSelection('openrouter');
+    if (!selected.ok) return selected;
+    return { ok: true };
+  } catch (error) {
+    const message = redactSecretValues((error as Error).message || 'Login OpenRouter gagal.', [pkce.verifier]);
+    return { ok: false, error: message };
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    cancelOpenRouterOAuthLogin = null;
+    if (server?.listening) server.close();
+  }
+}
+
+function cancelOpenRouterAccountLogin(): ActionResult {
+  if (!cancelOpenRouterOAuthLogin) return { ok: false, error: 'Tidak ada proses login OpenRouter yang sedang berjalan.' };
+  cancelOpenRouterOAuthLogin();
+  return { ok: true };
+}
+
+function emptyOpenRouterAccountStatus(error?: string): OpenRouterAccountStatus {
+  return {
+    connected: false,
+    authMethod: null,
+    userId: null,
+    keyName: null,
+    keyLabel: null,
+    isFreeTier: null,
+    isManagementKey: null,
+    limit: null,
+    limitRemaining: null,
+    usage: null,
+    usageDaily: null,
+    usageWeekly: null,
+    usageMonthly: null,
+    limitReset: null,
+    effectiveBudget: null,
+    keySettingsUrl: null,
+    activityUrl: null,
+    fetchedAt: null,
+    ...(error ? { error } : {}),
+  };
+}
+
+async function getOpenRouterAccountStatus(): Promise<OpenRouterAccountStatus> {
+  const apiKey = getProviderApiKey('openrouter');
+  if (!apiKey) return emptyOpenRouterAccountStatus('Belum ada akun atau API key OpenRouter yang dihubungkan.');
+  const metadata = readOpenRouterAccountMetadata();
+  const authMethod: OpenRouterAuthMethod = getProviderEnvironmentKey('openrouter')
+    ? 'environment'
+    : metadata.authMethod ?? 'api-key';
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/key', {
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + apiKey, Accept: 'application/json' },
+      signal: AbortSignal.timeout(18_000),
+    });
+    const bodyText = await response.text();
+    let payload: Record<string, unknown> = {};
+    try { payload = bodyText ? JSON.parse(bodyText) as Record<string, unknown> : {}; } catch { /* report invalid response */ }
+    if (!response.ok) {
+      return emptyOpenRouterAccountStatus(openRouterHttpErrorMessage(response.status, bodyText, response.headers, apiKey));
+    }
+    if (!payload.data || typeof payload.data !== 'object') {
+      return emptyOpenRouterAccountStatus('OpenRouter merespons, tetapi detail akun/API key tidak tersedia dalam format yang dikenal.');
+    }
+    const keyHash = createHash('sha256').update(apiKey, 'utf8').digest('hex');
+    return normalizeOpenRouterKeyStatus(payload, {
+      userId: metadata.userId ?? null,
+      authMethod,
+      keyHash,
+      fetchedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    return emptyOpenRouterAccountStatus(redactSecretValues((error as Error).message || 'Gagal memeriksa akun OpenRouter.', [apiKey]));
+  }
+}
+
+function disconnectOpenRouterAccount(): ActionResult {
+  if (getProviderEnvironmentKey('openrouter')) {
+    return { ok: false, error: 'OPENROUTER_API_KEY berasal dari environment. Hapus override environment untuk memutuskan akun dari aplikasi.' };
+  }
+  try {
+    rmSync(providerKeyPath('openrouter'), { force: true });
+    rmSync(openRouterAccountMetadataPath(), { force: true });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: 'Gagal menghapus kredensial OpenRouter lokal: ' + ((error as Error).message || 'kesalahan file') };
+  }
+}
+
+async function openOpenRouterKeySettings(): Promise<ActionResult> {
+  const apiKey = getProviderApiKey('openrouter');
+  if (!apiKey) return { ok: false, error: 'Hubungkan akun atau API key OpenRouter terlebih dahulu.' };
+  const keyHash = createHash('sha256').update(apiKey, 'utf8').digest('hex');
+  try {
+    await shell.openExternal('https://openrouter.ai/keys/' + keyHash);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: 'Gagal membuka detail API key OpenRouter: ' + ((error as Error).message || 'kesalahan sistem') };
   }
 }
 
@@ -1182,6 +1452,11 @@ function registerIpc(): void {
   ipcMain.handle('rk:agent:select-provider', (_e, provider: AgentProviderId) => saveAgentProviderSelection(provider));
   ipcMain.handle('rk:agent:open-provider-key-page', (_e, provider: AgentProviderId) => openProviderKeyPage(provider));
   ipcMain.handle('rk:agent:test-config', () => testAgentRouter());
+  ipcMain.handle('rk:agent:openrouter-login', () => connectOpenRouterAccount());
+  ipcMain.handle('rk:agent:openrouter-cancel-login', () => cancelOpenRouterAccountLogin());
+  ipcMain.handle('rk:agent:openrouter-account', () => getOpenRouterAccountStatus());
+  ipcMain.handle('rk:agent:openrouter-disconnect', () => disconnectOpenRouterAccount());
+  ipcMain.handle('rk:agent:openrouter-key-settings', () => openOpenRouterKeySettings());
   ipcMain.handle('rk:agent:list-sessions', () => listAgentSessions(app.getPath('userData')));
   ipcMain.handle('rk:agent:load-session', async (_e, id: string) => {
     try {

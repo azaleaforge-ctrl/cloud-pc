@@ -27,7 +27,7 @@ import type {
   TerminalSessionInfo,
   VsxSearchResult,
 } from '../shared/editor';
-import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentProviderId, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, InstalledAgentSkill, AgentSkillInstallResult, McpPluginSummary, McpPluginImportResult, McpPluginProbeResult, ChatMessage, AgentEvent } from '../shared/agents';
+import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentProviderId, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, InstalledAgentSkill, AgentSkillInstallResult, McpPluginSummary, McpPluginImportResult, McpPluginProbeResult, ChatMessage, AgentEvent, OpenRouterAccountStatus } from '../shared/agents';
 import { APP_VERSION } from '../shared/types';
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -121,6 +121,11 @@ const api: RkApi = {
   agentSelectProvider: (provider: AgentProviderId): Promise<ActionResult> => ipcRenderer.invoke('rk:agent:select-provider', provider),
   agentOpenProviderKeyPage: (provider: AgentProviderId): Promise<ActionResult> => ipcRenderer.invoke('rk:agent:open-provider-key-page', provider),
   agentTestConfig: () => ipcRenderer.invoke('rk:agent:test-config'),
+  agentOpenRouterLogin: (): Promise<ActionResult> => ipcRenderer.invoke('rk:agent:openrouter-login'),
+  agentCancelOpenRouterLogin: (): Promise<ActionResult> => ipcRenderer.invoke('rk:agent:openrouter-cancel-login'),
+  agentGetOpenRouterAccount: (): Promise<OpenRouterAccountStatus> => ipcRenderer.invoke('rk:agent:openrouter-account'),
+  agentDisconnectOpenRouter: (): Promise<ActionResult> => ipcRenderer.invoke('rk:agent:openrouter-disconnect'),
+  agentOpenOpenRouterKeySettings: (): Promise<ActionResult> => ipcRenderer.invoke('rk:agent:openrouter-key-settings'),
   agentListModels: (): Promise<AgentModelCatalogResult> => ipcRenderer.invoke('rk:agent:list-models'),
   agentSelectModel: (model: string) => ipcRenderer.invoke('rk:agent:select-model', model),
   agentDiagnoseModel: (): Promise<AgentModelCapabilityReport> => ipcRenderer.invoke('rk:agent:diagnose-model'),

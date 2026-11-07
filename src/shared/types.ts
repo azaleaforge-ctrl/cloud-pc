@@ -2,7 +2,7 @@
 // Semua tipe di file ini adalah satu-satunya sumber kebenaran untuk IPC.
 
 import type { EditorApi } from './editor';
-import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentProviderId, AgentRouterStatus, AgentRouterTestResult, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, AgentSkillInfo, InstalledAgentSkill, AgentSkillInstallResult, McpPluginSummary, McpPluginImportResult, McpPluginProbeResult, ChatMessage, AgentEvent } from './agents';
+import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentProviderId, AgentRouterStatus, AgentRouterTestResult, OpenRouterAccountStatus, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, AgentSkillInfo, InstalledAgentSkill, AgentSkillInstallResult, McpPluginSummary, McpPluginImportResult, McpPluginProbeResult, ChatMessage, AgentEvent } from './agents';
 
 export type Role = 'none' | 'host' | 'member';
 
@@ -237,6 +237,11 @@ export interface RkApi {
   agentSelectProvider(provider: AgentProviderId): Promise<ActionResult>;
   agentOpenProviderKeyPage(provider: AgentProviderId): Promise<ActionResult>;
   agentTestConfig(): Promise<AgentRouterTestResult>;
+  agentOpenRouterLogin(): Promise<ActionResult>;
+  agentCancelOpenRouterLogin(): Promise<ActionResult>;
+  agentGetOpenRouterAccount(): Promise<OpenRouterAccountStatus>;
+  agentDisconnectOpenRouter(): Promise<ActionResult>;
+  agentOpenOpenRouterKeySettings(): Promise<ActionResult>;
   agentListModels(): Promise<AgentModelCatalogResult>;
   agentSelectModel(model: string): Promise<ActionResult>;
   agentDiagnoseModel(): Promise<AgentModelCapabilityReport>;

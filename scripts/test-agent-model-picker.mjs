@@ -117,4 +117,28 @@ assert.ok(parser.includes('architecture.input_modalities') && parser.includes('p
   parser.includes('supported_parameters') && parser.includes("'unknown'"),
   'the model metadata parser must preserve source capability fields and an unknown-price state');
 
+assert.ok(chat.includes('window.rk.agentOpenRouterLogin()') &&
+  chat.includes('window.rk.agentGetOpenRouterAccount()') &&
+  chat.includes('window.rk.agentDisconnectOpenRouter()'),
+  'OpenRouter settings must support account login, account inspection and local logout');
+assert.ok(chat.includes('OpenRouter User ID') &&
+  chat.includes('Sisa limit API key') &&
+  chat.includes('Buka detail API key') &&
+  chat.includes('Logout menghapus key dari perangkat ini'),
+  'OpenRouter settings must display the signed-in identity and key usage and explain local logout');
+assert.ok(main.includes('https://openrouter.ai/api/v1/auth/keys') &&
+  main.includes('code_verifier: pkce.verifier') &&
+  main.includes("code_challenge_method: 'S256'") &&
+  main.includes('http://127.0.0.1:'),
+  'OpenRouter account login must use a localhost PKCE callback and exchange its one-time code');
+assert.ok(main.includes("https://openrouter.ai/api/v1/key") &&
+  main.includes('https://openrouter.ai/keys/') &&
+  main.includes('openrouter-account.json'),
+  'OpenRouter must inspect the current key and persist account metadata separately from the encrypted key');
+assert.ok(main.includes("rmSync(providerKeyPath('openrouter')") &&
+  main.includes('rmSync(openRouterAccountMetadataPath()'),
+  'OpenRouter logout must remove only local provider credentials and identity metadata');
+assert.ok(runtime.includes('openRouterHttpErrorMessage') &&
+  runtime.includes('Retry-After') === false,
+  'the agent runtime must use provider-specific OpenRouter diagnostics instead of generic provider errors');
 console.log('Agent model-picker tests: all assertions passed.');
