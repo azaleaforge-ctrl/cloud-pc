@@ -29,11 +29,31 @@ export function redactSecretValues(input: string, secrets: readonly string[] = [
   return result;
 }
 
-export function providerHttpErrorMessage(status: number, detail: string, apiKey = ''): string {
+export function providerHttpErrorMessage(
+  status: number,
+  detail: string,
+  apiKey = '',
+  headers?: { get(name: string): string | null },
+): string {
   if (status === 401) return 'HTTP 401: API key tidak valid, kedaluwarsa, atau tidak memiliki akses.';
   if (status === 403) return 'HTTP 403: akses provider ditolak. Periksa izin akun, kebijakan model, dan batas penggunaan.';
   if (status === 408 || status === 504) return 'HTTP ' + status + ': provider kehabisan waktu untuk memproses permintaan. Coba lagi.';
-  if (status === 429) return 'HTTP 429: batas penggunaan atau kuota provider tercapai. Periksa limit akun lalu coba lagi nanti.';
+  if (status === 429) {
+    const retryAfter = headers?.get('retry-after');
+    const remainingTokens = headers?.get('x-ratelimit-remaining-tokens');
+    const remainingRequests = headers?.get('x-ratelimit-remaining-requests');
+    const resetTokens = headers?.get('x-ratelimit-reset-tokens');
+    const resetRequests = headers?.get('x-ratelimit-reset-requests');
+    const details = [
+      retryAfter ? 'coba lagi dalam ' + retryAfter + ' detik' : '',
+      remainingTokens !== null && remainingTokens !== undefined ? 'sisa token/minute ' + remainingTokens : '',
+      remainingRequests !== null && remainingRequests !== undefined ? 'sisa request/day ' + remainingRequests : '',
+      resetTokens ? 'reset token ' + resetTokens : '',
+      resetRequests ? 'reset request ' + resetRequests : '',
+    ].filter(Boolean);
+    return 'HTTP 429: batas penggunaan atau kuota provider tercapai. Periksa limit akun lalu coba lagi nanti.'
+      + (details.length ? ' Detail dari provider: ' + details.join(' · ') + '.' : '');
+  }
   if (status >= 500) return 'HTTP ' + status + ': provider mengalami gangguan sementara. Coba lagi nanti.';
   const safeDetail = redactSecretValues(detail, [apiKey]).replace(/\s+/g, ' ').trim().slice(0, 220);
   return 'HTTP ' + status + (safeDetail ? ': ' + safeDetail : '');
