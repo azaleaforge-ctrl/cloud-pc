@@ -1015,6 +1015,15 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   }, [settingsOpen, selectedProviderDraft, refreshOpenRouterAccount]);
 
   useEffect(() => {
+    if (routerStatus?.provider !== 'openrouter') return;
+    let alive = true;
+    void window.rk.agentGetOpenRouterAccount().then(status => {
+      if (alive) setOpenRouterAccount(status);
+    }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [routerStatus?.provider]);
+
+  useEffect(() => {
     let alive = true;
     void window.rk.agentList().then((list) => {
       if (!alive) return;
@@ -1209,6 +1218,27 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       } else if (event.type === 'run-result') {
         setLastRunResult(event.result);
         if (event.result.outcome === 'completed' || event.result.outcome === 'cancelled') setTodos([]);
+      } else if (event.type === 'provider-usage') {
+        setProviderUsageTotals(previous => {
+          const old = previous[event.usage.provider] ?? {
+            promptTokens: 0, completionTokens: 0, totalTokens: 0,
+            costUsd: 0, hasProviderCost: false, requestCount: 0, latest: null,
+          };
+          const next = {
+            ...previous,
+            [event.usage.provider]: {
+              promptTokens: old.promptTokens + event.usage.promptTokens,
+              completionTokens: old.completionTokens + event.usage.completionTokens,
+              totalTokens: old.totalTokens + event.usage.totalTokens,
+              costUsd: old.costUsd + (event.usage.costUsd ?? 0),
+              hasProviderCost: old.hasProviderCost || event.usage.costUsd !== null,
+              requestCount: old.requestCount + 1,
+              latest: event.usage,
+            },
+          };
+          try { localStorage.setItem(PROVIDER_USAGE_STORAGE_KEY, JSON.stringify(next)); } catch { /* usage display is best-effort */ }
+          return next;
+        });
       } else if (event.type === 'terminal-process') {
         setTerminalHistory((previous) => upsertAgentTerminalProcess(previous, event.process, 100));
       } else if (event.type === 'terminal-output') {
