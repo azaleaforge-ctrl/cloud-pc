@@ -2008,7 +2008,64 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                         <div><small>OpenRouter User ID</small><code>{openRouterAccount.userId ?? 'Tidak diberikan oleh API'}</code></div>
                         <div><small>API key / label</small><code>{openRouterAccount.keyName || openRouterAccount.keyLabel || 'Label tidak tersedia'}</code></div>
                         <div><small>Jenis akun</small><strong>{openRouterAccount.isFreeTier === null ? 'Tidak diketahui' : openRouterAccount.isFreeTier ? 'Free tier' : 'Paid / organization tier'}</strong></div>
-                        <div><small>Sisa limit API key</small><strong>{openRouterAccount.limitRemaining === null ? 'Tidak tersedia / tanpa limit key' : '
+                        <div><small>Sisa limit API key</small><strong>{openRouterAccount.limitRemaining === null ? 'Tidak tersedia / tanpa limit key' : '$' + openRouterAccount.limitRemaining.toFixed(2)}</strong></div>
+                        <div><small>Limit API key</small><strong>{openRouterAccount.limit === null ? 'Tidak tersedia / tanpa limit key' : '$' + openRouterAccount.limit.toFixed(2)}</strong></div>
+                        <div><small>Total penggunaan key</small><strong>{openRouterAccount.usage === null ? 'Tidak tersedia' : '$' + openRouterAccount.usage.toFixed(2)}</strong></div>
+                        <div><small>Penggunaan hari ini</small><strong>{openRouterAccount.usageDaily === null ? 'Tidak tersedia' : '$' + openRouterAccount.usageDaily.toFixed(2)}</strong></div>
+                        <div><small>Penggunaan minggu ini</small><strong>{openRouterAccount.usageWeekly === null ? 'Tidak tersedia' : '$' + openRouterAccount.usageWeekly.toFixed(2)}</strong></div>
+                        <div><small>Penggunaan bulan ini</small><strong>{openRouterAccount.usageMonthly === null ? 'Tidak tersedia' : '$' + openRouterAccount.usageMonthly.toFixed(2)}</strong></div>
+                        <div><small>Reset limit key</small><strong>{openRouterAccount.limitReset ?? 'Tidak tersedia'}</strong></div>
+                      </div>
+                      {openRouterAccount.effectiveBudget ? (
+                        <div className="ai-openrouter-budget">
+                          <small>Budget efektif · {openRouterAccount.effectiveBudget.scope ?? 'scope tidak diketahui'}</small>
+                          <strong>{openRouterAccount.effectiveBudget.remainingUsd === null ? 'Sisa budget tidak tersedia' : '$' + openRouterAccount.effectiveBudget.remainingUsd.toFixed(2) + ' tersisa'}</strong>
+                          {openRouterAccount.effectiveBudget.resetsAt ? <small>Reset: {new Date(openRouterAccount.effectiveBudget.resetsAt).toLocaleString()}</small> : null}
+                        </div>
+                      ) : null}
+                      {openRouterAccount.error ? <p className="ai-openrouter-account-error">{openRouterAccount.error}</p> : null}
+                      <div className="ai-openrouter-actions">
+                        <button type="button" className="ai-settings-test" onClick={() => void openOpenRouterKeySettings()}>Buka detail API key</button>
+                        <button type="button" className="ai-settings-test" onClick={() => void refreshOpenRouterAccount()}>Perbarui limit</button>
+                        <button type="button" className="ai-settings-test ai-openrouter-logout" onClick={() => void disconnectOpenRouterAccount()} disabled={openRouterDisconnectBusy || openRouterAuthBusy || openRouterAccount.authMethod === 'environment'}>
+                          {openRouterDisconnectBusy ? 'Logout…' : 'Logout'}
+                        </button>
+                      </div>
+                      <small>Logout menghapus key dari perangkat ini, tetapi tidak mencabut key di akun OpenRouter. Cabut key dari dashboard OpenRouter bila tidak ingin key itu tetap aktif.</small>
+                    </div>
+                  ) : (
+                    <div className="ai-openrouter-not-connected">
+                      <strong>{openRouterAccount?.error ? 'Akun belum dapat diverifikasi' : 'Belum terhubung'}</strong>
+                      <p>{openRouterAccount?.error ?? 'Login akun OpenRouter pada langkah 1 untuk membuat dan menghubungkan API key.'}</p>
+                      <button type="button" className="ai-settings-test" onClick={() => void refreshOpenRouterAccount()}>Periksa koneksi akun</button>
+                    </div>
+                  )}
+                </div>
+              </section>
+              <details className="ai-openrouter-manual">
+                <summary>Gunakan API key OpenRouter yang sudah ada secara manual</summary>
+                <label className="ai-settings-label" htmlFor="rk-router-key">API key OpenRouter</label>
+                <div className="ai-settings-key-row">
+                  <input id="rk-router-key" ref={apiKeyInputRef} className="ai-settings-key" type="password" autoComplete="new-password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void saveRouterKey(); }} placeholder="Tempel API key OpenRouter yang sudah ada" />
+                  <button type="button" className="ai-settings-save" onClick={() => void saveRouterKey()} disabled={!apiKey.trim() || savingKey}>{savingKey ? 'Menyimpan…' : 'Simpan & uji'}</button>
+                </div>
+                <small>Mode manual tidak menghubungkan identitas melalui OAuth. User ID dan informasi limit dibaca dari endpoint current-key bila tersedia.</small>
+              </details>
+              <p className="ai-openrouter-limit-note">HTTP 402 biasanya terkait saldo, budget, atau limit key. HTTP 429 dapat berasal dari batas permintaan model gratis atau kapasitas provider. Periksa detail error dan Retry-After; membuat API key baru tidak otomatis menaikkan kapasitas provider global.</p>
+            </div>
+          ) : (
+            <>
+              <label className="ai-settings-label" htmlFor="rk-router-key">API key {routerStatus?.providers.find(item => item.id === selectedProviderDraft)?.configured ? '(tersimpan; isi untuk mengganti)' : ''}</label>
+              <div className="ai-settings-key-row">
+                <input id="rk-router-key" ref={apiKeyInputRef} className="ai-settings-key" type="password" autoComplete="new-password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void saveRouterKey(); }} placeholder={routerStatus?.configured ? 'API key tersimpan; isi untuk mengganti' : selectedProviderDraft === 'gemini' ? 'Tempel API key Gemini' : selectedProviderDraft === 'groq' ? 'Tempel API key Groq' : 'Tempel API key 9router'} />
+                <button type="button" className="ai-settings-save" onClick={() => void saveRouterKey()} disabled={!apiKey.trim() || savingKey}>{savingKey ? 'Menyimpan…' : 'Simpan & uji'}</button>
+              </div>
+              <div className="ai-settings-connection-row">
+                <span className={'ai-settings-state ' + (routerStatus?.configured ? 'configured' : 'missing')}>{routerStatus?.configured ? 'API key tersimpan' : 'API key belum diatur'}</span>
+                <button type="button" className="ai-settings-test" onClick={() => void testRouterConnection()} disabled={!routerStatus?.configured || testingConnection || savingKey}>{testingConnection ? 'Menguji model…' : 'Uji koneksi model'}</button>
+              </div>
+            </>
+          )}
           {testResult ? (
             <div className={'ai-test-result ' + (testResult.ok ? 'success' : 'failure')} role={testResult.ok ? 'status' : 'alert'}>
               <strong>{testResult.ok ? 'Koneksi berhasil' : 'Koneksi gagal'}</strong>
