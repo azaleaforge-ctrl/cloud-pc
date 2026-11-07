@@ -34,6 +34,7 @@ function json(body, status = 200) {
 try {
   const providerBundle = join(dir, 'agentProviders.cjs');
   const capabilitiesBundle = join(dir, 'modelCapabilities.cjs');
+  const securityBundle = join(dir, 'providerSecurity.cjs');
   await Promise.all([
     build({
       entryPoints: [join(root, 'src/main/editor/agentProviders.ts')],
@@ -51,9 +52,36 @@ try {
       outfile: capabilitiesBundle,
       logLevel: 'silent',
     }),
+    build({
+      entryPoints: [join(root, 'src/main/editor/providerSecurity.ts')],
+      bundle: true,
+      platform: 'node',
+      format: 'cjs',
+      outfile: securityBundle,
+      logLevel: 'silent',
+    }),
   ]);
   const providers = require(providerBundle);
   const capabilities = require(capabilitiesBundle);
+  const security = require(securityBundle);
+
+  await test('includes actual provider retry and remaining quota headers in HTTP 429 diagnostics', () => {
+    const message = security.providerHttpErrorMessage(429, '{}', 'groq-test-key', new Headers({
+      'retry-after': '8',
+      'x-ratelimit-limit-tokens': '8000',
+      'x-ratelimit-remaining-tokens': '0',
+      'x-ratelimit-limit-requests': '1000',
+      'x-ratelimit-remaining-requests': '937',
+      'x-ratelimit-reset-tokens': '7.66s',
+      'x-ratelimit-reset-requests': '2m59.56s',
+    }));
+    assert.match(message, /HTTP 429/);
+    assert.match(message, /8 detik/);
+    assert.match(message, /sisa token\/minute 0/);
+    assert.match(message, /sisa request\/day 937/);
+    assert.match(message, /reset token 7\.66s/);
+    assert.match(message, /reset request 2m59\.56s/);
+  });
 
   await test('builds Gemini system instruction, messages, function declarations and required tool choice', () => {
     const body = providers.buildGeminiRequestBody({

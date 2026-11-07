@@ -177,21 +177,40 @@ export function parseModels(data: Record<string, unknown>, provider: AgentProvid
       : {};
     const promptPrice = finiteNonNegativeNumber(pricing.prompt);
     const completionPrice = finiteNonNegativeNumber(pricing.completion);
+    const requestPrice = finiteNonNegativeNumber(pricing.request);
+    const imagePrice = finiteNonNegativeNumber(pricing.image);
+    const inputCacheReadPrice = finiteNonNegativeNumber(pricing.input_cache_read);
+    const inputCacheWritePrice = finiteNonNegativeNumber(pricing.input_cache_write);
+    const internalReasoningPrice = finiteNonNegativeNumber(pricing.internal_reasoning);
     const costTier: AgentModelInfo['costTier'] = promptPrice !== undefined && completionPrice !== undefined
       ? (promptPrice === 0 && completionPrice === 0 ? 'free' : 'premium')
       : 'unknown';
     const contextLength = finiteNonNegativeNumber(record.context_length ?? record.context_window);
+    const topProvider = record.top_provider && typeof record.top_provider === 'object'
+      ? record.top_provider as Record<string, unknown>
+      : {};
+    const maxCompletionTokens = finiteNonNegativeNumber(
+      record.output_token_limit ?? topProvider.max_completion_tokens,
+    );
     const inputModalities = metadataStrings(architecture.input_modalities);
     const outputModalities = metadataStrings(architecture.output_modalities);
     const supportedParameters = metadataStrings(record.supported_parameters);
     const supportedGenerationMethods = metadataStrings(record.supported_generation_methods);
+    const perRequestLimits = record.per_request_limits && typeof record.per_request_limits === 'object'
+      ? JSON.stringify(record.per_request_limits).slice(0, 1200)
+      : undefined;
 
     result.push({
       id,
       ...(typeof record.name === 'string' ? { name: record.name.slice(0, 180) }
         : provider === 'groq' && GROQ_FREE_PLAN_MODEL_NAMES[id] ? { name: GROQ_FREE_PLAN_MODEL_NAMES[id] } : {}),
       ...(typeof record.owned_by === 'string' ? { ownedBy: record.owned_by.slice(0, 100) } : {}),
+      ...(typeof record.description === 'string' ? { description: record.description.slice(0, 1400) } : {}),
       ...(contextLength !== undefined ? { contextLength } : {}),
+      ...(maxCompletionTokens !== undefined ? { maxCompletionTokens } : {}),
+      ...(typeof record.created === 'number' && Number.isFinite(record.created) ? { createdAt: record.created } : {}),
+      ...(typeof record.expiration_date === 'string' ? { expirationDate: record.expiration_date } : {}),
+      ...(perRequestLimits ? { perRequestLimits } : {}),
       ...(inputModalities ? { inputModalities } : {}),
       ...(outputModalities ? { outputModalities } : {}),
       ...(supportedParameters ? { supportedParameters } : {}),
@@ -199,6 +218,11 @@ export function parseModels(data: Record<string, unknown>, provider: AgentProvid
       ...(provider === 'groq' && GROQ_FREE_PLAN_MODEL_IDS.has(id) ? { freePlanEligible: true } : {}),
       ...(promptPrice !== undefined ? { promptPrice } : {}),
       ...(completionPrice !== undefined ? { completionPrice } : {}),
+      ...(requestPrice !== undefined ? { requestPrice } : {}),
+      ...(imagePrice !== undefined ? { imagePrice } : {}),
+      ...(inputCacheReadPrice !== undefined ? { inputCacheReadPrice } : {}),
+      ...(inputCacheWritePrice !== undefined ? { inputCacheWritePrice } : {}),
+      ...(internalReasoningPrice !== undefined ? { internalReasoningPrice } : {}),
       costTier,
     });
     if (result.length >= 500) break;

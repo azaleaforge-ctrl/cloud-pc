@@ -84,11 +84,11 @@ try {
 
   test('provider/model selection is resolved per provider and runtime requests use the selected model', () => {
     assert.match(main, /models:\s*\[getSelectedAgentModel\(provider\)\]/);
-    assert.match(main, /saveSelectedAgentModel\(model\)/);
+    assert.match(main, /saveSelectedAgentModel\(model, requestedProvider\)/);
     assert.match(main, /function getRouterConfig\(\): RouterConfig \| null/);
     assert.match(agent, /model:\s*config\.models\[0\] \|\| session\.agent\.model \|\| DEFAULT_MODEL/);
     assert.match(providers, /const model = config\.models\[0\] \|\| 'gemini-3\.8-flash'/);
-    assert.match(chat, /window\.rk\.agentSelectModel\(selectedModelDraft\.trim\(\)\)/);
+    assert.match(chat, /window\.rk\.agentSelectModel\(modelProviderDraft, selectedModelDraft\.trim\(\)\)/);
     assert.match(chat, /window\.rk\.agentStartChat\(activeAgent\.id/);
   });
 
@@ -151,7 +151,8 @@ try {
   });
 
   test('provider failures and diagnostic responses are redacted and quota/timeouts have clear messages', () => {
-    assert.match(agent, /providerHttpErrorMessage\(response\.status, body, config\.apiKey\)/);
+    assert.match(agent, /providerHttpErrorMessage\(response\.status, body, config\.apiKey, response\.headers\)/);
+    assert.match(agent, /emitProviderQuotaHeaders\(session, provider/);
     assert.match(providers, /providerHttpErrorMessage\(response\.status, detail, config\.apiKey\)/);
     assert.match(providers, /redactSecretValues\(message, \[config\.apiKey\]\)/);
     assert.match(capabilities, /providerHttpErrorMessage\(response\.status, detail, config\.apiKey\)/);

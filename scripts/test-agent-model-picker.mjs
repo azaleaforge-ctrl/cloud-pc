@@ -22,8 +22,8 @@ assert.ok(chat.includes("event.key === 'Escape'") && chat.includes('setModelPick
 assert.ok(chat.includes('event.target === event.currentTarget') && chat.includes('setModelPickerOpen(false)'),
   'clicking the overlay backdrop must close the picker');
 assert.ok(chat.includes('aria-label="Tutup pemilih model"'), 'the dialog must have a visible close control');
-assert.ok(chat.includes('Model aktif ·') || chat.includes('MODEL AKTIF ·'),
-  'the active provider/model should be highlighted at the top');
+assert.ok(chat.includes('PROVIDER AKTIF') || chat.includes('PROVIDER DIPILIH'),
+  'the selected provider state should be highlighted in the model picker');
 assert.ok(chat.includes('routerStatus?.model ??') && chat.includes('routerStatus?.providerName ??'),
   'the active provider and selected model must be bound to actual runtime config');
 
@@ -48,9 +48,15 @@ assert.ok(chat.includes('Modalitas dan dukungan tools belum tercantum di metadat
   'the picker must disclose incomplete capability metadata instead of guessing');
 assert.ok(chat.includes('model.contextLength') && chat.includes('model.promptPrice') && chat.includes('model.completionPrice'),
   'context length and prices should render only when catalogue metadata provides them');
-assert.ok(chat.includes('onClick={() => void saveSelectedModel()}') &&
-  chat.includes('window.rk.agentSelectModel(selectedModelDraft.trim())'),
-  'apply must persist the selected ID to the runtime, not just update the modal');
+assert.ok(chat.includes('id="rk-model-provider"') && chat.includes('modelProviderDraft') &&
+  chat.includes('window.rk.agentListModels(provider)') && main.includes('requestedProvider: AgentProviderId'),
+  'the picker must choose a provider first and load only that provider catalogue');
+assert.ok(chat.includes('window.rk.agentSelectModel(modelProviderDraft, selectedModelDraft.trim())') &&
+  chat.includes('window.rk.agentSelectProvider(modelProviderDraft)'),
+  'apply must activate the selected provider and save its model separately');
+assert.ok(chat.includes('Lihat detail model') && chat.includes('model.maxCompletionTokens') &&
+  chat.includes('model.inputCacheReadPrice') && chat.includes('model.internalReasoningPrice'),
+  'model details must expose all pricing and capability metadata supplied by the catalogue');
 
 assert.ok(shared.includes("'groq'") && main.includes("groq: 'https://api.groq.com/openai/v1'"),
   'Groq must be registered as a separate provider with its official API endpoint');
@@ -141,4 +147,17 @@ assert.ok(main.includes("rmSync(providerKeyPath('openrouter')") &&
 assert.ok(runtime.includes('openRouterHttpErrorMessage') &&
   runtime.includes('Retry-After') === false,
   'the agent runtime must use provider-specific OpenRouter diagnostics instead of generic provider errors');
+assert.ok(css.includes('.ai-settings-overlay') && css.includes('.ai-settings.ai-settings-dialog') &&
+  chat.includes('className="ai-settings ai-settings-dialog" role="dialog" aria-modal="true"'),
+  '/connect must render as a centered accessible modal rather than inline chat content');
+assert.ok(chat.includes('provider-usage') && chat.includes('Billing & penggunaan') &&
+  chat.includes('ProviderQuotaMeter') && css.includes('.tone-green') && css.includes('.tone-yellow') &&
+  css.includes('.tone-orange') && css.includes('.tone-red'),
+  'the right panel must display provider-reported tokens, billing, and remaining quota progress colours');
+assert.ok(runtime.includes("usage: { include: true }") && runtime.includes("stream_options: { include_usage: true }") &&
+  runtime.includes("type: 'provider-usage'"),
+  'OpenRouter and Groq streams must request actual usage accounting and forward response limit headers');
+assert.ok(chat.includes('model.supportedParameters?.join') && chat.includes('model.supportedGenerationMethods?.join') &&
+  chat.includes('model.inputModalities?.join') && chat.includes('model.outputModalities?.join'),
+  'model detail cards must show supported parameters, API methods and modality lists');
 console.log('Agent model-picker tests: all assertions passed.');

@@ -20,6 +20,7 @@ import type {
   AgentModelCapabilityReport,
   AgentModelInfo,
   OpenRouterAccountStatus,
+  AgentProviderUsage,
   AgentSessionSummary,
   ChatMessage,
 } from '../../../shared/agents';
@@ -68,6 +69,47 @@ const STORAGE_KEY = 'rk.ai.lastAgent';
 const HISTORY_KEY = 'rk.ai.chatHistory';
 
 type ModelCostFilter = 'all' | 'free' | 'premium' | 'unknown';
+
+interface ProviderUsageSummary {
+  promptTokens: number; completionTokens: number; totalTokens: number;
+  costUsd: number; hasProviderCost: boolean; requestCount: number;
+  latest: AgentProviderUsage | null;
+}
+const PROVIDER_USAGE_STORAGE_KEY = 'rk.ai.providerUsage';
+function loadProviderUsage(): Partial<Record<AgentProviderId, ProviderUsageSummary>> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PROVIDER_USAGE_STORAGE_KEY) || '{}');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed as Partial<Record<AgentProviderId, ProviderUsageSummary>>;
+  } catch { return {}; }
+}
+function quotaTone(percent: number): 'green' | 'yellow' | 'orange' | 'red' {
+  if (percent >= 80) return 'green';
+  if (percent >= 50) return 'yellow';
+  if (percent >= 10) return 'orange';
+  return 'red';
+}
+function formatResetWindow(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds < 60 ? Math.ceil(seconds) + ' detik' : Math.ceil(seconds / 60) + ' menit';
+  return value.trim() || null;
+}
+function ProviderQuotaMeter({ label, remaining, limit, reset }: {
+  label: string; remaining: number | null; limit: number | null; reset: string | null;
+}) {
+  if (remaining === null || limit === null || limit <= 0) return null;
+  const percent = Math.max(0, Math.min(100, (remaining / limit) * 100));
+  const tone = quotaTone(percent);
+  const resetLabel = formatResetWindow(reset);
+  return (
+    <div className="ai-usage-meter">
+      <div className="ai-usage-meter-heading"><span>{label}</span><strong>{percent.toFixed(0)}% tersisa</strong></div>
+      <div className="ai-usage-meter-track"><span className={'tone-' + tone} style={{ width: percent + '%' }} /></div>
+      <small>{remaining.toLocaleString()} / {limit.toLocaleString()} tersisa{resetLabel ? ' · reset ' + resetLabel : ''}</small>
+    </div>
+  );
+}
 
 type AgentSlashCommandName = '/sessions' | '/connect' | '/model';
 const AGENT_SLASH_COMMANDS: Array<{
@@ -771,6 +813,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsFocusTarget, setSettingsFocusTarget] = useState<'connect' | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [modelProviderDraft, setModelProviderDraft] = useState<AgentProviderId>('openrouter');
+  const [modelDetailsId, setModelDetailsId] = useState<string | null>(null);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [modelCostFilter, setModelCostFilter] = useState<ModelCostFilter>('all');
   const [modelVisionOnly, setModelVisionOnly] = useState(false);
@@ -787,6 +831,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [savingModel, setSavingModel] = useState(false);
   const [modelReport, setModelReport] = useState<AgentModelCapabilityReport | null>(null);
   const [diagnosingModel, setDiagnosingModel] = useState(false);
+  const [providerUsageTotals, setProviderUsageTotals] = useState(loadProviderUsage);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [permission, setPermission] = useState<PendingPermission | null>(null);
   const [agentQuestion, setAgentQuestion] = useState<PendingAgentQuestion | null>(null);
@@ -810,6 +855,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setSettingsFocusTarget(null);
     setHistoryOpen(false);
     setCheckpointsOpen(false);
+    setModelProviderDraft(routerStatus?.provider ?? 'openrouter');
+    setModelDetailsId(null);
     setModelSearchQuery('');
     setModelCostFilter('all');
     setSelectedModelDraft(routerStatus?.model ?? '');
@@ -949,6 +996,13 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   useEffect(() => {
     if (settingsOpen && selectedProviderDraft === 'openrouter') void refreshOpenRouterAccount();
   }, [settingsOpen, selectedProviderDraft, refreshOpenRouterAccount]);
+
+  useEffect(() => {
+    if (routerStatus?.provider !== 'openrouter') return;
+    let alive = true;
+    void window.rk.agentGetOpenRouterAccount().then(status => { if (alive) setOpenRouterAccount(status); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [routerStatus?.provider]);
 
   useEffect(() => {
     let alive = true;
@@ -1145,6 +1199,24 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       } else if (event.type === 'run-result') {
         setLastRunResult(event.result);
         if (event.result.outcome === 'completed' || event.result.outcome === 'cancelled') setTodos([]);
+      } else if (event.type === 'provider-usage') {
+        setProviderUsageTotals(previous => {
+          const old = previous[event.usage.provider] ?? { promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0, hasProviderCost: false, requestCount: 0, latest: null };
+          const next = {
+            ...previous,
+            [event.usage.provider]: {
+              promptTokens: old.promptTokens + event.usage.promptTokens,
+              completionTokens: old.completionTokens + event.usage.completionTokens,
+              totalTokens: old.totalTokens + event.usage.totalTokens,
+              costUsd: old.costUsd + (event.usage.costUsd ?? 0),
+              hasProviderCost: old.hasProviderCost || event.usage.costUsd !== null,
+              requestCount: old.requestCount + 1,
+              latest: event.usage,
+            },
+          };
+          try { localStorage.setItem(PROVIDER_USAGE_STORAGE_KEY, JSON.stringify(next)); } catch { /* best-effort display persistence */ }
+          return next;
+        });
       } else if (event.type === 'terminal-process') {
         setTerminalHistory((previous) => upsertAgentTerminalProcess(previous, event.process, 100));
       } else if (event.type === 'terminal-output') {
@@ -1454,27 +1526,33 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     }
   }, []);
 
-  const refreshModelCatalog = useCallback(async () => {
+  const modelProviderInfo = routerStatus?.providers.find(item => item.id === modelProviderDraft) ?? null;
+  const refreshModelCatalog = useCallback(async (provider: AgentProviderId) => {
     setLoadingModels(true);
     setModelCatalog(null);
+    setModelDetailsId(null);
     try {
-      const result = await window.rk.agentListModels();
+      const result = await window.rk.agentListModels(provider);
       setModelCatalog(result);
     } catch (error) {
       setModelCatalog({ ok: false, message: (error as Error).message || 'Gagal memuat daftar model.', models: [] });
-    } finally {
-      setLoadingModels(false);
-    }
+    } finally { setLoadingModels(false); }
   }, []);
-
   useEffect(() => {
     if (!modelPickerOpen) return;
-    if (!routerStatus?.configured) {
-      setModelCatalog(null);
-      return;
-    }
-    void refreshModelCatalog();
-  }, [modelPickerOpen, routerStatus?.configured, routerStatus?.provider, refreshModelCatalog]);
+    if (!modelProviderInfo?.configured) { setModelCatalog(null); return; }
+    void refreshModelCatalog(modelProviderDraft);
+  }, [modelPickerOpen, modelProviderDraft, modelProviderInfo?.configured, refreshModelCatalog]);
+  const selectModelProvider = useCallback((provider: AgentProviderId) => {
+    setModelProviderDraft(provider);
+    setModelSearchQuery('');
+    setModelDetailsId(null);
+    setModelReport(null);
+    setModelCatalog(null);
+    setModelCostFilter('all');
+    setModelVisionOnly(false);
+    setSelectedModelDraft(routerStatus?.providers.find(item => item.id === provider)?.model ?? '');
+  }, [routerStatus?.providers]);
 
   const modelCatalogOptions = useMemo(() => {
     const models = modelCatalog?.ok ? modelCatalog.models : [];
@@ -1485,11 +1563,12 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       .filter(model => !query || [model.id, model.name, model.ownedBy, ...(model.inputModalities ?? []), ...(model.outputModalities ?? [])]
         .some(value => (value ?? '').toLowerCase().includes(query)))
       .sort((a, b) => {
-        const activeA = a.id === routerStatus?.model ? 0 : 1;
-        const activeB = b.id === routerStatus?.model ? 0 : 1;
+        const currentModel = routerStatus?.provider === modelProviderDraft ? routerStatus.model : modelProviderInfo?.model;
+        const activeA = a.id === currentModel ? 0 : 1;
+        const activeB = b.id === currentModel ? 0 : 1;
         return activeA - activeB || a.id.localeCompare(b.id);
       });
-  }, [modelCatalog, modelSearchQuery, modelCostFilter, modelVisionOnly, routerStatus?.model]);
+  }, [modelCatalog, modelSearchQuery, modelCostFilter, modelVisionOnly, routerStatus?.model, routerStatus?.provider, modelProviderDraft, modelProviderInfo?.model]);
 
   const modelCostCounts = useMemo(() => {
     const models = modelCatalog?.ok ? modelCatalog.models : [];
@@ -1506,8 +1585,10 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setSavingModel(true);
     setModelReport(null);
     try {
-      const result = await window.rk.agentSelectModel(selectedModelDraft.trim());
-      if (!result.ok) throw new Error(result.error || 'Gagal menyimpan model.');
+      const result = await window.rk.agentSelectModel(modelProviderDraft, selectedModelDraft.trim());
+      if (!result.ok) throw new Error(result.error || 'Gagal menyimpan model untuk provider ini.');
+      const providerResult = await window.rk.agentSelectProvider(modelProviderDraft);
+      if (!providerResult.ok) throw new Error(providerResult.error || 'Gagal mengaktifkan provider yang dipilih.');
       setModelPickerOpen(false);
       await refreshRouterStatus();
       setActivity('Model AI berhasil disimpan.');
@@ -1518,21 +1599,19 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     } finally {
       setSavingModel(false);
     }
-  }, [selectedModelDraft, savingModel, refreshRouterStatus]);
+  }, [selectedModelDraft, savingModel, modelProviderDraft, refreshRouterStatus]);
 
   const diagnoseSelectedModel = useCallback(async () => {
-    if (diagnosingModel || !routerStatus?.configured || selectedModelDraft.trim() !== routerStatus.model) return;
+    if (diagnosingModel || !modelProviderInfo?.configured || !selectedModelDraft.trim()) return;
     setDiagnosingModel(true);
     setModelReport(null);
     try {
-      const result = await window.rk.agentDiagnoseModel();
+      const result = await window.rk.agentDiagnoseModel(modelProviderDraft, selectedModelDraft.trim());
       setModelReport(result);
     } catch (error) {
       setError((error as Error).message || 'Diagnostik model gagal dijalankan.');
-    } finally {
-      setDiagnosingModel(false);
-    }
-  }, [diagnosingModel, routerStatus?.configured, routerStatus?.model, selectedModelDraft]);
+    } finally { setDiagnosingModel(false); }
+  }, [diagnosingModel, modelProviderInfo?.configured, modelProviderDraft, selectedModelDraft]);
 
   const saveRouterKey = useCallback(async () => {
     if (!apiKey.trim() || savingKey) return;
@@ -1938,8 +2017,31 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       </header>
 
       {settingsOpen ? (
-        <section className="ai-settings">
-          <div className="ai-settings-title">Koneksi provider AI</div>
+        <div className="ai-settings-overlay" role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setSettingsOpen(false); setSettingsFocusTarget(null); inputRef.current?.focus();
+            }
+          }}>
+          <section className="ai-settings ai-settings-dialog" role="dialog" aria-modal="true"
+            aria-label="Koneksi provider AI" tabIndex={-1}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault(); event.stopPropagation();
+                setSettingsOpen(false); setSettingsFocusTarget(null); inputRef.current?.focus();
+              }
+            }}>
+          <header className="ai-model-dialog-head">
+            <div>
+              <span className="ai-model-eyebrow">PROVIDER AI</span>
+              <h2>Koneksi provider AI</h2>
+              <p>Hubungkan akun atau API key, periksa status provider, dan pilih layanan yang akan digunakan agent.</p>
+            </div>
+            <button type="button" className="ai-icon-btn" aria-label="Tutup koneksi provider"
+              onClick={() => { setSettingsOpen(false); setSettingsFocusTarget(null); inputRef.current?.focus(); }}>
+              <IconX size={16} />
+            </button>
+          </header>
           <label className="ai-settings-label" htmlFor="rk-provider-select">Provider</label>
           <div className="ai-provider-choice-row">
             <select id="rk-provider-select" className="ai-provider-select" value={selectedProviderDraft}
@@ -2090,7 +2192,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             </button>
           </div>
           <p className="ai-settings-note">API key disimpan terenkripsi di perangkat ini dan tidak ditulis ke file proyek atau dibagikan ke anggota LAN. Setiap provider memakai adapter request, autentikasi, katalog model, dan format streaming yang sesuai. Katalog serta diagnostik tidak menampilkan nilai API key.</p>
-        </section>
+          </section>
+        </div>
       ) : null}
 
       {modelPickerOpen ? (
@@ -2110,35 +2213,42 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
               <div>
                 <span className="ai-model-eyebrow">MODEL PROVIDER</span>
                 <h2>Pilih model AI</h2>
-                <p>Katalog berasal dari provider yang sedang aktif. Informasi biaya dan kemampuan hanya ditampilkan jika disediakan metadata.</p>
+                <p>Pilih provider terlebih dahulu. Katalog, harga, dan detail model di bawah hanya berasal dari provider yang dipilih.</p>
               </div>
               <button type="button" className="ai-icon-btn" aria-label="Tutup pemilih model"
                 onClick={() => { setModelPickerOpen(false); inputRef.current?.focus(); }}><IconX size={16} /></button>
             </header>
 
+            <div className="ai-model-provider-select">
+              <label htmlFor="rk-model-provider">01 · PROVIDER</label>
+              <select id="rk-model-provider" value={modelProviderDraft}
+                onChange={(event) => selectModelProvider(event.target.value as AgentProviderId)}>
+                {(routerStatus?.providers ?? []).filter(item => item.id !== 'legacy' || item.configured || modelProviderDraft === 'legacy')
+                  .map(item => <option key={item.id} value={item.id}>{item.name}{item.configured ? ' · tersambung' : ' · belum tersambung'}</option>)}
+              </select>
+              <small>{modelProviderInfo?.endpoint ?? ''}</small>
+            </div>
             <div className="ai-model-active-card">
               <div className="ai-model-active-mark"><span>✓</span></div>
               <div className="ai-model-active-copy">
-                <small>MODEL AKTIF · {routerStatus?.providerName ?? 'Provider belum dipilih'}</small>
-                <strong>{routerStatus?.model ?? 'Belum ada model aktif'}</strong>
-                <code>{routerStatus?.endpoint ?? ''}</code>
+                <small>{routerStatus?.provider === modelProviderDraft ? 'PROVIDER AKTIF' : 'PROVIDER DIPILIH'} · {modelProviderInfo?.name ?? 'Provider'}</small>
+                <strong>{modelProviderInfo?.model ?? 'Belum ada model tersimpan untuk provider ini'}</strong>
+                <code>{modelProviderInfo?.endpoint ?? ''}</code>
               </div>
               <button type="button" className="ai-settings-test ai-model-diagnostic-button"
                 onClick={() => void diagnoseSelectedModel()}
-                disabled={!routerStatus?.configured || loading || diagnosingModel || savingModel || selectedModelDraft.trim() !== routerStatus?.model}>
-                {diagnosingModel ? 'Menguji…' : 'Uji kemampuan'}
+                disabled={!modelProviderInfo?.configured || loading || diagnosingModel || savingModel || !selectedModelDraft.trim()}>
+                {diagnosingModel ? 'Menguji…' : 'Uji model dipilih'}
               </button>
             </div>
-
-            {!routerStatus?.configured ? (
+            {!modelProviderInfo?.configured ? (
               <div className="ai-model-empty-state" role="status">
-                <strong>Hubungkan provider terlebih dahulu</strong>
-                <p>Daftar model belum bisa dimuat karena API key provider belum dikonfigurasi.</p>
+                <strong>{modelProviderInfo?.name ?? 'Provider'} belum terhubung</strong>
+                <p>Hubungkan akun atau API key provider ini terlebih dahulu. Provider lain tidak akan dicampur ke daftar model ini.</p>
                 <button type="button" className="ai-settings-save" onClick={() => {
-                  setModelPickerOpen(false);
-                  setSettingsFocusTarget('connect');
-                  setSettingsOpen(true);
-                }}>Buka /connect</button>
+                  void selectProviderDraft(modelProviderDraft);
+                  setModelPickerOpen(false); setSettingsFocusTarget('connect'); setSettingsOpen(true);
+                }}>Hubungkan {modelProviderInfo?.name ?? 'provider'}</button>
               </div>
             ) : (
               <>
@@ -2153,7 +2263,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                       onClick={() => setModelSearchQuery('')}>×</button> : null}
                   </label>
                   <button type="button" className="ai-settings-test ai-model-refresh"
-                    onClick={() => void refreshModelCatalog()} disabled={loadingModels}>
+                    onClick={() => void refreshModelCatalog(modelProviderDraft)} disabled={loadingModels}>
                     {loadingModels ? 'Memuat…' : 'Muat ulang'}
                   </button>
                 </div>
@@ -2188,7 +2298,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 </p>
 
                 <div className="ai-model-catalog-state" aria-live="polite">
-                  {loadingModels ? <span><Spinner size={12} /> Mengambil katalog dari {routerStatus.providerName}…</span>
+                  {loadingModels ? <span><Spinner size={12} /> Mengambil katalog dari {modelProviderInfo?.name ?? 'provider'}…</span>
                     : modelCatalog?.ok
                       ? <span className={modelCatalog.retrievedAt ? undefined : 'ai-model-catalog-error'}>
                           {modelCatalog.retrievedAt
@@ -2214,7 +2324,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                       <p>Coba ubah kata pencarian, filter biaya, atau filter input gambar.</p>
                     </div>
                   ) : modelCatalogOptions.map((model: AgentModelInfo) => {
-                    const isActive = model.id === routerStatus.model;
+                    const providerCurrentModel = routerStatus?.provider === modelProviderDraft ? routerStatus.model : modelProviderInfo?.model;
+                    const isActive = model.id === providerCurrentModel;
                     const isDraft = model.id === selectedModelDraft.trim();
                     const toolMetadata = model.supportedParameters?.some(parameter => /tools?|tool_choice|function/.test(parameter)) ?? false;
                     const modalityTags = [
@@ -2247,6 +2358,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                           {model.ownedBy ? <span>{model.ownedBy}</span> : null}
                           {model.freePlanEligible ? <span>Free Plan · kuota terbatas</span> : null}
                           {model.contextLength !== undefined ? <span>{model.contextLength.toLocaleString()} token konteks</span> : null}
+                          {model.maxCompletionTokens !== undefined ? <span>Maks. output {model.maxCompletionTokens.toLocaleString()} token</span> : null}
                           {modalityTags.map(tag => <span key={tag.key}>{tag.label}</span>)}
                           {toolMetadata ? <span>Tool calling tercantum</span> : null}
                           {model.supportedGenerationMethods?.length ? <span>API: {model.supportedGenerationMethods.join(', ')}</span> : null}
@@ -2257,6 +2369,35 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                             ? <span>Modalitas dan dukungan tools belum tercantum di metadata</span> : null}
                         </div>
                         </button>
+                        <button type="button" className="ai-model-detail-toggle"
+                          aria-expanded={modelDetailsId === model.id}
+                          onClick={() => setModelDetailsId(current => current === model.id ? null : model.id)}>
+                          {modelDetailsId === model.id ? 'Tutup detail model' : 'Lihat detail model'}
+                        </button>
+                        {modelDetailsId === model.id ? (
+                          <div className="ai-model-detail-card">
+                            {model.description ? <p>{model.description}</p> : <p>Deskripsi resmi tidak disediakan oleh katalog {modelProviderInfo?.name ?? 'provider'}.</p>}
+                            <div className="ai-model-detail-grid">
+                              <div><small>Context window</small><strong>{model.contextLength !== undefined ? model.contextLength.toLocaleString() + ' token' : 'Tidak tersedia'}</strong></div>
+                              <div><small>Output maksimum</small><strong>{model.maxCompletionTokens !== undefined ? model.maxCompletionTokens.toLocaleString() + ' token' : 'Tidak tersedia'}</strong></div>
+                              <div><small>Input modalities</small><strong>{model.inputModalities?.join(', ') || 'Tidak tersedia'}</strong></div>
+                              <div><small>Output modalities</small><strong>{model.outputModalities?.join(', ') || 'Tidak tersedia'}</strong></div>
+                              <div><small>Supported parameters</small><strong>{model.supportedParameters?.join(', ') || 'Tidak tersedia'}</strong></div>
+                              <div><small>API methods</small><strong>{model.supportedGenerationMethods?.join(', ') || 'Tidak tersedia'}</strong></div>
+                              <div><small>Input token / 1 juta</small><strong>{model.promptPrice !== undefined ? '$' + (model.promptPrice * 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }) : 'Harga tidak disediakan'}</strong></div>
+                              <div><small>Output token / 1 juta</small><strong>{model.completionPrice !== undefined ? '$' + (model.completionPrice * 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }) : 'Harga tidak disediakan'}</strong></div>
+                              <div><small>Request</small><strong>{model.requestPrice !== undefined ? '$' + model.requestPrice : 'Tidak tersedia'}</strong></div>
+                              <div><small>Image input</small><strong>{model.imagePrice !== undefined ? '$' + model.imagePrice : 'Tidak tersedia'}</strong></div>
+                              <div><small>Cache read / 1 juta</small><strong>{model.inputCacheReadPrice !== undefined ? '$' + (model.inputCacheReadPrice * 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }) : 'Tidak tersedia'}</strong></div>
+                              <div><small>Cache write / 1 juta</small><strong>{model.inputCacheWritePrice !== undefined ? '$' + (model.inputCacheWritePrice * 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }) : 'Tidak tersedia'}</strong></div>
+                              <div><small>Internal reasoning / 1 juta</small><strong>{model.internalReasoningPrice !== undefined ? '$' + (model.internalReasoningPrice * 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }) : 'Tidak tersedia'}</strong></div>
+                              <div><small>Dibuat</small><strong>{model.createdAt ? new Date(model.createdAt * 1000).toLocaleDateString() : 'Tidak tersedia'}</strong></div>
+                              <div><small>Masa berlaku</small><strong>{model.expirationDate ? new Date(model.expirationDate).toLocaleString() : 'Tidak tercantum'}</strong></div>
+                            </div>
+                            {model.perRequestLimits ? <small>Batas per request: {model.perRequestLimits}</small> : null}
+                            <small>Metadata berasal dari katalog {modelProviderInfo?.name ?? 'provider'}; nilai yang tidak disediakan tidak ditebak.</small>
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}
@@ -2270,9 +2411,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                       maxLength={200} spellCheck={false} placeholder="Pilih dari katalog atau masukkan ID model…" />
                   </label>
                   <button type="button" className="ai-settings-save ai-model-apply"
-                    disabled={!selectedModelDraft.trim() || savingModel || loading || selectedModelDraft.trim() === routerStatus?.model}
+                    disabled={!selectedModelDraft.trim() || savingModel || loading || (selectedModelDraft.trim() === modelProviderInfo?.model && modelProviderDraft === routerStatus?.provider)}
                     onClick={() => void saveSelectedModel()}>
-                    {savingModel ? 'Menyimpan…' : selectedModelDraft.trim() === routerStatus?.model ? 'Model sedang aktif' : 'Gunakan model'}
+                    {savingModel ? 'Menyimpan…' : selectedModelDraft.trim() === modelProviderInfo?.model && modelProviderDraft === routerStatus?.provider ? 'Model sedang aktif' : 'Gunakan provider & model'}
                   </button>
                 </div>
 
@@ -2642,6 +2783,62 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             <div className="ai-side-card-title"><strong>Workspace aktif</strong><span className="ai-side-dot" /></div>
             <div className="ai-root-path">{wb.root ?? 'Belum ada folder project'}</div>
             {wb.activePath ? <div className="ai-active-file"><span>File terpilih di editor</span><code>{wb.activePath}</code></div> : null}
+          </section>
+
+          <section className="ai-side-card ai-side-usage-card">
+            <div className="ai-side-card-title"><strong>Billing & penggunaan</strong><span>{routerStatus?.providerName ?? 'Provider belum dipilih'}</span></div>
+            <div className="ai-usage-model">{routerStatus?.model ?? 'Belum ada model aktif'}</div>
+            <div className="ai-usage-token-total">
+              <strong>{(routerStatus ? providerUsageTotals[routerStatus.provider]?.totalTokens ?? 0 : 0).toLocaleString()}</strong>
+              <small>token tercatat di Ruang Kerja</small>
+            </div>
+            <div className="ai-usage-token-split">
+              <div><span>Input</span><strong>{(routerStatus ? providerUsageTotals[routerStatus.provider]?.promptTokens ?? 0 : 0).toLocaleString()}</strong></div>
+              <div><span>Output</span><strong>{(routerStatus ? providerUsageTotals[routerStatus.provider]?.completionTokens ?? 0 : 0).toLocaleString()}</strong></div>
+              <div><span>Request</span><strong>{(routerStatus ? providerUsageTotals[routerStatus.provider]?.requestCount ?? 0 : 0).toLocaleString()}</strong></div>
+            </div>
+            {routerStatus?.provider === 'openrouter' && openRouterAccount?.connected ? (
+              <div className="ai-usage-billing">
+                <div><span>Billing API key · total</span><strong>{openRouterAccount.usage === null ? 'Tidak tersedia' : '$' + openRouterAccount.usage.toFixed(4)}</strong></div>
+                <div><span>Penggunaan hari ini</span><strong>{openRouterAccount.usageDaily === null ? 'Tidak tersedia' : '$' + openRouterAccount.usageDaily.toFixed(4)}</strong></div>
+                <div><span>Penggunaan bulan ini</span><strong>{openRouterAccount.usageMonthly === null ? 'Tidak tersedia' : '$' + openRouterAccount.usageMonthly.toFixed(4)}</strong></div>
+                {openRouterAccount.limit !== null ? <ProviderQuotaMeter label="Budget API key" remaining={openRouterAccount.limitRemaining} limit={openRouterAccount.limit} reset={openRouterAccount.limitReset} /> : null}
+                {openRouterAccount.effectiveBudget?.limitUsd !== null && openRouterAccount.effectiveBudget?.limitUsd !== undefined ? (
+                  <ProviderQuotaMeter label={'Budget efektif · ' + (openRouterAccount.effectiveBudget.scope ?? 'akun/workspace')} remaining={openRouterAccount.effectiveBudget.remainingUsd} limit={openRouterAccount.effectiveBudget.limitUsd} reset={openRouterAccount.effectiveBudget.resetsAt} />
+                ) : null}
+                <small>
+                  {openRouterAccount.isFreeTier === true ? 'Akun OpenRouter ditandai Free Tier. Model gratis tetap memiliki batas request dan kapasitas provider.'
+                    : openRouterAccount.isFreeTier === false ? 'Akun/key OpenRouter bukan Free Tier.'
+                      : 'Status Free/Paid tidak disediakan oleh endpoint key.'}
+                  {' '}{openRouterAccount.isManagementKey ? 'Key memiliki izin management.' : 'Usage dan limit ini khusus API key yang terhubung; saldo kredit total akun tidak dibuka oleh API key standar.'}
+                </small>
+                {openRouterAccount.error ? <small className="ai-usage-warning">{openRouterAccount.error}</small> : null}
+                <button type="button" className="ai-usage-refresh" onClick={() => void refreshOpenRouterAccount()}>Perbarui data billing</button>
+              </div>
+            ) : (
+              <div className="ai-usage-billing">
+                <div><span>Biaya yang dilaporkan provider</span><strong>{routerStatus && providerUsageTotals[routerStatus.provider]?.hasProviderCost ? '$' + providerUsageTotals[routerStatus.provider]!.costUsd.toFixed(6) : 'Tidak disediakan API'}</strong></div>
+                <small>Token di atas adalah total request yang usage-nya dilaporkan provider kepada Ruang Kerja, bukan seluruh penggunaan akun.</small>
+              </div>
+            )}
+            <div className="ai-usage-quota">
+              <div className="ai-side-card-title"><strong>Kuota & waktu reset</strong><span>Data provider</span></div>
+              {routerStatus && providerUsageTotals[routerStatus.provider]?.latest ? (
+                <>
+                  <ProviderQuotaMeter label={routerStatus.provider === 'groq' ? 'Token per menit' : 'Token rate limit'} remaining={providerUsageTotals[routerStatus.provider]!.latest!.tokenRemaining} limit={providerUsageTotals[routerStatus.provider]!.latest!.tokenLimit} reset={providerUsageTotals[routerStatus.provider]!.latest!.tokenReset} />
+                  <ProviderQuotaMeter label={routerStatus.provider === 'groq' ? 'Request per hari' : 'Request quota'} remaining={providerUsageTotals[routerStatus.provider]!.latest!.requestRemaining} limit={providerUsageTotals[routerStatus.provider]!.latest!.requestLimit} reset={providerUsageTotals[routerStatus.provider]!.latest!.requestReset} />
+                </>
+              ) : null}
+              {!routerStatus || !providerUsageTotals[routerStatus.provider]?.latest ||
+                (providerUsageTotals[routerStatus.provider]!.latest!.tokenLimit === null &&
+                 providerUsageTotals[routerStatus.provider]!.latest!.requestLimit === null) ? (
+                <p className="ai-side-empty">{routerStatus?.provider === 'gemini'
+                  ? 'Gemini melaporkan token per request, tetapi API standar tidak memberikan remaining quota live. Periksa batas model/project di Google AI Studio.'
+                  : routerStatus?.provider === 'legacy'
+                    ? '9Router berjalan lokal. Tidak ada billing atau kuota provider eksternal.'
+                    : 'Provider belum mengirim header limit dan sisa kuota untuk request ini. Ruang Kerja tidak menebak persentase atau waktu reset.'}</p>
+              ) : null}
+            </div>
           </section>
 
           <section className="ai-side-card ai-side-skills-card">
