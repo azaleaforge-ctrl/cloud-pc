@@ -2049,8 +2049,36 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       </header>
 
       {settingsOpen ? (
-        <section className="ai-settings">
-          <div className="ai-settings-title">Koneksi provider AI</div>
+        <div className="ai-settings-overlay" role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setSettingsOpen(false);
+              setSettingsFocusTarget(null);
+              inputRef.current?.focus();
+            }
+          }}>
+          <section className="ai-settings ai-settings-dialog" role="dialog" aria-modal="true"
+            aria-label="Koneksi provider AI" tabIndex={-1}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                setSettingsOpen(false);
+                setSettingsFocusTarget(null);
+                inputRef.current?.focus();
+              }
+            }}>
+          <header className="ai-model-dialog-head">
+            <div>
+              <span className="ai-model-eyebrow">PROVIDER AI</span>
+              <h2>Koneksi provider AI</h2>
+              <p>Hubungkan akun atau API key, periksa status provider, dan pilih layanan yang akan digunakan agent.</p>
+            </div>
+            <button type="button" className="ai-icon-btn" aria-label="Tutup koneksi provider"
+              onClick={() => { setSettingsOpen(false); setSettingsFocusTarget(null); inputRef.current?.focus(); }}>
+              <IconX size={16} />
+            </button>
+          </header>
           <label className="ai-settings-label" htmlFor="rk-provider-select">Provider</label>
           <div className="ai-provider-choice-row">
             <select id="rk-provider-select" className="ai-provider-select" value={selectedProviderDraft}
@@ -2201,7 +2229,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             </button>
           </div>
           <p className="ai-settings-note">API key disimpan terenkripsi di perangkat ini dan tidak ditulis ke file proyek atau dibagikan ke anggota LAN. Setiap provider memakai adapter request, autentikasi, katalog model, dan format streaming yang sesuai. Katalog serta diagnostik tidak menampilkan nilai API key.</p>
-        </section>
+          </section>
+        </div>
       ) : null}
 
       {modelPickerOpen ? (
