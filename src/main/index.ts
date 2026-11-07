@@ -1452,6 +1452,11 @@ function registerIpc(): void {
   ipcMain.handle('rk:agent:select-provider', (_e, provider: AgentProviderId) => saveAgentProviderSelection(provider));
   ipcMain.handle('rk:agent:open-provider-key-page', (_e, provider: AgentProviderId) => openProviderKeyPage(provider));
   ipcMain.handle('rk:agent:test-config', () => testAgentRouter());
+  ipcMain.handle('rk:agent:openrouter-login', () => connectOpenRouterAccount());
+  ipcMain.handle('rk:agent:openrouter-cancel-login', () => cancelOpenRouterAccountLogin());
+  ipcMain.handle('rk:agent:openrouter-account', () => getOpenRouterAccountStatus());
+  ipcMain.handle('rk:agent:openrouter-disconnect', () => disconnectOpenRouterAccount());
+  ipcMain.handle('rk:agent:openrouter-key-settings', () => openOpenRouterKeySettings());
   ipcMain.handle('rk:agent:list-sessions', () => listAgentSessions(app.getPath('userData')));
   ipcMain.handle('rk:agent:load-session', async (_e, id: string) => {
     try {
