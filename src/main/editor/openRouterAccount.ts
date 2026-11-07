@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import type { OpenRouterAccountStatus, OpenRouterAuthMethod } from '../../shared/agents';
+import type { OpenRouterAccountStatus, OpenRouterAuthMethod, OpenRouterCreditsStatus, UsdIdrRateStatus } from '../../shared/agents';
 import { redactSecretValues } from './providerSecurity';
 
 export interface OpenRouterPkcePair {
@@ -93,6 +93,37 @@ export function normalizeOpenRouterKeyStatus(
     activityUrl: hash ? 'https://openrouter.ai/logs?api_key_hash=' + hash : null,
     fetchedAt: options.fetchedAt ?? new Date().toISOString(),
   };
+}
+
+/** Normalize account-wide credits. Source amounts stay in USD. */
+export function normalizeOpenRouterCredits(payload: unknown, fetchedAt = new Date().toISOString()): OpenRouterCreditsStatus {
+  const root = record(payload);
+  const data = record(root.data);
+  const totalCreditsUsd = nullableNumber(data.total_credits);
+  const totalUsageUsd = nullableNumber(data.total_usage);
+  return {
+    configured: true,
+    totalCreditsUsd,
+    totalUsageUsd,
+    balanceUsd: totalCreditsUsd !== null && totalUsageUsd !== null
+      ? Math.max(0, totalCreditsUsd - totalUsageUsd)
+      : null,
+    fetchedAt,
+  };
+}
+
+/** Parse Frankfurter's daily USD/IDR reference rate without inventing a fallback. */
+export function normalizeUsdIdrRate(payload: unknown, fetchedAt = new Date().toISOString()): UsdIdrRateStatus {
+  const data = record(payload);
+  const rate = nullableNumber(data.rate);
+  const base = nullableString(data.base);
+  const quote = nullableString(data.quote);
+  const date = nullableString(data.date);
+  if (base !== 'USD' || quote !== 'IDR' || rate === null || rate <= 0 || !date) {
+    return { base: 'USD', quote: 'IDR', rate: null, date: null, fetchedAt: null, source: 'Frankfurter',
+      error: 'Respons kurs USD/IDR tidak valid. Tidak ada konversi yang dibuat.' };
+  }
+  return { base: 'USD', quote: 'IDR', rate, date, fetchedAt, source: 'Frankfurter' };
 }
 
 /** Explain OpenRouter credit/budget/rate-limit failures without guessing their cause. */

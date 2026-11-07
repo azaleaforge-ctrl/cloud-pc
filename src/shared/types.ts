@@ -2,7 +2,7 @@
 // Semua tipe di file ini adalah satu-satunya sumber kebenaran untuk IPC.
 
 import type { EditorApi } from './editor';
-import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentProviderId, AgentRouterStatus, AgentRouterTestResult, OpenRouterAccountStatus, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, AgentSkillInfo, InstalledAgentSkill, AgentSkillInstallResult, McpPluginSummary, McpPluginImportResult, McpPluginProbeResult, ChatMessage, AgentEvent } from './agents';
+import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentProviderId, AgentRouterStatus, AgentRouterTestResult, OpenRouterAccountStatus, OpenRouterCreditsStatus, UsdIdrRateStatus, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, AgentSkillInfo, InstalledAgentSkill, AgentSkillInstallResult, McpPluginSummary, McpPluginImportResult, McpPluginProbeResult, ChatMessage, AgentEvent } from './agents';
 
 export type Role = 'none' | 'host' | 'member';
 
@@ -240,6 +240,10 @@ export interface RkApi {
   agentOpenRouterLogin(): Promise<ActionResult>;
   agentCancelOpenRouterLogin(): Promise<ActionResult>;
   agentGetOpenRouterAccount(): Promise<OpenRouterAccountStatus>;
+  agentGetOpenRouterCredits(): Promise<OpenRouterCreditsStatus>;
+  agentSaveOpenRouterManagementKey(apiKey: string): Promise<ActionResult>;
+  agentClearOpenRouterManagementKey(): Promise<ActionResult>;
+  agentGetUsdIdrRate(forceRefresh?: boolean): Promise<UsdIdrRateStatus>;
   agentDisconnectOpenRouter(): Promise<ActionResult>;
   agentOpenOpenRouterKeySettings(): Promise<ActionResult>;
   agentListModels(provider: AgentProviderId): Promise<AgentModelCatalogResult>;
