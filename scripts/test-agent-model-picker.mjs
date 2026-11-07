@@ -48,9 +48,15 @@ assert.ok(chat.includes('Modalitas dan dukungan tools belum tercantum di metadat
   'the picker must disclose incomplete capability metadata instead of guessing');
 assert.ok(chat.includes('model.contextLength') && chat.includes('model.promptPrice') && chat.includes('model.completionPrice'),
   'context length and prices should render only when catalogue metadata provides them');
-assert.ok(chat.includes('onClick={() => void saveSelectedModel()}') &&
-  chat.includes('window.rk.agentSelectModel(selectedModelDraft.trim())'),
-  'apply must persist the selected ID to the runtime, not just update the modal');
+assert.ok(chat.includes('id="rk-model-provider"') && chat.includes('modelProviderDraft') &&
+  chat.includes('window.rk.agentListModels(provider)') && main.includes('requestedProvider: AgentProviderId'),
+  'the picker must choose a provider first and load only that provider catalogue');
+assert.ok(chat.includes('window.rk.agentSelectModel(modelProviderDraft, selectedModelDraft.trim())') &&
+  chat.includes('window.rk.agentSelectProvider(modelProviderDraft)'),
+  'apply must activate the selected provider and save its model separately');
+assert.ok(chat.includes('Lihat detail model') && chat.includes('model.maxCompletionTokens') &&
+  chat.includes('model.inputCacheReadPrice') && chat.includes('model.internalReasoningPrice'),
+  'model details must expose all pricing and capability metadata supplied by the catalogue');
 
 assert.ok(shared.includes("'groq'") && main.includes("groq: 'https://api.groq.com/openai/v1'"),
   'Groq must be registered as a separate provider with its official API endpoint');
@@ -141,4 +147,14 @@ assert.ok(main.includes("rmSync(providerKeyPath('openrouter')") &&
 assert.ok(runtime.includes('openRouterHttpErrorMessage') &&
   runtime.includes('Retry-After') === false,
   'the agent runtime must use provider-specific OpenRouter diagnostics instead of generic provider errors');
+assert.ok(css.includes('.ai-settings-overlay') && css.includes('.ai-settings.ai-settings-dialog') &&
+  chat.includes('className="ai-settings ai-settings-dialog" role="dialog" aria-modal="true"'),
+  '/connect must render as a centered accessible modal rather than inline chat content');
+assert.ok(chat.includes('provider-usage') && chat.includes('Billing & penggunaan') &&
+  chat.includes('ProviderQuotaMeter') && css.includes('.tone-green') && css.includes('.tone-yellow') &&
+  css.includes('.tone-orange') && css.includes('.tone-red'),
+  'the right panel must display provider-reported tokens, billing, and remaining quota progress colours');
+assert.ok(runtime.includes("usage: { include: true }") && runtime.includes("stream_options: { include_usage: true }") &&
+  runtime.includes("type: 'provider-usage'"),
+  'OpenRouter and Groq streams must request actual usage accounting and forward response limit headers');
 console.log('Agent model-picker tests: all assertions passed.');
