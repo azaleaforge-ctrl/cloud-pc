@@ -1014,7 +1014,7 @@ async function openCompletionStream(
 
 async function readCompletion(response: Response, session: LlmSession): Promise<{ content: string; toolCalls: ToolCall[] }> {
   const reader = response.body?.getReader();
-  if (!reader) throw new Error('Response 9router tidak memiliki stream body.');
+  if (!reader) throw new Error('Respons provider AI tidak memiliki stream body.');
   const decoder = new TextDecoder();
   let buffer = '';
   let content = '';
