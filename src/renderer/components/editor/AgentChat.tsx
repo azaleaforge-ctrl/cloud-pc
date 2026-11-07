@@ -2067,7 +2067,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                           <div className="ai-model-option-flags">
                             {isActive ? <span className="ai-model-tag active">Aktif</span> : null}
                             {isDraft && !isActive ? <span className="ai-model-tag selected">Dipilih</span> : null}
-                            <span className={'ai-model-tag cost-' + model.costTier}>
+                            <span className={'ai-model-tag cost-' + (model.freePlanEligible ? 'free' : model.costTier)}>
                               {model.freePlanEligible ? 'Free Plan'
                                 : model.costTier === 'free' ? 'Gratis'
                                   : model.costTier === 'premium' ? 'Premium'
