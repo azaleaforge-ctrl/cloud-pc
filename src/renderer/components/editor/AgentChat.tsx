@@ -2802,7 +2802,12 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 {openRouterAccount.effectiveBudget?.limitUsd !== null && openRouterAccount.effectiveBudget?.limitUsd !== undefined ? (
                   <ProviderQuotaMeter label={'Budget efektif · ' + (openRouterAccount.effectiveBudget.scope ?? 'akun/workspace')} remaining={openRouterAccount.effectiveBudget.remainingUsd} limit={openRouterAccount.effectiveBudget.limitUsd} reset={openRouterAccount.effectiveBudget.resetsAt} />
                 ) : null}
-                <small>{openRouterAccount.isManagementKey ? 'Key memiliki izin management.' : 'Angka ini khusus API key yang terhubung; saldo kredit total akun tidak dibuka oleh API key standar.'}</small>
+                <small>
+                  {openRouterAccount.isFreeTier === true ? 'Akun OpenRouter ditandai Free Tier. Model gratis tetap memiliki batas request dan kapasitas provider.'
+                    : openRouterAccount.isFreeTier === false ? 'Akun/key OpenRouter bukan Free Tier.'
+                      : 'Status Free/Paid tidak disediakan oleh endpoint key.'}
+                  {' '}{openRouterAccount.isManagementKey ? 'Key memiliki izin management.' : 'Usage dan limit ini khusus API key yang terhubung; saldo kredit total akun tidak dibuka oleh API key standar.'}
+                </small>
                 {openRouterAccount.error ? <small className="ai-usage-warning">{openRouterAccount.error}</small> : null}
                 <button type="button" className="ai-usage-refresh" onClick={() => void refreshOpenRouterAccount()}>Perbarui data billing</button>
               </div>
@@ -2820,12 +2825,14 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                   <ProviderQuotaMeter label={routerStatus.provider === 'groq' ? 'Request per hari' : 'Request quota'} remaining={providerUsageTotals[routerStatus.provider]!.latest!.requestRemaining} limit={providerUsageTotals[routerStatus.provider]!.latest!.requestLimit} reset={providerUsageTotals[routerStatus.provider]!.latest!.requestReset} />
                 </>
               ) : null}
-              {!routerStatus || !providerUsageTotals[routerStatus.provider]?.latest ? (
+              {!routerStatus || !providerUsageTotals[routerStatus.provider]?.latest ||
+                (providerUsageTotals[routerStatus.provider]!.latest!.tokenLimit === null &&
+                 providerUsageTotals[routerStatus.provider]!.latest!.requestLimit === null) ? (
                 <p className="ai-side-empty">{routerStatus?.provider === 'gemini'
-                  ? 'Gemini tidak menyediakan sisa kuota live pada respons API. Periksa batas aktif di Google AI Studio.'
+                  ? 'Gemini melaporkan token per request, tetapi API standar tidak memberikan remaining quota live. Periksa batas model/project di Google AI Studio.'
                   : routerStatus?.provider === 'legacy'
                     ? '9Router berjalan lokal. Tidak ada billing atau kuota provider eksternal.'
-                    : 'Belum ada header kuota dari provider. Bar tampil setelah respons API memberikan limit dan sisa kuota asli.'}</p>
+                    : 'Provider belum mengirim header limit dan sisa kuota untuk request ini. Ruang Kerja tidak menebak persentase atau waktu reset.'}</p>
               ) : null}
             </div>
           </section>
