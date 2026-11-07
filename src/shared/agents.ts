@@ -234,6 +234,39 @@ export interface AgentRouterTestResult {
   model?: string;
 }
 
+export type OpenRouterAuthMethod = 'oauth' | 'api-key' | 'environment';
+
+export interface OpenRouterBudgetInfo {
+  scope: string | null;
+  limitUsd: number | null;
+  spendUsd: number | null;
+  remainingUsd: number | null;
+  resetInterval: string | null;
+  resetsAt: string | null;
+}
+
+export interface OpenRouterAccountStatus {
+  connected: boolean;
+  authMethod: OpenRouterAuthMethod | null;
+  userId: string | null;
+  keyName: string | null;
+  keyLabel: string | null;
+  isFreeTier: boolean | null;
+  isManagementKey: boolean | null;
+  limit: number | null;
+  limitRemaining: number | null;
+  usage: number | null;
+  usageDaily: number | null;
+  usageWeekly: number | null;
+  usageMonthly: number | null;
+  limitReset: string | null;
+  effectiveBudget: OpenRouterBudgetInfo | null;
+  keySettingsUrl: string | null;
+  activityUrl: string | null;
+  fetchedAt: string | null;
+  error?: string;
+}
+
 export type AgentModelCostTier = 'free' | 'premium' | 'unknown';
 
 export interface AgentModelInfo {
