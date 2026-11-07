@@ -49,6 +49,25 @@ assert.ok(chat.includes('onClick={() => void saveSelectedModel()}') &&
   chat.includes('window.rk.agentSelectModel(selectedModelDraft.trim())'),
   'apply must persist the selected ID to the runtime, not just update the modal');
 
+assert.ok(shared.includes("'groq'") && main.includes("groq: 'https://api.groq.com/openai/v1'"),
+  'Groq must be registered as a separate provider with its official API endpoint');
+assert.ok(main.includes("case 'groq': return (process.env.GROQ_API_KEY ?? '').trim();") &&
+  main.includes("'agent-' + provider + '-api-key.enc'"),
+  'Groq credentials must use their own encrypted per-provider storage and environment variable');
+assert.ok(main.includes("groq: 'qwen/qwen3.8-27b'") &&
+  main.includes("['openrouter', 'gemini', 'groq', 'legacy']"),
+  'Groq must be selectable and default to a documented Free Plan coding model');
+assert.ok(chat.includes('<option value="groq">Groq Free Tier') &&
+  chat.includes('Free Tier Groq') && chat.includes('model.freePlanEligible'),
+  'the UI must identify Groq Free Plan models and explain their quota restrictions');
+assert.ok(parser.includes('GROQ_FREE_PLAN_MODEL_IDS') &&
+  parser.includes("'openai/gpt-oss-120b'") &&
+  parser.includes("'openai/gpt-oss-20b'") &&
+  parser.includes("'qwen/qwen3.8-27b'"),
+  'only model IDs from the documented Groq Free Plan model list should be exposed');
+assert.ok(!parser.includes("provider === 'groq' ? 'free'"),
+  'Free Plan eligibility must not be misrepresented as zero per-token price metadata');
+
 assert.ok(chat.includes('className="ai-settings-model-shortcut"') && chat.includes('onClick={openModelPicker}'),
   'the model picker must also be reachable from connection settings');
 assert.ok(!chat.includes('className="ai-model-manager" ref={modelManagerRef}'),
