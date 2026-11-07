@@ -23,6 +23,11 @@ const GROQ_FREE_PLAN_MODEL_IDS = new Set([
   'openai/gpt-oss-20b',
   'qwen/qwen3.8-27b',
 ]);
+const GROQ_FREE_PLAN_MODEL_NAMES: Record<string, string> = {
+  'openai/gpt-oss-120b': 'GPT-OSS 120B',
+  'openai/gpt-oss-20b': 'GPT-OSS 20B',
+  'qwen/qwen3.8-27b': 'Qwen 3.8 27B',
+};
 
 const REMOVED_LEGACY_MODEL_IDS = new Set([
   'ps/poolside/laguna-s-2.1(high)',
@@ -182,7 +187,8 @@ export function parseModels(data: Record<string, unknown>, provider: AgentProvid
 
     result.push({
       id,
-      ...(typeof record.name === 'string' ? { name: record.name.slice(0, 180) } : {}),
+      ...(typeof record.name === 'string' ? { name: record.name.slice(0, 180) }
+        : provider === 'groq' && GROQ_FREE_PLAN_MODEL_NAMES[id] ? { name: GROQ_FREE_PLAN_MODEL_NAMES[id] } : {}),
       ...(typeof record.owned_by === 'string' ? { ownedBy: record.owned_by.slice(0, 100) } : {}),
       ...(contextLength !== undefined ? { contextLength } : {}),
       ...(inputModalities ? { inputModalities } : {}),
