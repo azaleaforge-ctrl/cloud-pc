@@ -19,6 +19,7 @@ import type {
   AgentModelCatalogResult,
   AgentModelCapabilityReport,
   AgentModelInfo,
+  OpenRouterAccountStatus,
   AgentSessionSummary,
   ChatMessage,
 } from '../../../shared/agents';
@@ -776,6 +777,10 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [savingKey, setSavingKey] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<AgentRouterTestResult | null>(null);
+  const [openRouterAccount, setOpenRouterAccount] = useState<OpenRouterAccountStatus | null>(null);
+  const [openRouterAuthBusy, setOpenRouterAuthBusy] = useState(false);
+  const [openRouterDisconnectBusy, setOpenRouterDisconnectBusy] = useState(false);
+  const [showOpenRouterManualKey, setShowOpenRouterManualKey] = useState(false);
   const [modelCatalog, setModelCatalog] = useState<AgentModelCatalogResult | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
   const [selectedModelDraft, setSelectedModelDraft] = useState('');
@@ -857,6 +862,93 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       setError((err as Error).message || 'Gagal membuka halaman API key.');
     }
   }, [selectedProviderDraft, routerStatus?.providers]);
+
+  const refreshOpenRouterAccount = useCallback(async () => {
+    if (selectedProviderDraft !== 'openrouter') {
+      setOpenRouterAccount(null);
+      return null;
+    }
+    try {
+      const status = await window.rk.agentGetOpenRouterAccount();
+      setOpenRouterAccount(status);
+      return status;
+    } catch (err) {
+      const status: OpenRouterAccountStatus = {
+        connected: false, authMethod: null, userId: null, keyName: null, keyLabel: null,
+        isFreeTier: null, isManagementKey: null, limit: null, limitRemaining: null,
+        usage: null, usageDaily: null, usageWeekly: null, usageMonthly: null, limitReset: null,
+        effectiveBudget: null, keySettingsUrl: null, activityUrl: null, fetchedAt: null,
+        error: 'Gagal memeriksa akun OpenRouter: ' + ((err as Error).message || 'kesalahan tidak diketahui'),
+      };
+      setOpenRouterAccount(status);
+      return status;
+    }
+  }, [selectedProviderDraft]);
+
+  const connectOpenRouterAccount = useCallback(async () => {
+    if (openRouterAuthBusy) return;
+    setOpenRouterAuthBusy(true);
+    setTestResult(null);
+    setError(null);
+    setActivity('Membuka login OpenRouter di browser…');
+    try {
+      const result = await window.rk.agentOpenRouterLogin();
+      if (!result.ok) throw new Error(result.error || 'Login OpenRouter gagal.');
+      await refreshRouterStatus();
+      const account = await window.rk.agentGetOpenRouterAccount();
+      setOpenRouterAccount(account);
+      const connectivity = await window.rk.agentTestConfig();
+      setTestResult(connectivity);
+      setActivity(connectivity.ok ? 'Akun OpenRouter terhubung dan API key berhasil diuji.' : '');
+      if (!account.connected) setError(account.error || 'API key diterima, tetapi detail akun belum dapat diverifikasi.');
+    } catch (err) {
+      setActivity('');
+      setError((err as Error).message || 'Login OpenRouter gagal.');
+    } finally {
+      setOpenRouterAuthBusy(false);
+    }
+  }, [openRouterAuthBusy, refreshRouterStatus]);
+
+  const cancelOpenRouterAccountLogin = useCallback(async () => {
+    try {
+      const result = await window.rk.agentCancelOpenRouterLogin();
+      if (!result.ok) setError(result.error || 'Tidak ada proses login untuk dibatalkan.');
+    } catch (err) {
+      setError((err as Error).message || 'Gagal membatalkan login OpenRouter.');
+    }
+  }, []);
+
+  const disconnectOpenRouterAccount = useCallback(async () => {
+    if (openRouterDisconnectBusy) return;
+    setOpenRouterDisconnectBusy(true);
+    try {
+      const result = await window.rk.agentDisconnectOpenRouter();
+      if (!result.ok) throw new Error(result.error || 'Gagal logout dari OpenRouter.');
+      setOpenRouterAccount(null);
+      setApiKey('');
+      setTestResult(null);
+      await refreshRouterStatus();
+      setError(null);
+      setActivity('Akun OpenRouter diputus dari aplikasi ini.');
+    } catch (err) {
+      setError((err as Error).message || 'Gagal logout dari OpenRouter.');
+    } finally {
+      setOpenRouterDisconnectBusy(false);
+    }
+  }, [openRouterDisconnectBusy, refreshRouterStatus]);
+
+  const openOpenRouterKeySettings = useCallback(async () => {
+    try {
+      const result = await window.rk.agentOpenOpenRouterKeySettings();
+      if (!result.ok) throw new Error(result.error || 'Gagal membuka pengaturan API key.');
+    } catch (err) {
+      setError((err as Error).message || 'Gagal membuka pengaturan API key OpenRouter.');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (settingsOpen && selectedProviderDraft === 'openrouter') void refreshOpenRouterAccount();
+  }, [settingsOpen, selectedProviderDraft, refreshOpenRouterAccount]);
 
   useEffect(() => {
     let alive = true;
