@@ -22,8 +22,8 @@ assert.ok(chat.includes("event.key === 'Escape'") && chat.includes('setModelPick
 assert.ok(chat.includes('event.target === event.currentTarget') && chat.includes('setModelPickerOpen(false)'),
   'clicking the overlay backdrop must close the picker');
 assert.ok(chat.includes('aria-label="Tutup pemilih model"'), 'the dialog must have a visible close control');
-assert.ok(chat.includes('Model aktif ·') || chat.includes('MODEL AKTIF ·'),
-  'the active provider/model should be highlighted at the top');
+assert.ok(chat.includes('PROVIDER AKTIF') || chat.includes('PROVIDER DIPILIH'),
+  'the selected provider state should be highlighted in the model picker');
 assert.ok(chat.includes('routerStatus?.model ??') && chat.includes('routerStatus?.providerName ??'),
   'the active provider and selected model must be bound to actual runtime config');
 
@@ -157,4 +157,7 @@ assert.ok(chat.includes('provider-usage') && chat.includes('Billing & penggunaan
 assert.ok(runtime.includes("usage: { include: true }") && runtime.includes("stream_options: { include_usage: true }") &&
   runtime.includes("type: 'provider-usage'"),
   'OpenRouter and Groq streams must request actual usage accounting and forward response limit headers');
+assert.ok(chat.includes('model.supportedParameters?.join') && chat.includes('model.supportedGenerationMethods?.join') &&
+  chat.includes('model.inputModalities?.join') && chat.includes('model.outputModalities?.join'),
+  'model detail cards must show supported parameters, API methods and modality lists');
 console.log('Agent model-picker tests: all assertions passed.');
