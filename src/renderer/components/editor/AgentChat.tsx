@@ -20,6 +20,7 @@ import type {
   AgentModelCapabilityReport,
   AgentModelInfo,
   OpenRouterAccountStatus,
+  AgentProviderUsage,
   AgentSessionSummary,
   ChatMessage,
 } from '../../../shared/agents';
@@ -68,6 +69,64 @@ const STORAGE_KEY = 'rk.ai.lastAgent';
 const HISTORY_KEY = 'rk.ai.chatHistory';
 
 type ModelCostFilter = 'all' | 'free' | 'premium' | 'unknown';
+
+interface ProviderUsageSummary {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  hasProviderCost: boolean;
+  requestCount: number;
+  latest: AgentProviderUsage | null;
+}
+
+const PROVIDER_USAGE_STORAGE_KEY = 'rk.ai.providerUsage';
+
+function loadProviderUsage(): Partial<Record<AgentProviderId, ProviderUsageSummary>> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PROVIDER_USAGE_STORAGE_KEY) || '{}');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed as Partial<Record<AgentProviderId, ProviderUsageSummary>>;
+  } catch {
+    return {};
+  }
+}
+
+function quotaTone(percent: number): 'green' | 'yellow' | 'orange' | 'red' {
+  if (percent >= 80) return 'green';
+  if (percent >= 50) return 'yellow';
+  if (percent >= 10) return 'orange';
+  return 'red';
+}
+
+function formatResetWindow(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds < 60
+    ? Math.ceil(seconds) + ' detik'
+    : Math.ceil(seconds / 60) + ' menit';
+  const compact = value.trim().replace(/\s+/g, '');
+  return compact || null;
+}
+
+function ProviderQuotaMeter({ label, remaining, limit, reset }: {
+  label: string;
+  remaining: number | null;
+  limit: number | null;
+  reset: string | null;
+}) {
+  if (remaining === null || limit === null || limit <= 0) return null;
+  const percent = Math.max(0, Math.min(100, (remaining / limit) * 100));
+  const tone = quotaTone(percent);
+  const resetLabel = formatResetWindow(reset);
+  return (
+    <div className="ai-usage-meter">
+      <div className="ai-usage-meter-heading"><span>{label}</span><strong>{percent.toFixed(0)}% tersisa</strong></div>
+      <div className="ai-usage-meter-track"><span className={'tone-' + tone} style={{ width: percent + '%' }} /></div>
+      <small>{remaining.toLocaleString()} / {limit.toLocaleString()} tersisa{resetLabel ? ' · reset ' + resetLabel : ''}</small>
+    </div>
+  );
+}
 
 type AgentSlashCommandName = '/sessions' | '/connect' | '/model';
 const AGENT_SLASH_COMMANDS: Array<{
@@ -771,6 +830,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsFocusTarget, setSettingsFocusTarget] = useState<'connect' | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [modelProviderDraft, setModelProviderDraft] = useState<AgentProviderId>('openrouter');
+  const [modelDetailsId, setModelDetailsId] = useState<string | null>(null);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [modelCostFilter, setModelCostFilter] = useState<ModelCostFilter>('all');
   const [modelVisionOnly, setModelVisionOnly] = useState(false);
@@ -787,6 +848,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [savingModel, setSavingModel] = useState(false);
   const [modelReport, setModelReport] = useState<AgentModelCapabilityReport | null>(null);
   const [diagnosingModel, setDiagnosingModel] = useState(false);
+  const [providerUsageTotals, setProviderUsageTotals] = useState(loadProviderUsage);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [permission, setPermission] = useState<PendingPermission | null>(null);
   const [agentQuestion, setAgentQuestion] = useState<PendingAgentQuestion | null>(null);
@@ -810,6 +872,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setSettingsFocusTarget(null);
     setHistoryOpen(false);
     setCheckpointsOpen(false);
+    setModelProviderDraft(routerStatus?.provider ?? 'openrouter');
+    setModelDetailsId(null);
     setModelSearchQuery('');
     setModelCostFilter('all');
     setSelectedModelDraft(routerStatus?.model ?? '');
@@ -1454,11 +1518,14 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     }
   }, []);
 
-  const refreshModelCatalog = useCallback(async () => {
+  const modelProviderInfo = routerStatus?.providers.find(item => item.id === modelProviderDraft) ?? null;
+
+  const refreshModelCatalog = useCallback(async (provider: AgentProviderId) => {
     setLoadingModels(true);
     setModelCatalog(null);
+    setModelDetailsId(null);
     try {
-      const result = await window.rk.agentListModels();
+      const result = await window.rk.agentListModels(provider);
       setModelCatalog(result);
     } catch (error) {
       setModelCatalog({ ok: false, message: (error as Error).message || 'Gagal memuat daftar model.', models: [] });
@@ -1469,12 +1536,23 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
 
   useEffect(() => {
     if (!modelPickerOpen) return;
-    if (!routerStatus?.configured) {
+    if (!modelProviderInfo?.configured) {
       setModelCatalog(null);
       return;
     }
-    void refreshModelCatalog();
-  }, [modelPickerOpen, routerStatus?.configured, routerStatus?.provider, refreshModelCatalog]);
+    void refreshModelCatalog(modelProviderDraft);
+  }, [modelPickerOpen, modelProviderDraft, modelProviderInfo?.configured, refreshModelCatalog]);
+
+  const selectModelProvider = useCallback((provider: AgentProviderId) => {
+    setModelProviderDraft(provider);
+    setModelSearchQuery('');
+    setModelDetailsId(null);
+    setModelReport(null);
+    setModelCatalog(null);
+    setModelCostFilter('all');
+    setModelVisionOnly(false);
+    setSelectedModelDraft(routerStatus?.providers.find(item => item.id === provider)?.model ?? '');
+  }, [routerStatus?.providers]);
 
   const modelCatalogOptions = useMemo(() => {
     const models = modelCatalog?.ok ? modelCatalog.models : [];
@@ -1485,11 +1563,12 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       .filter(model => !query || [model.id, model.name, model.ownedBy, ...(model.inputModalities ?? []), ...(model.outputModalities ?? [])]
         .some(value => (value ?? '').toLowerCase().includes(query)))
       .sort((a, b) => {
-        const activeA = a.id === routerStatus?.model ? 0 : 1;
-        const activeB = b.id === routerStatus?.model ? 0 : 1;
+        const currentModel = routerStatus?.provider === modelProviderDraft ? routerStatus.model : modelProviderInfo?.model;
+        const activeA = a.id === currentModel ? 0 : 1;
+        const activeB = b.id === currentModel ? 0 : 1;
         return activeA - activeB || a.id.localeCompare(b.id);
       });
-  }, [modelCatalog, modelSearchQuery, modelCostFilter, modelVisionOnly, routerStatus?.model]);
+  }, [modelCatalog, modelSearchQuery, modelCostFilter, modelVisionOnly, routerStatus?.model, routerStatus?.provider, modelProviderDraft, modelProviderInfo?.model]);
 
   const modelCostCounts = useMemo(() => {
     const models = modelCatalog?.ok ? modelCatalog.models : [];
@@ -1506,7 +1585,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     setSavingModel(true);
     setModelReport(null);
     try {
-      const result = await window.rk.agentSelectModel(selectedModelDraft.trim());
+      const providerResult = await window.rk.agentSelectProvider(modelProviderDraft);
+      if (!providerResult.ok) throw new Error(providerResult.error || 'Gagal mengaktifkan provider yang dipilih.');
+      const result = await window.rk.agentSelectModel(modelProviderDraft, selectedModelDraft.trim());
       if (!result.ok) throw new Error(result.error || 'Gagal menyimpan model.');
       setModelPickerOpen(false);
       await refreshRouterStatus();
@@ -1518,21 +1599,21 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     } finally {
       setSavingModel(false);
     }
-  }, [selectedModelDraft, savingModel, refreshRouterStatus]);
+  }, [selectedModelDraft, savingModel, modelProviderDraft, refreshRouterStatus]);
 
   const diagnoseSelectedModel = useCallback(async () => {
-    if (diagnosingModel || !routerStatus?.configured || selectedModelDraft.trim() !== routerStatus.model) return;
+    if (diagnosingModel || !modelProviderInfo?.configured || !selectedModelDraft.trim()) return;
     setDiagnosingModel(true);
     setModelReport(null);
     try {
-      const result = await window.rk.agentDiagnoseModel();
+      const result = await window.rk.agentDiagnoseModel(modelProviderDraft, selectedModelDraft.trim());
       setModelReport(result);
     } catch (error) {
       setError((error as Error).message || 'Diagnostik model gagal dijalankan.');
     } finally {
       setDiagnosingModel(false);
     }
-  }, [diagnosingModel, routerStatus?.configured, routerStatus?.model, selectedModelDraft]);
+  }, [diagnosingModel, modelProviderInfo?.configured, modelProviderDraft, selectedModelDraft]);
 
   const saveRouterKey = useCallback(async () => {
     if (!apiKey.trim() || savingKey) return;
