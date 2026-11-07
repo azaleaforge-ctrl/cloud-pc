@@ -16,6 +16,14 @@ const MAX_CHAT_BODY = 1_000_000;
 const REQUEST_TIMEOUT_MS = 18_000;
 const USER_AGENT = 'RuangKerja-ModelDiagnostics/1.0';
 
+// Groq's official Free Plan rate-limit table lists these active chat models.
+// Do not expose other catalog models in the free-first Groq picker.
+const GROQ_FREE_PLAN_MODEL_IDS = new Set([
+  'openai/gpt-oss-120b',
+  'openai/gpt-oss-20b',
+  'qwen/qwen3.8-27b',
+]);
+
 const REMOVED_LEGACY_MODEL_IDS = new Set([
   'ps/poolside/laguna-s-2.1(high)',
 ]);
@@ -147,8 +155,10 @@ export function parseModels(data: Record<string, unknown>, provider: AgentProvid
     if (!item || typeof item !== 'object') continue;
     const record = item as Record<string, unknown>;
     if (typeof record.id !== 'string') continue;
+    if (provider === 'groq' && record.active === false) continue;
     let id: string;
     try { id = normalizeModelId(record.id); } catch { continue; }
+    if (provider === 'groq' && !GROQ_FREE_PLAN_MODEL_IDS.has(id)) continue;
     if (provider === 'legacy' && REMOVED_LEGACY_MODEL_IDS.has(id)) continue;
     if (seen.has(id)) continue;
     seen.add(id);
@@ -164,7 +174,7 @@ export function parseModels(data: Record<string, unknown>, provider: AgentProvid
     const costTier: AgentModelInfo['costTier'] = promptPrice !== undefined && completionPrice !== undefined
       ? (promptPrice === 0 && completionPrice === 0 ? 'free' : 'premium')
       : 'unknown';
-    const contextLength = finiteNonNegativeNumber(record.context_length);
+    const contextLength = finiteNonNegativeNumber(record.context_length ?? record.context_window);
     const inputModalities = metadataStrings(architecture.input_modalities);
     const outputModalities = metadataStrings(architecture.output_modalities);
     const supportedParameters = metadataStrings(record.supported_parameters);
@@ -179,6 +189,7 @@ export function parseModels(data: Record<string, unknown>, provider: AgentProvid
       ...(outputModalities ? { outputModalities } : {}),
       ...(supportedParameters ? { supportedParameters } : {}),
       ...(supportedGenerationMethods ? { supportedGenerationMethods } : {}),
+      ...(provider === 'groq' && GROQ_FREE_PLAN_MODEL_IDS.has(id) ? { freePlanEligible: true } : {}),
       ...(promptPrice !== undefined ? { promptPrice } : {}),
       ...(completionPrice !== undefined ? { completionPrice } : {}),
       costTier,
@@ -215,7 +226,9 @@ export async function listAvailableModels(config: RouterConfig): Promise<AgentMo
       }
       return {
         ok: true,
-        message: 'Daftar model berhasil diambil. Ketersediaan model dapat berubah sesuai izin akun dan provider.',
+        message: (config.provider ?? 'legacy') === 'groq'
+          ? 'Katalog Groq dimuat. Hanya model yang tercantum pada Free Plan Groq ditampilkan; kuota mengikuti batas akun Free Plan dan dapat menghasilkan HTTP 429.'
+          : 'Daftar model berhasil diambil. Ketersediaan model dapat berubah sesuai izin akun dan provider.',
         endpoint,
         retrievedAt: new Date().toISOString(),
         models,
