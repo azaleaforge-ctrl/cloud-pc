@@ -1072,7 +1072,7 @@ async function readCompletion(
   let buffer = '';
   let content = '';
   let doneSignal = false;
-  let usage: { promptTokens: number; completionTokens: number; totalTokens: number; costUsd: number | null } | null = null;
+  const usageState: { value: { promptTokens: number; completionTokens: number; totalTokens: number; costUsd: number | null } | null } = { value: null };
   const calls = new Map<number, ToolCall>();
 
   const processSseLine = (rawLine: string) => {
@@ -1102,7 +1102,7 @@ async function readCompletion(
         }
         return 0;
       };
-      usage = {
+      usageState.value = {
         promptTokens: readCount(rawUsage.prompt_tokens, rawUsage.input_tokens, rawUsage.promptTokenCount),
         completionTokens: readCount(rawUsage.completion_tokens, rawUsage.output_tokens, rawUsage.candidatesTokenCount),
         totalTokens: readCount(rawUsage.total_tokens, rawUsage.totalTokenCount),
@@ -1112,7 +1112,7 @@ async function readCompletion(
           return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
         })(),
       };
-      if (!usage.totalTokens) usage.totalTokens = usage.promptTokens + usage.completionTokens;
+      if (!usageState.value.totalTokens) usageState.value.totalTokens = usageState.value.promptTokens + usageState.value.completionTokens;
     }
 
     const delta = payload.choices?.[0]?.delta;
@@ -1168,6 +1168,7 @@ async function readCompletion(
     }
     return null;
   };
+  const usage = usageState.value;
   const tokenLimit = headerNumber('x-ratelimit-limit-tokens');
   const tokenRemaining = headerNumber('x-ratelimit-remaining-tokens');
   const requestLimit = headerNumber('x-ratelimit-limit-requests', 'x-ratelimit-limit');
