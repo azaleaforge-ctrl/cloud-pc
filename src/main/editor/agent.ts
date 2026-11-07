@@ -961,6 +961,46 @@ async function executeTool(
   }
 }
 
+function emitProviderQuotaHeaders(
+  session: LlmSession,
+  provider: AgentProviderId,
+  model: string,
+  headers: Headers,
+): void {
+  const numberHeader = (...names: string[]): number | null => {
+    for (const name of names) {
+      const raw = headers.get(name);
+      if (raw === null || !raw.trim()) continue;
+      const value = Number(raw);
+      if (Number.isFinite(value) && value >= 0) return value;
+    }
+    return null;
+  };
+  const tokenLimit = numberHeader('x-ratelimit-limit-tokens');
+  const tokenRemaining = numberHeader('x-ratelimit-remaining-tokens');
+  const requestLimit = numberHeader('x-ratelimit-limit-requests');
+  const requestRemaining = numberHeader('x-ratelimit-remaining-requests');
+  if (tokenLimit === null && tokenRemaining === null && requestLimit === null && requestRemaining === null) return;
+  emit(session, {
+    type: 'provider-usage',
+    usage: {
+      provider,
+      model,
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      costUsd: null,
+      tokenLimit,
+      tokenRemaining,
+      tokenReset: headers.get('x-ratelimit-reset-tokens'),
+      requestLimit,
+      requestRemaining,
+      requestReset: headers.get('x-ratelimit-reset-requests'),
+      reportedAt: Date.now(),
+    },
+  });
+}
+
 async function openCompletionStream(
   config: RouterConfig,
   session: LlmSession,
@@ -1004,9 +1044,12 @@ async function openCompletionStream(
       });
       if (response.ok) return response;
       const body = (await response.text()).slice(0, 500);
+      if (provider === 'groq' || provider === 'openrouter') {
+        emitProviderQuotaHeaders(session, provider, config.models[0] || session.agent.model || DEFAULT_MODEL, response.headers);
+      }
       lastError = provider === 'openrouter'
         ? openRouterHttpErrorMessage(response.status, body, response.headers, config.apiKey)
-        : providerHttpErrorMessage(response.status, body, config.apiKey);
+        : providerHttpErrorMessage(response.status, body, config.apiKey, response.headers);
       // Local-only mode intentionally does not retry against a remote service.
     } catch (error) {
       if (session.controller.signal.aborted || session.killed) throw error;
