@@ -296,6 +296,8 @@ const PROVIDER_DEFAULT_MODELS: Record<AgentProviderId, string> = {
   groq: 'qwen/qwen3.8-27b',
   legacy: LEGACY_ROUTER_MODEL,
 };
+let cancelOpenRouterOAuthLogin: (() => void) | null = null;
+
 const PROVIDER_NAMES: Record<AgentProviderId, string> = {
   openrouter: 'OpenRouter',
   gemini: 'Google Gemini API',
@@ -305,6 +307,47 @@ const PROVIDER_NAMES: Record<AgentProviderId, string> = {
 
 function routerKeyPath(): string {
   return join(app.getPath('userData'), '9router-api-key.enc');
+}
+
+function openRouterAccountMetadataPath(): string {
+  return join(app.getPath('userData'), 'openrouter-account.json');
+}
+
+interface OpenRouterAccountMetadata {
+  authMethod?: OpenRouterAuthMethod;
+  userId?: string | null;
+  linkedAt?: string;
+}
+
+function readOpenRouterAccountMetadata(): OpenRouterAccountMetadata {
+  try {
+    const raw = JSON.parse(readFileSync(openRouterAccountMetadataPath(), 'utf8')) as OpenRouterAccountMetadata;
+    return {
+      ...(raw.authMethod === 'oauth' || raw.authMethod === 'api-key' ? { authMethod: raw.authMethod } : {}),
+      ...(typeof raw.userId === 'string' ? { userId: raw.userId } : {}),
+      ...(typeof raw.linkedAt === 'string' ? { linkedAt: raw.linkedAt } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function writeOpenRouterAccountMetadata(metadata: OpenRouterAccountMetadata): void {
+  const path = openRouterAccountMetadataPath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(metadata, null, 2), 'utf8');
+}
+
+function saveEncryptedProviderApiKey(provider: AgentProviderId, apiKey: string): void {
+  if (!providerKeyEncryptionAvailable()) {
+    throw new Error(process.platform === 'linux'
+      ? 'Keyring sistem tidak tersedia atau memakai backend basic_text. Aktifkan GNOME Keyring/KWallet agar API key dapat disimpan dengan aman.'
+      : 'Penyimpanan kunci aman sistem operasi tidak tersedia. API key tidak disimpan.');
+  }
+  const keyPath = providerKeyPath(provider);
+  mkdirSync(dirname(keyPath), { recursive: true });
+  writeFileSync(keyPath, safeStorage.encryptString(apiKey), { mode: 0o600 });
+  if (process.platform !== 'win32') chmodSync(keyPath, 0o600);
 }
 
 function providerKeyPath(provider: AgentProviderId): string {
