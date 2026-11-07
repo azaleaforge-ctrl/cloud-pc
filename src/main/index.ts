@@ -284,16 +284,19 @@ const RETIRED_LEGACY_ROUTER_MODEL = 'ps/poolside/laguna-s-2.1(high)';
 const PROVIDER_ENDPOINTS: Record<AgentProviderId, string> = {
   openrouter: 'https://openrouter.ai/api/v1',
   gemini: 'https://generativelanguage.googleapis.com/v1beta',
+  groq: 'https://api.groq.com/openai/v1',
   legacy: LEGACY_ROUTER_ENDPOINT,
 };
 const PROVIDER_DEFAULT_MODELS: Record<AgentProviderId, string> = {
   openrouter: 'openai/gpt-4o-mini',
   gemini: 'gemini-3.8-flash',
+  groq: 'qwen/qwen3.8-27b',
   legacy: LEGACY_ROUTER_MODEL,
 };
 const PROVIDER_NAMES: Record<AgentProviderId, string> = {
   openrouter: 'OpenRouter',
   gemini: 'Google Gemini API',
+  groq: 'Groq (Free Tier)',
   legacy: '9Router Local API',
 };
 
@@ -316,7 +319,7 @@ function selectedModelPath(): string {
 }
 
 function isAgentProvider(value: unknown): value is AgentProviderId {
-  return value === 'openrouter' || value === 'gemini' || value === 'legacy';
+  return value === 'openrouter' || value === 'gemini' || value === 'groq' || value === 'legacy';
 }
 
 function providerKeyEncryptionAvailable(): boolean {
@@ -349,6 +352,7 @@ function getProviderEnvironmentKey(provider: AgentProviderId): string {
   switch (provider) {
     case 'openrouter': return (process.env.OPENROUTER_API_KEY ?? '').trim();
     case 'gemini': return (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+    case 'groq': return (process.env.GROQ_API_KEY ?? '').trim();
     case 'legacy': return (process.env.RK_ROUTER_API_KEY ?? '').trim();
   }
 }
@@ -365,6 +369,7 @@ function getSelectedAgentProvider(): AgentProviderId {
     // Migrate existing installs that already stored an old 9router key.
   }
   if (getProviderEnvironmentKey('legacy') || readStoredProviderKey('legacy')) return 'legacy';
+  if (getProviderEnvironmentKey('groq') || readStoredProviderKey('groq')) return 'groq';
   if (getProviderEnvironmentKey('openrouter') || readStoredProviderKey('openrouter')) return 'openrouter';
   if (getProviderEnvironmentKey('gemini') || readStoredProviderKey('gemini')) return 'gemini';
   return 'openrouter';
@@ -437,9 +442,11 @@ function getProviderInfo(provider: AgentProviderId) {
     configured: !!getProviderApiKey(provider),
     endpoint: provider === 'legacy' ? LEGACY_ROUTER_ENDPOINT : PROVIDER_ENDPOINTS[provider],
     keyUrl: provider === 'openrouter' ? 'https://openrouter.ai/keys'
-      : provider === 'gemini' ? 'https://aistudio.google.com/apikey' : '',
+      : provider === 'gemini' ? 'https://aistudio.google.com/apikey'
+        : provider === 'groq' ? 'https://console.groq.com/keys' : '',
     docsUrl: provider === 'openrouter' ? 'https://openrouter.ai/docs/quickstart'
-      : provider === 'gemini' ? 'https://ai.google.dev/gemini-api/docs' : '',
+      : provider === 'gemini' ? 'https://ai.google.dev/gemini-api/docs'
+        : provider === 'groq' ? 'https://console.groq.com/docs/quickstart' : '',
   };
 }
 
@@ -465,7 +472,7 @@ function getAgentRouterStatus(): AgentRouterStatus {
     configured: info.configured,
     provider,
     providerName: info.name,
-    providers: (['openrouter', 'gemini', 'legacy'] as AgentProviderId[]).map(getProviderInfo),
+    providers: (['openrouter', 'gemini', 'groq', 'legacy'] as AgentProviderId[]).map(getProviderInfo),
     keyUrl: info.keyUrl,
     docsUrl: info.docsUrl,
     endpoint: info.endpoint,
@@ -484,7 +491,7 @@ function saveAgentRouterKey(input: unknown): { ok: boolean; error?: string } {
   if (getProviderEnvironmentKey(provider)) {
     const envName = provider === 'openrouter' ? 'OPENROUTER_API_KEY'
       : provider === 'gemini' ? (process.env.GEMINI_API_KEY ? 'GEMINI_API_KEY' : 'GOOGLE_API_KEY')
-      : 'RK_ROUTER_API_KEY';
+        : provider === 'groq' ? 'GROQ_API_KEY' : 'RK_ROUTER_API_KEY';
     return { ok: false, error: 'API key provider diatur melalui environment ' + envName + '; ubah konfigurasi environment untuk menggantinya.' };
   }
   if (!providerKeyEncryptionAvailable()) {
