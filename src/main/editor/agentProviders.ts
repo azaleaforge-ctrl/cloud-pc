@@ -388,6 +388,16 @@ export async function openGeminiCompletionStream(
             const message = asText(parsed.error.message) || 'Gemini API mengembalikan error.';
             throw new Error(redactSecretValues(message, [config.apiKey]).slice(0, 400));
           }
+          if (isRecord(parsed) && isRecord(parsed.usageMetadata)) {
+            const metadata = parsed.usageMetadata;
+            emit('data: ' + JSON.stringify({
+              usage: {
+                prompt_tokens: metadata.promptTokenCount,
+                completion_tokens: metadata.candidatesTokenCount,
+                total_tokens: metadata.totalTokenCount,
+              },
+            }) + '\n\n');
+          }
           const candidates = isRecord(parsed) && Array.isArray(parsed.candidates) ? parsed.candidates : [];
           for (const candidate of candidates) for (const line of candidateToSse(candidate, toolCounter)) emit(line);
         }
