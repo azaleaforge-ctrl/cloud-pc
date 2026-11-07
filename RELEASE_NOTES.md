@@ -1,3 +1,52 @@
+# Ruang Kerja v1.2.2
+
+## Agentic Coding — provider-first model picker, model pricing details, and live usage dashboard
+
+### 1. Pemilihan provider sebelum model
+- Mengubah perintah `/model` menjadi dua tahap: pilih provider terlebih dahulu, kemudian pilih model yang berasal hanya dari provider tersebut.
+- Katalog OpenRouter, Groq, Gemini, dan 9Router tidak lagi digabung ke dalam satu daftar model.
+- Pilihan model disimpan secara terpisah untuk masing-masing provider. Mengganti provider tidak menghapus model yang terakhir dipilih pada provider lain.
+- Tombol Gunakan provider & model mengaktifkan provider yang dipilih sekaligus menyimpan modelnya sebagai konfigurasi aktif Agentic Coding.
+- Diagnostik kemampuan dapat dijalankan untuk model yang sedang dipilih pada provider terkait, bukan hanya model global yang sebelumnya aktif.
+
+### 2. Harga dan detail model
+- Menampilkan harga input dan output per satu juta token langsung pada katalog apabila metadata harga disediakan oleh provider.
+- Menambahkan detail per model, termasuk deskripsi, context window, maksimum output token, modalitas input/output, parameter yang didukung, API/generation methods, serta dukungan tool yang tercantum pada katalog.
+- Menampilkan komponen harga tambahan bila tersedia: request, image, cache read, cache write, dan internal reasoning.
+- Menampilkan metadata tanggal pembuatan, masa berlaku, dan batas per-request ketika provider menyediakannya.
+- Informasi yang tidak dikirim oleh katalog ditandai sebagai tidak tersedia. Label Free Plan tidak otomatis dianggap sebagai harga token nol atau jaminan kuota tanpa batas.
+
+### 3. /connect menjadi modal
+- Mengubah tampilan `/connect` dari panel yang muncul di alur isi chat menjadi modal terpusat dengan backdrop.
+- Menambahkan tombol tutup, penutupan melalui klik backdrop, dan dukungan tombol Escape.
+- Menyamakan pola interaksi visual dengan modal `/sessions` dan `/model`, serta menjaga area pengaturan tetap dapat di-scroll pada layar kecil.
+
+### 4. Panel kanan — Billing & penggunaan
+- Menambahkan panel Billing & penggunaan yang menunjukkan provider dan model aktif, akumulasi token input/output/total, serta jumlah request yang usage-nya dilaporkan selama penggunaan Ruang Kerja.
+- Menyimpan ringkasan usage lokal agar statistik penggunaan aplikasi tetap tersedia setelah tampilan diperbarui atau aplikasi dibuka kembali.
+- OpenRouter menampilkan total usage API key, penggunaan harian/bulanan, limit dan sisa budget API key, serta effective budget bila endpoint mengembalikan data tersebut.
+- Stream OpenRouter meminta usage accounting; Groq meminta usage pada stream dan membaca header rate-limit; Gemini meneruskan token count dari `usageMetadata`.
+- Menampilkan biaya request hanya ketika provider benar-benar melaporkan nilai biaya aktual. Aplikasi tidak mengarang estimasi billing atau menyamakan token dengan jumlah uang.
+
+### 5. Indikator kuota Free Tier dan Paid
+- Menambahkan meter sisa kuota dengan warna hijau untuk 80–100%, kuning untuk 50–79%, oranye untuk 10–49%, dan merah untuk 0–9%.
+- Meter menampilkan sisa dibanding limit dan informasi reset ketika response provider menyediakan limit, remaining, dan reset.
+- Groq menampilkan kuota token/request dari response rate-limit headers, termasuk detail retry/reset pada HTTP 429.
+- OpenRouter menampilkan budget dan penggunaan dari API key yang terhubung; status Free Tier ditampilkan jika metadata akun menyediakannya.
+- Gemini menampilkan jumlah token aktual per request. API standar Gemini tidak memberikan remaining quota live pada setiap respons, sehingga meter tidak dibuat dari angka perkiraan; panel mengarahkan pemeriksaan kuota ke Google AI Studio.
+- 9Router Local Only tidak menampilkan billing provider eksternal karena request berlangsung melalui endpoint lokal.
+
+### 6. Batasan akurasi dan keamanan data
+- Angka akumulasi token di panel adalah usage yang dilaporkan kepada Ruang Kerja pada perangkat ini, bukan total semua aplikasi atau seluruh API key di akun provider.
+- Data billing OpenRouter pada endpoint current-key merupakan data API key aktif; saldo kredit total akun tidak disimpulkan dari limit API key standar.
+- Kuota dan waktu reset hanya ditampilkan ketika provider mengirim informasi yang dapat diverifikasi. Data yang tidak tersedia dinyatakan secara eksplisit.
+- API key tetap ditangani melalui jalur konfigurasi provider yang ada dan tidak ditampilkan sebagai teks terbuka di katalog atau panel billing.
+
+### Detail Version di dalam aplikasi
+Buka nomor versi pada bilah status bawah untuk melihat deskripsi perubahan/fitur/perbaikan v1.2.2. Riwayat menampilkan maksimal tiga rilis terbaru beserta deskripsi masing-masing versi. Gunakan tombol Muat Ulang Versi untuk memperbarui daftar dan deskripsi dari GitHub.
+
+---
+
 # Ruang Kerja v1.2.1
 
 ## OpenRouter account login, API key visibility, and limit diagnostics
