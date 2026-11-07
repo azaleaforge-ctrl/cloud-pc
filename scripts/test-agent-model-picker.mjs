@@ -31,10 +31,13 @@ assert.ok(chat.includes('id="rk-model-search"') && chat.includes('value={modelSe
   'search must be a controlled input that updates the displayed model list');
 assert.ok(chat.includes('modelCatalogOptions = useMemo') && chat.includes('modelSearchQuery.trim().toLowerCase()'),
   'search must filter catalogue entries instead of only changing the query text');
-assert.ok(chat.includes("['free', 'Gratis', modelCostCounts.free]") &&
+assert.ok(chat.includes("['free', 'Gratis / Free Tier', modelCostCounts.free]") &&
   chat.includes("['premium', 'Premium', modelCostCounts.premium]") &&
   chat.includes("['unknown', 'Harga belum diketahui', modelCostCounts.unknown]"),
   'price filters must distinguish free, premium and missing price metadata');
+assert.ok(chat.includes("modelCostFilter === 'free' ? model.costTier === 'free' || model.freePlanEligible === true") &&
+  chat.includes('model.freePlanEligible') && chat.includes("model.costTier === 'premium'"),
+  'Free filter must include documented Groq Free Plan models without changing unknown price metadata');
 assert.ok(chat.includes("model.costTier === 'free'") && chat.includes("model.costTier === 'premium'") &&
   chat.includes("'Harga belum diketahui'"),
   'missing pricing data must not be silently advertised as free or premium');
