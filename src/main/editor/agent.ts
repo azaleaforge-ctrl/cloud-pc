@@ -23,6 +23,7 @@ import { listBuiltinAgentSkills } from './skills';
 import { hasSuccessfulTerminalVerification } from './agentVerification';
 import { openGeminiCompletionStream } from './agentProviders';
 import { providerHttpErrorMessage, redactSecretValues } from './providerSecurity';
+import { openRouterHttpErrorMessage } from './openRouterAccount';
 import { prepareAgentAttachments, resolveAgentAttachments } from './agentAttachments';
 import { checkPackageVersion, getCurrentTime, readWebPage, searchWeb, type PackageEcosystem } from './agentResearch';
 import { loadAgentSession, recordAgentFileCheckpoint, saveAgentSession } from './agentSessionStore';
@@ -1001,7 +1002,9 @@ async function openCompletionStream(
       });
       if (response.ok) return response;
       const body = (await response.text()).slice(0, 500);
-      lastError = providerHttpErrorMessage(response.status, body, config.apiKey);
+      lastError = provider === 'openrouter'
+        ? openRouterHttpErrorMessage(response.status, body, response.headers, config.apiKey)
+        : providerHttpErrorMessage(response.status, body, config.apiKey);
       // Local-only mode intentionally does not retry against a remote service.
     } catch (error) {
       if (session.controller.signal.aborted || session.killed) throw error;
