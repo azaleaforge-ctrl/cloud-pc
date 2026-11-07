@@ -1,5 +1,5 @@
 // Agent runtime untuk Ruang Kerja.
-// Coding agent memakai OpenAI-compatible tool calling melalui 9router.
+// Coding agent memakai adapter provider: 9Router Local, OpenRouter, Groq, atau Gemini.
 // File tools dikunci pada workspace; command terminal wajib disetujui pengguna.
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
