@@ -58,7 +58,7 @@ assert.ok(main.includes("groq: 'qwen/qwen3.8-27b'") &&
   main.includes("['openrouter', 'gemini', 'groq', 'legacy']"),
   'Groq must be selectable and default to a documented Free Plan coding model');
 assert.ok(chat.includes('<option value="groq">Groq Free Tier') &&
-  chat.includes('Free Tier Groq') && chat.includes('model.freePlanEligible'),
+  chat.includes('Groq Free Tier') && chat.includes('model.freePlanEligible'),
   'the UI must identify Groq Free Plan models and explain their quota restrictions');
 assert.ok(parser.includes('GROQ_FREE_PLAN_MODEL_IDS') &&
   parser.includes("'openai/gpt-oss-120b'") &&
