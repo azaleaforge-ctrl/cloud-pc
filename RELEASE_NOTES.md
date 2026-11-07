@@ -11,7 +11,7 @@
 
 ### 2. Prioritas model gratis
 - Katalog Groq dibatasi ke model yang tercantum pada tabel rate limits Free Plan resmi: `openai/gpt-oss-120b`, `openai/gpt-oss-20b`, dan `qwen/qwen3.8-27b`.
-- Model default Groq adalah `qwen/qwen3.8-27b`, yang mendukung tool use dan parallel tool use menurut dokumentasi Groq.
+- Model default Groq adalah `qwen/qwen3.8-27b`, yang mendukung tool use. Dokumentasi Groq saat ini tidak mencantumkan parallel tool use untuk model ini; Agent Runtime tetap memproses tool calls yang diterima secara berurutan.
 - Model di luar allowlist Free Plan, model audio, dan model yang tidak aktif tidak ditampilkan di picker Groq.
 - Badge **Free Plan** menunjukkan kelayakan model pada tier gratis Groq, bukan klaim bahwa metadata harga token provider bernilai nol. Informasi harga yang tidak disediakan endpoint tetap ditampilkan sebagai unknown pada data metadata.
 - Batas publik yang saat ini didokumentasikan untuk ketiga model tersebut adalah 30 RPM, 1.000 RPD, 8.000 TPM, dan 200.000 TPD per model. Batas akun yang tampil di Groq Console dapat berbeda; melebihi kuota menghasilkan HTTP 429.
