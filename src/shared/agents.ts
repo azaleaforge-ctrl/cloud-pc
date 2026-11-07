@@ -195,7 +195,7 @@ export type AgentEvent =
   | { type: 'terminal-process'; process: AgentTerminalProcess }
   | { type: 'terminal-output'; output: AgentTerminalOutput };
 
-export type AgentProviderId = 'openrouter' | 'gemini' | 'legacy';
+export type AgentProviderId = 'openrouter' | 'gemini' | 'groq' | 'legacy';
 
 export interface AgentProviderOption {
   id: AgentProviderId;
@@ -245,6 +245,8 @@ export interface AgentModelInfo {
   outputModalities?: string[];
   supportedParameters?: string[];
   supportedGenerationMethods?: string[];
+  /** Model is included in Groq's documented Free Plan model/rate-limit table. */
+  freePlanEligible?: boolean;
   promptPrice?: number;
   completionPrice?: number;
   costTier: AgentModelCostTier;
