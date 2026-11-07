@@ -136,7 +136,7 @@ export function openRouterHttpErrorMessage(
       limit ? 'limit header: ' + limit : '',
       reset ? 'reset header: ' + reset : '',
     ].filter(Boolean);
-    return 'OpenRouter HTTP 429: rate limit/capacity tercapai. Ini tidak otomatis berarti akun atau API key salah; OpenRouter mengelola kapasitas rate-limit secara global. Membuat akun atau API key tambahan tidak menaikkan kapasitas global. Coba model lain atau tunggu' +
+    return 'OpenRouter HTTP 429: rate limit model, kuota free-tier, atau kapasitas provider tercapai. Ini tidak otomatis berarti akun atau API key salah; periksa status akun dan header limit. Membuat akun atau API key tambahan tidak menaikkan kapasitas global untuk kapasitas provider yang sama. Coba model lain atau tunggu' +
       (retryAfter ? ' ' + retryAfter + ' detik sesuai Retry-After' : ' beberapa saat') +
       (hints.length ? '. ' + hints.join(' · ') : '') + '.';
   }
