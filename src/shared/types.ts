@@ -242,9 +242,9 @@ export interface RkApi {
   agentGetOpenRouterAccount(): Promise<OpenRouterAccountStatus>;
   agentDisconnectOpenRouter(): Promise<ActionResult>;
   agentOpenOpenRouterKeySettings(): Promise<ActionResult>;
-  agentListModels(): Promise<AgentModelCatalogResult>;
-  agentSelectModel(model: string): Promise<ActionResult>;
-  agentDiagnoseModel(): Promise<AgentModelCapabilityReport>;
+  agentListModels(provider: AgentProviderId): Promise<AgentModelCatalogResult>;
+  agentSelectModel(provider: AgentProviderId, model: string): Promise<ActionResult>;
+  agentDiagnoseModel(provider: AgentProviderId, model: string): Promise<AgentModelCapabilityReport>;
   agentListSessions(): Promise<AgentSessionSummary[]>;
   agentLoadSession(id: string): Promise<{ ok: boolean; error?: string; session?: AgentSessionData }>;
   agentSaveSession(session: AgentSessionSaveInput): Promise<AgentSessionSaveResult>;
