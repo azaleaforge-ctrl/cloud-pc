@@ -112,6 +112,45 @@ try{
       'pinned model pricing must remain unknown rather than being guessed');
   });
 
+  await test('Groq catalog exposes only active Free Plan coding models and preserves unknown token pricing',()=>{
+    const models=api.parseModels({data:[
+      {id:'openai/gpt-oss-120b',owned_by:'OpenAI',active:true,context_window:131072},
+      {id:'openai/gpt-oss-20b',owned_by:'OpenAI',active:true,context_window:131072},
+      {id:'qwen/qwen3.8-27b',owned_by:'Qwen',active:true,context_window:131072},
+      {id:'meta-models/muse-spark-open',owned_by:'Meta',active:true,context_window:131072},
+      {id:'openai/gpt-oss-120b',owned_by:'OpenAI',active:false,context_window:131072},
+      {id:'whisper-large-v3',owned_by:'OpenAI',active:true,context_window:448},
+    ]},'groq');
+    assert.deepEqual(models.map(model=>model.id),[
+      'openai/gpt-oss-120b','openai/gpt-oss-20b','qwen/qwen3.8-27b',
+    ]);
+    assert.ok(models.every(model=>model.freePlanEligible===true));
+    assert.ok(models.every(model=>model.costTier==='unknown'),
+      'Groq model-list metadata does not expose token prices; Free Plan eligibility is a separate field');
+    assert.equal(models.find(model=>model.id==='qwen/qwen3.8-27b').contextLength,131072);
+  });
+
+  await test('Groq model catalog uses the provider endpoint and Bearer API key',async()=>{
+    globalThis.fetch=async (url,init)=>{
+      assert.equal(String(url),'https://api.groq.com/openai/v1/models');
+      assert.equal(new Headers(init.headers).get('authorization'),'Bearer groq-test-key');
+      return json({data:[
+        {id:'openai/gpt-oss-120b',active:true,context_window:131072},
+        {id:'meta-models/muse-spark-open',active:true},
+      ]});
+    };
+    const result=await api.listAvailableModels({
+      provider:'groq',
+      apiKey:'groq-test-key',
+      endpoint:'https://api.groq.com/openai/v1',
+      models:['qwen/qwen3.8-27b'],
+    });
+    assert.equal(result.ok,true);
+    assert.deepEqual(result.models.map(model=>model.id),['openai/gpt-oss-120b']);
+    assert.equal(result.models[0].freePlanEligible,true);
+    assert.match(result.message,/Free Plan Groq/);
+  });
+
   await test('lists models from the primary endpoint and normalizes metadata',async()=>{
     globalThis.fetch=async url=>{
       assert.equal(String(url),'https://primary.example/v1/models');
