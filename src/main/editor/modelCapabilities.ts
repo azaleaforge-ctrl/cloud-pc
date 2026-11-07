@@ -10,6 +10,7 @@ import type {
 } from '../../shared/agents';
 import { buildGeminiRequestBody, normalizeGeminiResponse } from './agentProviders';
 import { providerHttpErrorMessage, redactSecretValues } from './providerSecurity';
+import { openRouterHttpErrorMessage } from './openRouterAccount';
 
 const MAX_MODELS_BODY = 1_000_000;
 const MAX_CHAT_BODY = 1_000_000;
@@ -292,7 +293,9 @@ async function testRequest(
       const detail = data.error && typeof data.error === 'object'
         ? String((data.error as Record<string, unknown>).message ?? '').slice(0, 180)
         : '';
-      return { ok: false, message: providerHttpErrorMessage(response.status, detail, config.apiKey), data, durationMs, httpStatus: response.status };
+      return { ok: false, message: provider === 'openrouter'
+        ? openRouterHttpErrorMessage(response.status, JSON.stringify(data), response.headers, config.apiKey)
+        : providerHttpErrorMessage(response.status, detail, config.apiKey), data, durationMs, httpStatus: response.status };
     }
     if (data.error && typeof data.error === 'object') {
       return { ok: false, message: redactSecretValues(String((data.error as Record<string, unknown>).message ?? 'Provider error'), [config.apiKey]).slice(0, 180), data, durationMs, httpStatus: response.status };
