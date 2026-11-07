@@ -126,7 +126,7 @@ assert.ok(chat.includes('OpenRouter User ID') &&
   chat.includes('Buka detail API key') &&
   chat.includes('Logout menghapus key dari perangkat ini'),
   'OpenRouter settings must display the signed-in identity and key usage and explain local logout');
-assert.ok(main.includes('https://openrouter.ai/auth/keys') &&
+assert.ok(main.includes('https://openrouter.ai/api/v1/auth/keys') &&
   main.includes('code_verifier: pkce.verifier') &&
   main.includes("code_challenge_method: 'S256'") &&
   main.includes('http://127.0.0.1:'),
