@@ -2380,6 +2380,10 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                             <div className="ai-model-detail-grid">
                               <div><small>Context window</small><strong>{model.contextLength !== undefined ? model.contextLength.toLocaleString() + ' token' : 'Tidak tersedia'}</strong></div>
                               <div><small>Output maksimum</small><strong>{model.maxCompletionTokens !== undefined ? model.maxCompletionTokens.toLocaleString() + ' token' : 'Tidak tersedia'}</strong></div>
+                              <div><small>Input modalities</small><strong>{model.inputModalities?.join(', ') || 'Tidak tersedia'}</strong></div>
+                              <div><small>Output modalities</small><strong>{model.outputModalities?.join(', ') || 'Tidak tersedia'}</strong></div>
+                              <div><small>Supported parameters</small><strong>{model.supportedParameters?.join(', ') || 'Tidak tersedia'}</strong></div>
+                              <div><small>API methods</small><strong>{model.supportedGenerationMethods?.join(', ') || 'Tidak tersedia'}</strong></div>
                               <div><small>Input token / 1 juta</small><strong>{model.promptPrice !== undefined ? '$' + (model.promptPrice * 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }) : 'Harga tidak disediakan'}</strong></div>
                               <div><small>Output token / 1 juta</small><strong>{model.completionPrice !== undefined ? '$' + (model.completionPrice * 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }) : 'Harga tidak disediakan'}</strong></div>
                               <div><small>Request</small><strong>{model.requestPrice !== undefined ? '$' + model.requestPrice : 'Tidak tersedia'}</strong></div>
