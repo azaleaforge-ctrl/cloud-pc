@@ -287,6 +287,25 @@ export interface OpenRouterAccountStatus {
   error?: string;
 }
 
+export interface OpenRouterCreditsStatus {
+  configured: boolean;
+  totalCreditsUsd: number | null;
+  totalUsageUsd: number | null;
+  balanceUsd: number | null;
+  fetchedAt: string | null;
+  error?: string;
+}
+
+export interface UsdIdrRateStatus {
+  base: 'USD';
+  quote: 'IDR';
+  rate: number | null;
+  date: string | null;
+  fetchedAt: string | null;
+  source: 'Frankfurter';
+  error?: string;
+}
+
 export type AgentModelCostTier = 'free' | 'premium' | 'unknown';
 
 export interface AgentModelInfo {

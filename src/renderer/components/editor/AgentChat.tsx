@@ -20,6 +20,8 @@ import type {
   AgentModelCapabilityReport,
   AgentModelInfo,
   OpenRouterAccountStatus,
+  OpenRouterCreditsStatus,
+  UsdIdrRateStatus,
   AgentProviderUsage,
   AgentSessionSummary,
   ChatMessage,
@@ -76,6 +78,12 @@ interface ProviderUsageSummary {
   latest: AgentProviderUsage | null;
 }
 const PROVIDER_USAGE_STORAGE_KEY = 'rk.ai.providerUsage';
+
+function formatUsdAsIdr(value: number | null | undefined, rate: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return 'Tidak tersedia';
+  if (rate === null || rate === undefined || !Number.isFinite(rate) || rate <= 0) return 'Kurs USD/IDR belum tersedia';
+  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value * rate);
+}
 function loadProviderUsage(): Partial<Record<AgentProviderId, ProviderUsageSummary>> {
   try {
     const parsed = JSON.parse(localStorage.getItem(PROVIDER_USAGE_STORAGE_KEY) || '{}');
@@ -95,18 +103,20 @@ function formatResetWindow(value: string | null | undefined): string | null {
   if (Number.isFinite(seconds) && seconds >= 0) return seconds < 60 ? Math.ceil(seconds) + ' detik' : Math.ceil(seconds / 60) + ' menit';
   return value.trim() || null;
 }
-function ProviderQuotaMeter({ label, remaining, limit, reset }: {
+function ProviderQuotaMeter({ label, remaining, limit, reset, formatValue }: {
   label: string; remaining: number | null; limit: number | null; reset: string | null;
+  formatValue?: (value: number) => string;
 }) {
   if (remaining === null || limit === null || limit <= 0) return null;
   const percent = Math.max(0, Math.min(100, (remaining / limit) * 100));
   const tone = quotaTone(percent);
   const resetLabel = formatResetWindow(reset);
+  const displayValue = formatValue ?? ((value: number) => value.toLocaleString('id-ID'));
   return (
     <div className="ai-usage-meter">
       <div className="ai-usage-meter-heading"><span>{label}</span><strong>{percent.toFixed(0)}% tersisa</strong></div>
       <div className="ai-usage-meter-track"><span className={'tone-' + tone} style={{ width: percent + '%' }} /></div>
-      <small>{remaining.toLocaleString()} / {limit.toLocaleString()} tersisa{resetLabel ? ' · reset ' + resetLabel : ''}</small>
+      <small>{displayValue(remaining)} / {displayValue(limit)} tersisa{resetLabel ? ' · reset ' + resetLabel : ''}</small>
     </div>
   );
 }
@@ -822,6 +832,10 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<AgentRouterTestResult | null>(null);
   const [openRouterAccount, setOpenRouterAccount] = useState<OpenRouterAccountStatus | null>(null);
+  const [openRouterCredits, setOpenRouterCredits] = useState<OpenRouterCreditsStatus | null>(null);
+  const [openRouterManagementKey, setOpenRouterManagementKey] = useState('');
+  const [savingOpenRouterManagementKey, setSavingOpenRouterManagementKey] = useState(false);
+  const [usdIdrRate, setUsdIdrRate] = useState<UsdIdrRateStatus | null>(null);
   const [openRouterAuthBusy, setOpenRouterAuthBusy] = useState(false);
   const [openRouterDisconnectBusy, setOpenRouterDisconnectBusy] = useState(false);
   const [showOpenRouterManualKey, setShowOpenRouterManualKey] = useState(false);
@@ -932,6 +946,69 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     }
   }, [selectedProviderDraft]);
 
+  const refreshOpenRouterCredits = useCallback(async () => {
+    try {
+      const status = await window.rk.agentGetOpenRouterCredits();
+      setOpenRouterCredits(status);
+      return status;
+    } catch (err) {
+      const status: OpenRouterCreditsStatus = {
+        configured: false, totalCreditsUsd: null, totalUsageUsd: null, balanceUsd: null, fetchedAt: null,
+        error: 'Gagal membaca saldo akun OpenRouter: ' + ((err as Error).message || 'kesalahan tidak diketahui'),
+      };
+      setOpenRouterCredits(status);
+      return status;
+    }
+  }, []);
+
+  const refreshUsdIdrRate = useCallback(async (forceRefresh = false) => {
+    try {
+      const status = await window.rk.agentGetUsdIdrRate(forceRefresh);
+      setUsdIdrRate(status);
+      return status;
+    } catch (err) {
+      const status: UsdIdrRateStatus = {
+        base: 'USD', quote: 'IDR', rate: null, date: null, fetchedAt: null, source: 'Frankfurter',
+        error: 'Gagal membaca kurs USD/IDR: ' + ((err as Error).message || 'kesalahan tidak diketahui'),
+      };
+      setUsdIdrRate(status);
+      return status;
+    }
+  }, []);
+
+  const saveOpenRouterManagementKey = useCallback(async () => {
+    if (savingOpenRouterManagementKey || !openRouterManagementKey.trim()) return;
+    setSavingOpenRouterManagementKey(true);
+    setError(null);
+    try {
+      const result = await window.rk.agentSaveOpenRouterManagementKey(openRouterManagementKey);
+      if (!result.ok) throw new Error(result.error || 'Management API key gagal diverifikasi.');
+      setOpenRouterManagementKey('');
+      const status = await refreshOpenRouterCredits();
+      if (status.error) throw new Error(status.error);
+      setActivity('Management API key OpenRouter tersimpan dengan enkripsi dan saldo akun berhasil dibaca.');
+    } catch (err) {
+      setError((err as Error).message || 'Gagal menyimpan Management API key OpenRouter.');
+    } finally {
+      setSavingOpenRouterManagementKey(false);
+    }
+  }, [savingOpenRouterManagementKey, openRouterManagementKey, refreshOpenRouterCredits]);
+
+  const clearOpenRouterManagementKey = useCallback(async () => {
+    const result = await window.rk.agentClearOpenRouterManagementKey();
+    if (!result.ok) { setError(result.error || 'Gagal menghapus Management API key.'); return; }
+    setOpenRouterCredits({ configured: false, totalCreditsUsd: null, totalUsageUsd: null, balanceUsd: null, fetchedAt: null });
+    setOpenRouterManagementKey('');
+    setActivity('Management API key dihapus dari perangkat ini.');
+    setError(null);
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    void window.rk.agentGetUsdIdrRate().then(status => { if (alive) setUsdIdrRate(status); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, []);
+
   const connectOpenRouterAccount = useCallback(async () => {
     if (openRouterAuthBusy) return;
     setOpenRouterAuthBusy(true);
@@ -944,6 +1021,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       await refreshRouterStatus();
       const account = await window.rk.agentGetOpenRouterAccount();
       setOpenRouterAccount(account);
+      await refreshOpenRouterCredits();
       const connectivity = await window.rk.agentTestConfig();
       setTestResult(connectivity);
       setActivity(connectivity.ok ? 'Akun OpenRouter terhubung dan API key berhasil diuji.' : '');
@@ -954,7 +1032,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     } finally {
       setOpenRouterAuthBusy(false);
     }
-  }, [openRouterAuthBusy, refreshRouterStatus]);
+  }, [openRouterAuthBusy, refreshRouterStatus, refreshOpenRouterCredits]);
 
   const cancelOpenRouterAccountLogin = useCallback(async () => {
     try {
@@ -972,6 +1050,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       const result = await window.rk.agentDisconnectOpenRouter();
       if (!result.ok) throw new Error(result.error || 'Gagal logout dari OpenRouter.');
       setOpenRouterAccount(null);
+      setOpenRouterCredits({ configured: false, totalCreditsUsd: null, totalUsageUsd: null, balanceUsd: null, fetchedAt: null });
+      setOpenRouterManagementKey('');
       setApiKey('');
       setTestResult(null);
       await refreshRouterStatus();
@@ -994,13 +1074,17 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   }, []);
 
   useEffect(() => {
-    if (settingsOpen && selectedProviderDraft === 'openrouter') void refreshOpenRouterAccount();
-  }, [settingsOpen, selectedProviderDraft, refreshOpenRouterAccount]);
+    if (settingsOpen && selectedProviderDraft === 'openrouter') {
+      void refreshOpenRouterAccount();
+      void refreshOpenRouterCredits();
+    }
+  }, [settingsOpen, selectedProviderDraft, refreshOpenRouterAccount, refreshOpenRouterCredits]);
 
   useEffect(() => {
     if (routerStatus?.provider !== 'openrouter') return;
     let alive = true;
     void window.rk.agentGetOpenRouterAccount().then(status => { if (alive) setOpenRouterAccount(status); }).catch(() => undefined);
+    void window.rk.agentGetOpenRouterCredits().then(status => { if (alive) setOpenRouterCredits(status); }).catch(() => undefined);
     return () => { alive = false; };
   }, [routerStatus?.provider]);
 
@@ -2110,18 +2194,18 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                         <div><small>OpenRouter User ID</small><code>{openRouterAccount.userId ?? 'Tidak diberikan oleh API'}</code></div>
                         <div><small>API key / label</small><code>{openRouterAccount.keyName || openRouterAccount.keyLabel || 'Label tidak tersedia'}</code></div>
                         <div><small>Jenis akun</small><strong>{openRouterAccount.isFreeTier === null ? 'Tidak diketahui' : openRouterAccount.isFreeTier ? 'Free tier' : 'Paid / organization tier'}</strong></div>
-                        <div><small>Sisa limit API key</small><strong>{openRouterAccount.limitRemaining === null ? 'Tidak tersedia / tanpa limit key' : '$' + openRouterAccount.limitRemaining.toFixed(2)}</strong></div>
-                        <div><small>Limit API key</small><strong>{openRouterAccount.limit === null ? 'Tidak tersedia / tanpa limit key' : '$' + openRouterAccount.limit.toFixed(2)}</strong></div>
-                        <div><small>Total penggunaan key</small><strong>{openRouterAccount.usage === null ? 'Tidak tersedia' : '$' + openRouterAccount.usage.toFixed(2)}</strong></div>
-                        <div><small>Penggunaan hari ini</small><strong>{openRouterAccount.usageDaily === null ? 'Tidak tersedia' : '$' + openRouterAccount.usageDaily.toFixed(2)}</strong></div>
-                        <div><small>Penggunaan minggu ini</small><strong>{openRouterAccount.usageWeekly === null ? 'Tidak tersedia' : '$' + openRouterAccount.usageWeekly.toFixed(2)}</strong></div>
-                        <div><small>Penggunaan bulan ini</small><strong>{openRouterAccount.usageMonthly === null ? 'Tidak tersedia' : '$' + openRouterAccount.usageMonthly.toFixed(2)}</strong></div>
+                        <div><small>Sisa limit API key (IDR)</small><strong>{openRouterAccount.limitRemaining === null ? 'Tidak tersedia / tanpa limit key' : formatUsdAsIdr(openRouterAccount.limitRemaining, usdIdrRate?.rate)}</strong></div>
+                        <div><small>Limit API key (IDR)</small><strong>{openRouterAccount.limit === null ? 'Tidak tersedia / tanpa limit key' : formatUsdAsIdr(openRouterAccount.limit, usdIdrRate?.rate)}</strong></div>
+                        <div><small>Total penggunaan key (IDR)</small><strong>{openRouterAccount.usage === null ? 'Tidak tersedia' : formatUsdAsIdr(openRouterAccount.usage, usdIdrRate?.rate)}</strong></div>
+                        <div><small>Penggunaan hari ini (IDR)</small><strong>{openRouterAccount.usageDaily === null ? 'Tidak tersedia' : formatUsdAsIdr(openRouterAccount.usageDaily, usdIdrRate?.rate)}</strong></div>
+                        <div><small>Penggunaan minggu ini (IDR)</small><strong>{openRouterAccount.usageWeekly === null ? 'Tidak tersedia' : formatUsdAsIdr(openRouterAccount.usageWeekly, usdIdrRate?.rate)}</strong></div>
+                        <div><small>Penggunaan bulan ini (IDR)</small><strong>{openRouterAccount.usageMonthly === null ? 'Tidak tersedia' : formatUsdAsIdr(openRouterAccount.usageMonthly, usdIdrRate?.rate)}</strong></div>
                         <div><small>Reset limit key</small><strong>{openRouterAccount.limitReset ?? 'Tidak tersedia'}</strong></div>
                       </div>
                       {openRouterAccount.effectiveBudget ? (
                         <div className="ai-openrouter-budget">
                           <small>Budget efektif · {openRouterAccount.effectiveBudget.scope ?? 'scope tidak diketahui'}</small>
-                          <strong>{openRouterAccount.effectiveBudget.remainingUsd === null ? 'Sisa budget tidak tersedia' : '$' + openRouterAccount.effectiveBudget.remainingUsd.toFixed(2) + ' tersisa'}</strong>
+                          <strong>{openRouterAccount.effectiveBudget.remainingUsd === null ? 'Sisa budget tidak tersedia' : formatUsdAsIdr(openRouterAccount.effectiveBudget.remainingUsd, usdIdrRate?.rate) + ' tersisa'}</strong>
                           {openRouterAccount.effectiveBudget.resetsAt ? <small>Reset: {new Date(openRouterAccount.effectiveBudget.resetsAt).toLocaleString()}</small> : null}
                         </div>
                       ) : null}
@@ -2142,6 +2226,40 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                       <button type="button" className="ai-settings-test" onClick={() => void refreshOpenRouterAccount()}>Periksa koneksi akun</button>
                     </div>
                   )}
+                </div>
+              </section>
+              <section className="ai-openrouter-step ai-openrouter-management-step">
+                <div className="ai-openrouter-step-index">03</div>
+                <div className="ai-openrouter-step-body">
+                  <strong>Saldo akun OpenRouter (opsional)</strong>
+                  <p>Untuk membaca total kredit dibeli, total penggunaan akun, dan saldo tersisa, masukkan Management API Key terpisah. Key ini hanya digunakan untuk GET /credits, tidak dipakai untuk request model, dan disimpan terenkripsi di perangkat ini.</p>
+                  <label className="ai-settings-label" htmlFor="rk-openrouter-management-key">Management API Key</label>
+                  <div className="ai-settings-key-row">
+                    <input id="rk-openrouter-management-key" className="ai-settings-key" type="password" autoComplete="new-password"
+                      value={openRouterManagementKey} onChange={(event) => setOpenRouterManagementKey(event.target.value)}
+                      placeholder={openRouterCredits?.configured ? 'Key tersimpan; isi untuk mengganti' : 'Tempel Management API Key'} />
+                    <button type="button" className="ai-settings-save" onClick={() => void saveOpenRouterManagementKey()}
+                      disabled={!openRouterManagementKey.trim() || savingOpenRouterManagementKey}>
+                      {savingOpenRouterManagementKey ? 'Memverifikasi…' : openRouterCredits?.configured ? 'Ganti key' : 'Simpan & verifikasi'}
+                    </button>
+                  </div>
+                  {openRouterCredits?.configured ? (
+                    <div className="ai-openrouter-management-status">
+                      <strong>{openRouterCredits.error ? 'Management API key tersimpan, tetapi saldo belum dapat dibaca' : 'Management API key terhubung'}</strong>
+                      {openRouterCredits.error ? <small className="ai-usage-warning">{openRouterCredits.error}</small> : (
+                        <small>Saldo akun saat ini: {formatUsdAsIdr(openRouterCredits.balanceUsd, usdIdrRate?.rate)}</small>
+                      )}
+                      <div className="ai-openrouter-actions">
+                        <button type="button" className="ai-settings-test" onClick={() => void refreshOpenRouterCredits()}>Perbarui saldo</button>
+                        <button type="button" className="ai-settings-test ai-openrouter-logout" onClick={() => void clearOpenRouterManagementKey()}>Hapus key</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <small>Belum ada Management API Key. Buat key khusus Management di dokumentasi OpenRouter. Fitur ini opsional; saldo tidak dapat dibaca memakai inference API key standar.</small>
+                  )}
+                  <small>{usdIdrRate?.rate ? 'Kurs referensi: 1 USD = ' + new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(usdIdrRate.rate) + ' IDR · ' + (usdIdrRate.date ?? 'tanggal tidak tersedia') : 'Kurs USD/IDR belum tersedia; nilai Rupiah akan muncul setelah kurs berhasil dimuat.'}</small>
+                  <button type="button" className="ai-settings-test" onClick={() => void refreshUsdIdrRate(true)}>Perbarui kurs USD/IDR</button>
+                  <a href="https://openrouter.ai/docs/guides/overview/auth/management-api-keys" target="_blank" rel="noreferrer">Panduan resmi Management API Key</a>
                 </div>
               </section>
               <details className="ai-openrouter-manual">
@@ -2384,13 +2502,13 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                               <div><small>Output modalities</small><strong>{model.outputModalities?.join(', ') || 'Tidak tersedia'}</strong></div>
                               <div><small>Supported parameters</small><strong>{model.supportedParameters?.join(', ') || 'Tidak tersedia'}</strong></div>
                               <div><small>API methods</small><strong>{model.supportedGenerationMethods?.join(', ') || 'Tidak tersedia'}</strong></div>
-                              <div><small>Input token / 1 juta</small><strong>{model.promptPrice !== undefined ? '$' + (model.promptPrice * 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }) : 'Harga tidak disediakan'}</strong></div>
-                              <div><small>Output token / 1 juta</small><strong>{model.completionPrice !== undefined ? '$' + (model.completionPrice * 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }) : 'Harga tidak disediakan'}</strong></div>
-                              <div><small>Request</small><strong>{model.requestPrice !== undefined ? '$' + model.requestPrice : 'Tidak tersedia'}</strong></div>
-                              <div><small>Image input</small><strong>{model.imagePrice !== undefined ? '$' + model.imagePrice : 'Tidak tersedia'}</strong></div>
-                              <div><small>Cache read / 1 juta</small><strong>{model.inputCacheReadPrice !== undefined ? '$' + (model.inputCacheReadPrice * 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }) : 'Tidak tersedia'}</strong></div>
-                              <div><small>Cache write / 1 juta</small><strong>{model.inputCacheWritePrice !== undefined ? '$' + (model.inputCacheWritePrice * 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }) : 'Tidak tersedia'}</strong></div>
-                              <div><small>Internal reasoning / 1 juta</small><strong>{model.internalReasoningPrice !== undefined ? '$' + (model.internalReasoningPrice * 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }) : 'Tidak tersedia'}</strong></div>
+                              <div><small>Input token / 1 juta (IDR)</small><strong>{model.promptPrice !== undefined ? formatUsdAsIdr(model.promptPrice * 1_000_000, usdIdrRate?.rate) : 'Harga tidak disediakan'}</strong></div>
+                              <div><small>Output token / 1 juta (IDR)</small><strong>{model.completionPrice !== undefined ? formatUsdAsIdr(model.completionPrice * 1_000_000, usdIdrRate?.rate) : 'Harga tidak disediakan'}</strong></div>
+                              <div><small>Request (IDR)</small><strong>{model.requestPrice !== undefined ? formatUsdAsIdr(model.requestPrice, usdIdrRate?.rate) : 'Tidak tersedia'}</strong></div>
+                              <div><small>Image input (IDR)</small><strong>{model.imagePrice !== undefined ? formatUsdAsIdr(model.imagePrice, usdIdrRate?.rate) : 'Tidak tersedia'}</strong></div>
+                              <div><small>Cache read / 1 juta (IDR)</small><strong>{model.inputCacheReadPrice !== undefined ? formatUsdAsIdr(model.inputCacheReadPrice * 1_000_000, usdIdrRate?.rate) : 'Tidak tersedia'}</strong></div>
+                              <div><small>Cache write / 1 juta (IDR)</small><strong>{model.inputCacheWritePrice !== undefined ? formatUsdAsIdr(model.inputCacheWritePrice * 1_000_000, usdIdrRate?.rate) : 'Tidak tersedia'}</strong></div>
+                              <div><small>Internal reasoning / 1 juta (IDR)</small><strong>{model.internalReasoningPrice !== undefined ? formatUsdAsIdr(model.internalReasoningPrice * 1_000_000, usdIdrRate?.rate) : 'Tidak tersedia'}</strong></div>
                               <div><small>Dibuat</small><strong>{model.createdAt ? new Date(model.createdAt * 1000).toLocaleDateString() : 'Tidak tersedia'}</strong></div>
                               <div><small>Masa berlaku</small><strong>{model.expirationDate ? new Date(model.expirationDate).toLocaleString() : 'Tidak tercantum'}</strong></div>
                             </div>
@@ -2799,26 +2917,34 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             </div>
             {routerStatus?.provider === 'openrouter' && openRouterAccount?.connected ? (
               <div className="ai-usage-billing">
-                <div><span>Billing API key · total</span><strong>{openRouterAccount.usage === null ? 'Tidak tersedia' : '$' + openRouterAccount.usage.toFixed(4)}</strong></div>
-                <div><span>Penggunaan hari ini</span><strong>{openRouterAccount.usageDaily === null ? 'Tidak tersedia' : '$' + openRouterAccount.usageDaily.toFixed(4)}</strong></div>
-                <div><span>Penggunaan bulan ini</span><strong>{openRouterAccount.usageMonthly === null ? 'Tidak tersedia' : '$' + openRouterAccount.usageMonthly.toFixed(4)}</strong></div>
-                {openRouterAccount.limit !== null ? <ProviderQuotaMeter label="Budget API key" remaining={openRouterAccount.limitRemaining} limit={openRouterAccount.limit} reset={openRouterAccount.limitReset} /> : null}
+                <div><span>Saldo akun OpenRouter</span><strong>{openRouterCredits?.configured && openRouterCredits.balanceUsd !== null ? formatUsdAsIdr(openRouterCredits.balanceUsd, usdIdrRate?.rate) : 'Belum tersedia'}</strong></div>
+                <div><span>Total kredit dibeli akun</span><strong>{openRouterCredits?.configured ? formatUsdAsIdr(openRouterCredits.totalCreditsUsd, usdIdrRate?.rate) : 'Management API Key belum diatur'}</strong></div>
+                <div><span>Total penggunaan akun</span><strong>{openRouterCredits?.configured ? formatUsdAsIdr(openRouterCredits.totalUsageUsd, usdIdrRate?.rate) : 'Management API Key belum diatur'}</strong></div>
+                <div><span>Penggunaan API key · total</span><strong>{formatUsdAsIdr(openRouterAccount.usage, usdIdrRate?.rate)}</strong></div>
+                <div><span>Penggunaan hari ini</span><strong>{formatUsdAsIdr(openRouterAccount.usageDaily, usdIdrRate?.rate)}</strong></div>
+                <div><span>Penggunaan bulan ini</span><strong>{formatUsdAsIdr(openRouterAccount.usageMonthly, usdIdrRate?.rate)}</strong></div>
+                <div><span>Pengeluaran tercatat Ruang Kerja</span><strong>{formatUsdAsIdr(providerUsageTotals.openrouter?.hasProviderCost ? providerUsageTotals.openrouter.costUsd : null, usdIdrRate?.rate)}</strong></div>
+                {openRouterAccount.limit !== null ? <ProviderQuotaMeter label="Budget API key" remaining={openRouterAccount.limitRemaining} limit={openRouterAccount.limit} reset={openRouterAccount.limitReset} formatValue={(value) => formatUsdAsIdr(value, usdIdrRate?.rate)} /> : null}
                 {openRouterAccount.effectiveBudget?.limitUsd !== null && openRouterAccount.effectiveBudget?.limitUsd !== undefined ? (
-                  <ProviderQuotaMeter label={'Budget efektif · ' + (openRouterAccount.effectiveBudget.scope ?? 'akun/workspace')} remaining={openRouterAccount.effectiveBudget.remainingUsd} limit={openRouterAccount.effectiveBudget.limitUsd} reset={openRouterAccount.effectiveBudget.resetsAt} />
+                  <ProviderQuotaMeter label={'Budget efektif · ' + (openRouterAccount.effectiveBudget.scope ?? 'akun/workspace')} remaining={openRouterAccount.effectiveBudget.remainingUsd} limit={openRouterAccount.effectiveBudget.limitUsd} reset={openRouterAccount.effectiveBudget.resetsAt} formatValue={(value) => formatUsdAsIdr(value, usdIdrRate?.rate)} />
                 ) : null}
-                <small>
-                  {openRouterAccount.isFreeTier === true ? 'Akun OpenRouter ditandai Free Tier. Model gratis tetap memiliki batas request dan kapasitas provider.'
-                    : openRouterAccount.isFreeTier === false ? 'Akun/key OpenRouter bukan Free Tier.'
-                      : 'Status Free/Paid tidak disediakan oleh endpoint key.'}
-                  {' '}{openRouterAccount.isManagementKey ? 'Key memiliki izin management.' : 'Usage dan limit ini khusus API key yang terhubung; saldo kredit total akun tidak dibuka oleh API key standar.'}
-                </small>
+                {openRouterCredits?.error ? <small className="ai-usage-warning">{openRouterCredits.error}</small> : null}
+                <small>{openRouterAccount.isFreeTier === true ? 'Akun OpenRouter ditandai Free Tier. Model gratis tetap memiliki batas request dan kapasitas provider.' : openRouterAccount.isFreeTier === false ? 'Akun/key OpenRouter bukan Free Tier.' : 'Status Free/Paid tidak disediakan oleh endpoint key.'}</small>
+                <small>Usage API key hanya menggambarkan key inferensi yang aktif; saldo total akun dibaca terpisah memakai Management API Key.</small>
+                <small>OpenRouter tetap menghitung saldo dan tagihan dalam USD; konversi ini hanya untuk tampilan Ruang Kerja.</small>
+                <small>{usdIdrRate?.rate ? 'Kurs referensi: 1 USD = ' + new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(usdIdrRate.rate) + ' IDR · ' + (usdIdrRate.date ?? 'tanggal tidak tersedia') : 'Kurs USD/IDR tidak tersedia; nilai Rupiah belum dapat dihitung.'}</small>
+                {usdIdrRate?.error ? <small className="ai-usage-warning">{usdIdrRate.error}</small> : null}
                 {openRouterAccount.error ? <small className="ai-usage-warning">{openRouterAccount.error}</small> : null}
-                <button type="button" className="ai-usage-refresh" onClick={() => void refreshOpenRouterAccount()}>Perbarui data billing</button>
+                <div className="ai-openrouter-actions">
+                  <button type="button" className="ai-usage-refresh" onClick={() => { void refreshOpenRouterAccount(); void refreshOpenRouterCredits(); }}>Perbarui billing</button>
+                  <button type="button" className="ai-usage-refresh" onClick={() => void refreshUsdIdrRate(true)}>Perbarui kurs</button>
+                </div>
               </div>
             ) : (
               <div className="ai-usage-billing">
-                <div><span>Biaya yang dilaporkan provider</span><strong>{routerStatus && providerUsageTotals[routerStatus.provider]?.hasProviderCost ? '$' + providerUsageTotals[routerStatus.provider]!.costUsd.toFixed(6) : 'Tidak disediakan API'}</strong></div>
+                <div><span>Biaya yang dilaporkan provider</span><strong>{routerStatus && providerUsageTotals[routerStatus.provider]?.hasProviderCost ? formatUsdAsIdr(providerUsageTotals[routerStatus.provider]!.costUsd, usdIdrRate?.rate) : 'Tidak disediakan API'}</strong></div>
                 <small>Token di atas adalah total request yang usage-nya dilaporkan provider kepada Ruang Kerja, bukan seluruh penggunaan akun.</small>
+                <small>{usdIdrRate?.rate ? 'Kurs referensi: 1 USD = ' + new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(usdIdrRate.rate) + ' IDR · ' + (usdIdrRate.date ?? 'tanggal tidak tersedia') : 'Kurs USD/IDR tidak tersedia; nilai Rupiah belum dapat dihitung.'}</small>
               </div>
             )}
             <div className="ai-usage-quota">

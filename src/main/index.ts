@@ -19,7 +19,7 @@ import type {
   ServerState,
   UpdateState,
 } from '../shared/types';
-import type { AgentCheckpointActionResult, AgentEvent, AgentProviderId, AgentRouterStatus, AgentRouterTestResult, OpenRouterAccountStatus, OpenRouterAuthMethod, AgentSessionData, AgentSessionSaveInput, ChatMessage } from '../shared/agents';
+import type { AgentCheckpointActionResult, AgentEvent, AgentProviderId, AgentRouterStatus, AgentRouterTestResult, OpenRouterAccountStatus, OpenRouterAuthMethod, OpenRouterCreditsStatus, UsdIdrRateStatus, AgentSessionData, AgentSessionSaveInput, ChatMessage } from '../shared/agents';
 import { diagnoseModelCapabilities, listAvailableModels, normalizeModelId, testProviderConnection } from './editor/modelCapabilities';
 import { APP_VERSION } from '../shared/types';
 import { StateStore } from './store';
@@ -51,7 +51,7 @@ import { watchProjectFileChanges, type ProjectFileWatch } from './projectFileWat
 import { openEmbeddedIde, closeEmbeddedIde, resizeEmbeddedIde, focusEmbeddedIde } from './nativeHost';
 import { startActivityMonitor } from './activityMonitor';
 import { canPersistProviderKeySafely, redactSecretValues } from './editor/providerSecurity';
-import { buildOpenRouterAuthorizationUrl, createOpenRouterPkcePair, normalizeOpenRouterKeyStatus, openRouterHttpErrorMessage } from './editor/openRouterAccount';
+import { buildOpenRouterAuthorizationUrl, createOpenRouterPkcePair, normalizeOpenRouterKeyStatus, normalizeOpenRouterCredits, normalizeUsdIdrRate, openRouterHttpErrorMessage } from './editor/openRouterAccount';
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
@@ -313,6 +313,10 @@ function openRouterAccountMetadataPath(): string {
   return join(app.getPath('userData'), 'openrouter-account.json');
 }
 
+function openRouterManagementKeyPath(): string {
+  return join(app.getPath('userData'), 'openrouter-management-key.enc');
+}
+
 interface OpenRouterAccountMetadata {
   authMethod?: OpenRouterAuthMethod;
   userId?: string | null;
@@ -392,6 +396,28 @@ function readStoredProviderKey(provider: AgentProviderId): string {
   } catch {
     return '';
   }
+}
+
+function readStoredOpenRouterManagementKey(): string {
+  try {
+    if (!providerKeyEncryptionAvailable()) return '';
+    const path = openRouterManagementKeyPath();
+    if (!existsSync(path)) return '';
+    if (process.platform !== 'win32') chmodSync(path, 0o600);
+    return safeStorage.decryptString(readFileSync(path));
+  } catch { return ''; }
+}
+
+function saveStoredOpenRouterManagementKey(apiKey: string): void {
+  if (!providerKeyEncryptionAvailable()) {
+    throw new Error(process.platform === 'linux'
+      ? 'Keyring sistem tidak tersedia atau memakai backend basic_text. Aktifkan GNOME Keyring/KWallet agar Management API key dapat disimpan dengan aman.'
+      : 'Penyimpanan kunci aman sistem operasi tidak tersedia. Management API key tidak disimpan.');
+  }
+  const path = openRouterManagementKeyPath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, safeStorage.encryptString(apiKey), { mode: 0o600 });
+  if (process.platform !== 'win32') chmodSync(path, 0o600);
 }
 
 function getProviderEnvironmentKey(provider: AgentProviderId): string {
@@ -727,6 +753,83 @@ function emptyOpenRouterAccountStatus(error?: string): OpenRouterAccountStatus {
   };
 }
 
+function emptyOpenRouterCreditsStatus(configured: boolean, error?: string): OpenRouterCreditsStatus {
+  return { configured, totalCreditsUsd: null, totalUsageUsd: null, balanceUsd: null, fetchedAt: null,
+    ...(error ? { error } : {}) };
+}
+
+async function fetchOpenRouterCreditsWithKey(apiKey: string): Promise<OpenRouterCreditsStatus> {
+  const response = await fetch('https://openrouter.ai/api/v1/credits', {
+    method: 'GET', headers: { Authorization: 'Bearer ' + apiKey, Accept: 'application/json' },
+    signal: AbortSignal.timeout(18_000),
+  });
+  const bodyText = await response.text();
+  let payload: Record<string, unknown> = {};
+  try { payload = bodyText ? JSON.parse(bodyText) as Record<string, unknown> : {}; } catch { /* handled below */ }
+  if (!response.ok) {
+    const detail = redactSecretValues(bodyText, [apiKey]).replace(/\s+/g, ' ').slice(0, 180);
+    const message = response.status === 401 || response.status === 403
+      ? 'OpenRouter menolak Management API key. Pastikan key dibuat sebagai Management API Key dan akun memiliki akses ke endpoint credits.'
+      : 'Gagal membaca saldo OpenRouter (HTTP ' + response.status + ').' + (detail ? ' ' + detail : '');
+    throw new Error(message);
+  }
+  const status = normalizeOpenRouterCredits(payload, new Date().toISOString());
+  if (status.totalCreditsUsd === null || status.totalUsageUsd === null || status.balanceUsd === null) {
+    throw new Error('OpenRouter tidak mengembalikan total_credits dan total_usage. Saldo akun tidak dapat dihitung.');
+  }
+  return status;
+}
+
+async function getOpenRouterCreditsStatus(): Promise<OpenRouterCreditsStatus> {
+  const managementKey = readStoredOpenRouterManagementKey();
+  if (!managementKey) return emptyOpenRouterCreditsStatus(false,
+    'Management API key belum diatur. Saldo akun total tidak tersedia dari API key inference biasa.');
+  try { return await fetchOpenRouterCreditsWithKey(managementKey); }
+  catch (error) { return emptyOpenRouterCreditsStatus(true,
+    redactSecretValues((error as Error).message || 'Gagal membaca saldo OpenRouter.', [managementKey])); }
+}
+
+async function saveOpenRouterManagementKey(value: unknown): Promise<ActionResult> {
+  if (typeof value !== 'string' || value.trim().length < 12 || value.trim().length > 4096) {
+    return { ok: false, error: 'Management API key tidak valid. Periksa kembali nilai yang dimasukkan.' };
+  }
+  const apiKey = value.trim();
+  try {
+    await fetchOpenRouterCreditsWithKey(apiKey); // verify credentials before storing
+    saveStoredOpenRouterManagementKey(apiKey);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: redactSecretValues((error as Error).message || 'Gagal memverifikasi Management API key.', [apiKey]) };
+  }
+}
+
+function clearOpenRouterManagementKey(): ActionResult {
+  try { rmSync(openRouterManagementKeyPath(), { force: true }); return { ok: true }; }
+  catch (error) { return { ok: false, error: 'Gagal menghapus Management API key lokal: ' + ((error as Error).message || 'kesalahan file') }; }
+}
+
+let usdIdrRateCache: UsdIdrRateStatus | null = null;
+let usdIdrRateCacheTime = 0;
+
+async function getUsdIdrRateStatus(forceRefresh = false): Promise<UsdIdrRateStatus> {
+  if (!forceRefresh && usdIdrRateCache && Date.now() - usdIdrRateCacheTime < 12 * 60 * 60 * 1000) return usdIdrRateCache;
+  try {
+    const response = await fetch('https://api.frankfurter.dev/v2/rate/USD/IDR', {
+      method: 'GET', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12_000),
+    });
+    if (!response.ok) throw new Error('Frankfurter merespons HTTP ' + response.status + '.');
+    const status = normalizeUsdIdrRate(await response.json(), new Date().toISOString());
+    if (status.rate === null) throw new Error(status.error || 'Data kurs USD/IDR tidak valid.');
+    usdIdrRateCache = status;
+    usdIdrRateCacheTime = Date.now();
+    return status;
+  } catch (error) {
+    if (usdIdrRateCache) return { ...usdIdrRateCache, error: 'Gagal memperbarui kurs; menggunakan kurs terakhir yang berhasil diambil.' };
+    return { base: 'USD', quote: 'IDR', rate: null, date: null, fetchedAt: null, source: 'Frankfurter',
+      error: redactSecretValues((error as Error).message || 'Kurs USD/IDR tidak dapat dimuat.') };
+  }
+}
+
 async function getOpenRouterAccountStatus(): Promise<OpenRouterAccountStatus> {
   const apiKey = getProviderApiKey('openrouter');
   if (!apiKey) return emptyOpenRouterAccountStatus('Belum ada akun atau API key OpenRouter yang dihubungkan.');
@@ -768,6 +871,7 @@ function disconnectOpenRouterAccount(): ActionResult {
   try {
     rmSync(providerKeyPath('openrouter'), { force: true });
     rmSync(openRouterAccountMetadataPath(), { force: true });
+    rmSync(openRouterManagementKeyPath(), { force: true });
     return { ok: true };
   } catch (error) {
     return { ok: false, error: 'Gagal menghapus kredensial OpenRouter lokal: ' + ((error as Error).message || 'kesalahan file') };
@@ -1456,6 +1560,10 @@ function registerIpc(): void {
   ipcMain.handle('rk:agent:openrouter-login', () => connectOpenRouterAccount());
   ipcMain.handle('rk:agent:openrouter-cancel-login', () => cancelOpenRouterAccountLogin());
   ipcMain.handle('rk:agent:openrouter-account', () => getOpenRouterAccountStatus());
+  ipcMain.handle('rk:agent:openrouter-credits', () => getOpenRouterCreditsStatus());
+  ipcMain.handle('rk:agent:openrouter-save-management-key', (_e, apiKey: unknown) => saveOpenRouterManagementKey(apiKey));
+  ipcMain.handle('rk:agent:openrouter-clear-management-key', () => clearOpenRouterManagementKey());
+  ipcMain.handle('rk:agent:usd-idr-rate', (_e, forceRefresh?: boolean) => getUsdIdrRateStatus(forceRefresh === true));
   ipcMain.handle('rk:agent:openrouter-disconnect', () => disconnectOpenRouterAccount());
   ipcMain.handle('rk:agent:openrouter-key-settings', () => openOpenRouterKeySettings());
   ipcMain.handle('rk:agent:list-sessions', () => listAgentSessions(app.getPath('userData')));

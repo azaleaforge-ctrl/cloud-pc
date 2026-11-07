@@ -27,7 +27,7 @@ import type {
   TerminalSessionInfo,
   VsxSearchResult,
 } from '../shared/editor';
-import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentProviderId, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, InstalledAgentSkill, AgentSkillInstallResult, McpPluginSummary, McpPluginImportResult, McpPluginProbeResult, ChatMessage, AgentEvent, OpenRouterAccountStatus } from '../shared/agents';
+import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentProviderId, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, InstalledAgentSkill, AgentSkillInstallResult, McpPluginSummary, McpPluginImportResult, McpPluginProbeResult, ChatMessage, AgentEvent, OpenRouterAccountStatus, OpenRouterCreditsStatus, UsdIdrRateStatus } from '../shared/agents';
 import { APP_VERSION } from '../shared/types';
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -124,6 +124,10 @@ const api: RkApi = {
   agentOpenRouterLogin: (): Promise<ActionResult> => ipcRenderer.invoke('rk:agent:openrouter-login'),
   agentCancelOpenRouterLogin: (): Promise<ActionResult> => ipcRenderer.invoke('rk:agent:openrouter-cancel-login'),
   agentGetOpenRouterAccount: (): Promise<OpenRouterAccountStatus> => ipcRenderer.invoke('rk:agent:openrouter-account'),
+  agentGetOpenRouterCredits: (): Promise<OpenRouterCreditsStatus> => ipcRenderer.invoke('rk:agent:openrouter-credits'),
+  agentSaveOpenRouterManagementKey: (apiKey: string): Promise<ActionResult> => ipcRenderer.invoke('rk:agent:openrouter-save-management-key', apiKey),
+  agentClearOpenRouterManagementKey: (): Promise<ActionResult> => ipcRenderer.invoke('rk:agent:openrouter-clear-management-key'),
+  agentGetUsdIdrRate: (forceRefresh = false): Promise<UsdIdrRateStatus> => ipcRenderer.invoke('rk:agent:usd-idr-rate', forceRefresh),
   agentDisconnectOpenRouter: (): Promise<ActionResult> => ipcRenderer.invoke('rk:agent:openrouter-disconnect'),
   agentOpenOpenRouterKeySettings: (): Promise<ActionResult> => ipcRenderer.invoke('rk:agent:openrouter-key-settings'),
   agentListModels: (provider: AgentProviderId): Promise<AgentModelCatalogResult> => ipcRenderer.invoke('rk:agent:list-models', provider),

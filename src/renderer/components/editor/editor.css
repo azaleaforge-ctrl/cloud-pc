@@ -3703,3 +3703,36 @@ button.ed-status-item:hover {
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+
+
+/* v1.2.3: optional, encrypted OpenRouter account-credit management key */
+.ai-openrouter-management-step .ai-openrouter-management-status {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--ed-border, rgba(148,163,184,.18));
+  border-radius: 8px;
+  background: rgba(148,163,184,.035);
+}
+.ai-openrouter-management-step .ai-openrouter-management-status > strong {
+  color: var(--ed-text, #e8edf6);
+  font-size: 11px;
+}
+.ai-openrouter-management-step .ai-openrouter-management-status > small,
+.ai-openrouter-management-step .ai-openrouter-step-body > a {
+  color: var(--ed-text-3, #8b96aa);
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.ai-openrouter-management-step .ai-openrouter-step-body > a {
+  display: inline-block;
+  margin-top: 7px;
+  color: var(--ed-accent-soft, #6ee7d8);
+}
+.ai-openrouter-management-step .ai-openrouter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
