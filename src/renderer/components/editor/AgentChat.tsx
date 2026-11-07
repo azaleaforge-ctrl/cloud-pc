@@ -1543,6 +1543,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       if (!result.ok) throw new Error(result.error ?? 'Gagal menyimpan API key.');
       setApiKey('');
       await refreshRouterStatus();
+      if (selectedProviderDraft === 'openrouter') await refreshOpenRouterAccount();
       setError(null);
       setActivity('');
       const connectivity = await window.rk.agentTestConfig();
@@ -1556,7 +1557,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     } finally {
       setSavingKey(false);
     }
-  }, [apiKey, savingKey, refreshRouterStatus, selectedProviderDraft, routerStatus?.providers]);
+  }, [apiKey, savingKey, refreshRouterStatus, refreshOpenRouterAccount, selectedProviderDraft, routerStatus?.providers]);
 
   const copyTerminalDiagnostics = useCallback(async (entry: AgentTerminalHistoryEntry) => {
     try {
