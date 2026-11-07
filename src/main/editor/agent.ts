@@ -1,5 +1,5 @@
 // Agent runtime untuk Ruang Kerja.
-// Coding agent memakai OpenAI-compatible tool calling melalui 9router.
+// Coding agent memakai adapter provider: 9Router Local, OpenRouter, Groq, atau Gemini.
 // File tools dikunci pada workspace; command terminal wajib disetujui pengguna.
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -977,7 +977,7 @@ async function openCompletionStream(
     .map((url) => url.replace(/\/+$/, ''));
   const requestMessages = normalizeOpenAiToolCallMessages(messages);
   let lastError = 'Endpoint provider tidak dapat diakses.';
-  const providerName = provider === 'openrouter' ? 'OpenRouter' : '9router';
+  const providerName = provider === 'openrouter' ? 'OpenRouter' : provider === 'groq' ? 'Groq' : '9router';
 
   for (const endpoint of endpoints) {
     try {
@@ -1014,7 +1014,7 @@ async function openCompletionStream(
 
 async function readCompletion(response: Response, session: LlmSession): Promise<{ content: string; toolCalls: ToolCall[] }> {
   const reader = response.body?.getReader();
-  if (!reader) throw new Error('Response 9router tidak memiliki stream body.');
+  if (!reader) throw new Error('Respons provider AI tidak memiliki stream body.');
   const decoder = new TextDecoder();
   let buffer = '';
   let content = '';

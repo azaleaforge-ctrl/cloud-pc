@@ -1388,7 +1388,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     const models = modelCatalog?.ok ? modelCatalog.models : [];
     const query = modelSearchQuery.trim().toLowerCase();
     return models
-      .filter(model => modelCostFilter === 'all' || model.costTier === modelCostFilter)
+      .filter(model => modelCostFilter === 'all' || (modelCostFilter === 'free' ? model.costTier === 'free' || model.freePlanEligible === true : model.costTier === modelCostFilter))
       .filter(model => !modelVisionOnly || (model.inputModalities ?? []).some(modality => /^(image|images|vision)$/i.test(modality)))
       .filter(model => !query || [model.id, model.name, model.ownedBy, ...(model.inputModalities ?? []), ...(model.outputModalities ?? [])]
         .some(value => (value ?? '').toLowerCase().includes(query)))
@@ -1403,9 +1403,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     const models = modelCatalog?.ok ? modelCatalog.models : [];
     return {
       all: models.length,
-      free: models.filter(model => model.costTier === 'free').length,
+      free: models.filter(model => model.costTier === 'free' || model.freePlanEligible === true).length,
       premium: models.filter(model => model.costTier === 'premium').length,
-      unknown: models.filter(model => model.costTier === 'unknown').length,
+      unknown: models.filter(model => model.costTier === 'unknown' && model.freePlanEligible !== true).length,
     };
   }, [modelCatalog]);
 
@@ -1852,6 +1852,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             <select id="rk-provider-select" className="ai-provider-select" value={selectedProviderDraft}
               onChange={(event) => void selectProviderDraft(event.target.value as AgentProviderId)} disabled={savingKey}>
               <option value="openrouter">OpenRouter{routerStatus?.providers.find(item => item.id === 'openrouter')?.configured ? ' · key tersimpan' : ''}</option>
+              <option value="groq">Groq Free Tier{routerStatus?.providers.find(item => item.id === 'groq')?.configured ? ' · key tersimpan' : ''}</option>
               <option value="gemini">Google Gemini API{routerStatus?.providers.find(item => item.id === 'gemini')?.configured ? ' · key tersimpan' : ''}</option>
               {(routerStatus?.providers.find(item => item.id === 'legacy')?.configured || selectedProviderDraft === 'legacy') ? (
                 <option value="legacy">9router / OpenAI-compatible (Legacy)</option>
@@ -1868,7 +1869,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
               ? 'Satu API key OpenRouter memberi akses ke model-model yang tersedia pada akunmu.'
               : selectedProviderDraft === 'gemini'
                 ? 'Gunakan API key Gemini dari Google AI Studio. Nama dan akses model mengikuti katalog akun Google-mu.'
-                : 'Mode kompatibilitas untuk instalasi 9router lama; opsi ini hanya ditampilkan saat konfigurasi lama terdeteksi.'}
+                : selectedProviderDraft === 'groq'
+                  ? 'Groq Free Tier: hanya GPT-OSS 120B, GPT-OSS 20B, dan Qwen 3.8 27B dari daftar model Free Plan yang ditampilkan. Batas publik saat ini untuk model tersebut: 30 request/menit, 1.000 request/hari, 8.000 token/menit, dan 200.000 token/hari per model; akun dapat memiliki variasi batas. HTTP 429 berarti kuota terlampaui. Developer Tier bersifat berbayar.'
+                  : 'Mode kompatibilitas untuk instalasi 9router lama; opsi ini hanya ditampilkan saat konfigurasi lama terdeteksi.'}
           </p>
           <label className="ai-settings-label" htmlFor="rk-router-key">API key {routerStatus?.providers.find(item => item.id === selectedProviderDraft)?.configured ? '(tersimpan; isi untuk mengganti)' : ''}</label>
           <div className="ai-settings-key-row">
@@ -1881,7 +1884,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
               value={apiKey}
               onChange={(event) => setApiKey(event.target.value)}
               onKeyDown={(event) => { if (event.key === 'Enter') void saveRouterKey(); }}
-              placeholder={routerStatus?.configured ? 'API key tersimpan; isi untuk mengganti' : selectedProviderDraft === 'gemini' ? 'Tempel API key Gemini' : selectedProviderDraft === 'openrouter' ? 'Tempel API key OpenRouter' : 'Tempel API key 9router'}
+              placeholder={routerStatus?.configured ? 'API key tersimpan; isi untuk mengganti' : selectedProviderDraft === 'gemini' ? 'Tempel API key Gemini' : selectedProviderDraft === 'groq' ? 'Tempel API key Groq' : selectedProviderDraft === 'openrouter' ? 'Tempel API key OpenRouter' : 'Tempel API key 9router'}
             />
             <button type="button" className="ai-settings-save" onClick={() => void saveRouterKey()} disabled={!apiKey.trim() || savingKey}>
               {savingKey ? 'Menyimpan…' : 'Simpan & uji'}
@@ -1990,7 +1993,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 <div className="ai-model-price-filters" role="group" aria-label="Filter biaya model">
                   {([
                     ['all', 'Semua', modelCostCounts.all],
-                    ['free', 'Gratis', modelCostCounts.free],
+                    ['free', 'Gratis / Free Tier', modelCostCounts.free],
                     ['premium', 'Premium', modelCostCounts.premium],
                     ['unknown', 'Harga belum diketahui', modelCostCounts.unknown],
                   ] as Array<[ModelCostFilter, string, number]>).map(([value, label, count]) => (
@@ -2064,15 +2067,17 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                           <div className="ai-model-option-flags">
                             {isActive ? <span className="ai-model-tag active">Aktif</span> : null}
                             {isDraft && !isActive ? <span className="ai-model-tag selected">Dipilih</span> : null}
-                            <span className={'ai-model-tag cost-' + model.costTier}>
-                              {model.costTier === 'free' ? 'Gratis'
-                                : model.costTier === 'premium' ? 'Premium'
-                                  : 'Harga belum diketahui'}
+                            <span className={'ai-model-tag cost-' + (model.freePlanEligible ? 'free' : model.costTier)}>
+                              {model.freePlanEligible ? 'Free Plan'
+                                : model.costTier === 'free' ? 'Gratis'
+                                  : model.costTier === 'premium' ? 'Premium'
+                                    : 'Harga belum diketahui'}
                             </span>
                           </div>
                         </div>
                         <div className="ai-model-option-meta">
                           {model.ownedBy ? <span>{model.ownedBy}</span> : null}
+                          {model.freePlanEligible ? <span>Free Plan · kuota terbatas</span> : null}
                           {model.contextLength !== undefined ? <span>{model.contextLength.toLocaleString()} token konteks</span> : null}
                           {modalityTags.map(tag => <span key={tag.key}>{tag.label}</span>)}
                           {toolMetadata ? <span>Tool calling tercantum</span> : null}

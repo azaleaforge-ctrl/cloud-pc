@@ -320,6 +320,70 @@ try {
     assert.equal(connection.endpoint, 'https://openrouter.ai/api/v1');
   });
 
+  await test('uses Groq Free Plan endpoint, Bearer authorization and Qwen default model for connection check', async () => {
+    const calls=[];
+    globalThis.fetch=async (input,init)=>{
+      const url=String(input);
+      const headers=new Headers(init.headers);
+      calls.push({url,headers,body:init.body ? JSON.parse(init.body) : undefined});
+      if (init.method === 'GET' || !init.body) {
+        assert.equal(url,'https://api.groq.com/openai/v1/models');
+        assert.equal(headers.get('authorization'),'Bearer groq-test-key');
+        return json({data:[
+          {id:'openai/gpt-oss-120b',active:true,context_window:131072},
+          {id:'qwen/qwen3.8-27b',active:true,context_window:131072},
+        ]});
+      }
+      assert.equal(url,'https://api.groq.com/openai/v1/chat/completions');
+      assert.equal(headers.get('authorization'),'Bearer groq-test-key');
+      assert.equal(calls.at(-1).body.model,'qwen/qwen3.8-27b');
+      return json({choices:[{message:{content:'OK'}}]});
+    };
+    const config={
+      provider:'groq',
+      apiKey:'groq-test-key',
+      endpoint:'https://api.groq.com/openai/v1',
+      models:['qwen/qwen3.8-27b'],
+    };
+    const catalog=await capabilities.listAvailableModels(config);
+    assert.equal(catalog.ok,true);
+    assert.ok(catalog.models.every(model=>model.freePlanEligible===true));
+    const connection=await capabilities.testProviderConnection(config);
+    assert.equal(connection.ok,true);
+    assert.equal(connection.model,'qwen/qwen3.8-27b');
+    assert.equal(connection.endpoint,'https://api.groq.com/openai/v1');
+  });
+
+  await test('runs Groq tool-calling diagnostics through the OpenAI-compatible adapter', async () => {
+    const requests=[];
+    globalThis.fetch=async (input,init)=>{
+      const body=JSON.parse(init.body);
+      requests.push({url:String(input),body});
+      if(body.tools?.length) {
+        return json({choices:[{message:{tool_calls:[{
+          id:'groq-call-1',
+          type:'function',
+          function:{name:'capability_probe',arguments:'{"ready":true}'},
+        }]}}]});
+      }
+      const hasImage=body.messages?.some(message=>Array.isArray(message.content)&&message.content.some(part=>part.type==='image_url'));
+      if(hasImage) return json({error:{message:'image input not supported'}},400);
+      return json({choices:[{message:{content:'OK'}}]});
+    };
+    const report=await capabilities.diagnoseModelCapabilities({
+      provider:'groq',
+      apiKey:'groq-test-key',
+      endpoint:'https://api.groq.com/openai/v1',
+      models:['qwen/qwen3.8-27b'],
+    },'qwen/qwen3.8-27b');
+    assert.equal(report.ok,true);
+    assert.deepEqual(report.checks.map(check=>check.status),['supported','supported','unsupported']);
+    assert.equal(requests.length,3);
+    assert.ok(requests.every(item=>item.url==='https://api.groq.com/openai/v1/chat/completions'));
+    assert.ok(requests[1].body.tools.length>0);
+    assert.deepEqual(requests[1].body.tool_choice,{type:'function',function:{name:'capability_probe'}});
+  });
+
   await test('lists only Gemini content-generation models and strips the models/ prefix', async () => {
     globalThis.fetch = async (input, init) => {
       assert.equal(String(input), 'https://generativelanguage.googleapis.com/v1beta/models');

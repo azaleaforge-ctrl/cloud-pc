@@ -1,3 +1,34 @@
+# Ruang Kerja v1.2.0
+
+## Agentic Coding AI — provider Groq Free Tier
+
+### 1. Provider baru: Groq
+- Menambahkan Groq sebagai provider AI tersendiri menggunakan endpoint resmi `https://api.groq.com/openai/v1`.
+- API key Groq dapat disimpan terpisah dan terenkripsi melalui Electron safeStorage, dengan environment variable opsional `GROQ_API_KEY`.
+- Groq menggunakan protokol OpenAI-compatible yang sama untuk Chat Completions, streaming SSE, Bearer authentication, dan function/tool calling.
+- Groq tidak menggantikan OpenRouter, Gemini, maupun 9Router Local. Pengguna memilih provider secara eksplisit; tidak ada automatic fallback antar-provider.
+- Dokumentasi dan halaman API key resmi tersedia dari pengaturan provider.
+
+### 2. Prioritas model gratis
+- Katalog Groq dibatasi ke model yang tercantum pada tabel rate limits Free Plan resmi: `openai/gpt-oss-120b`, `openai/gpt-oss-20b`, dan `qwen/qwen3.8-27b`.
+- Model default Groq adalah `qwen/qwen3.8-27b`, yang mendukung tool use. Dokumentasi Groq saat ini tidak mencantumkan parallel tool use untuk model ini; Agent Runtime tetap memproses tool calls yang diterima secara berurutan.
+- Model di luar allowlist Free Plan, model audio, dan model yang tidak aktif tidak ditampilkan di picker Groq.
+- Badge **Free Plan** menunjukkan kelayakan model pada tier gratis Groq, bukan klaim bahwa metadata harga token provider bernilai nol. Informasi harga yang tidak disediakan endpoint tetap ditampilkan sebagai unknown pada data metadata.
+- Batas publik yang saat ini didokumentasikan untuk ketiga model tersebut adalah 30 RPM, 1.000 RPD, 8.000 TPM, dan 200.000 TPD per model. Batas akun yang tampil di Groq Console dapat berbeda; melebihi kuota menghasilkan HTTP 429.
+- Penggunaan Free Plan tidak dikenai biaya selama akun tetap berada pada tier gratis dan pemakaian berada dalam batasnya. Upgrade ke Developer Tier mengaktifkan pay-as-you-go dan dapat menimbulkan tagihan.
+
+### 3. Agentic Coding compatibility
+- Groq memakai jalur OpenAI-compatible Agent Runtime untuk streaming dan tool calls.
+- Menambahkan pengujian katalog Free Plan, filtering model aktif, endpoint, Bearer API key, connection test, dan capability diagnostic termasuk function calling.
+- Model tetap harus menjalani **Uji kemampuan** di aplikasi; badge Free Plan tidak berarti tool-calling sudah diverifikasi oleh aplikasi.
+- 9Router tetap Local Only di `http://localhost:20128/v1`; tidak ada perubahan remote fallback.
+- Provider Gemini yang sudah ada tidak diubah dalam rilis ini.
+
+### Detail Version di dalam aplikasi
+Buka nomor versi pada bilah status bawah untuk melihat **deskripsi perubahan/fitur/perbaikan** v1.2.0. Riwayat menampilkan **maksimal tiga rilis terbaru**. Gunakan tombol **Muat Ulang Versi** untuk memperbarui daftar dan deskripsi dari GitHub.
+
+---
+
 # Ruang Kerja v1.1.1
 
 ## Agentic Coding AI — perbaikan deadlock Todo Orchestrator dan discovery workspace
