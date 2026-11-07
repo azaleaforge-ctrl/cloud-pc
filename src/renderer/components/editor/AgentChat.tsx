@@ -2250,35 +2250,46 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
               <div>
                 <span className="ai-model-eyebrow">MODEL PROVIDER</span>
                 <h2>Pilih model AI</h2>
-                <p>Katalog berasal dari provider yang sedang aktif. Informasi biaya dan kemampuan hanya ditampilkan jika disediakan metadata.</p>
+                <p>Pilih provider terlebih dahulu. Katalog, harga, dan detail model di bawah hanya berasal dari provider yang dipilih.</p>
               </div>
               <button type="button" className="ai-icon-btn" aria-label="Tutup pemilih model"
                 onClick={() => { setModelPickerOpen(false); inputRef.current?.focus(); }}><IconX size={16} /></button>
             </header>
 
+            <div className="ai-model-provider-select">
+              <label htmlFor="rk-model-provider">01 · PROVIDER</label>
+              <select id="rk-model-provider" value={modelProviderDraft}
+                onChange={(event) => selectModelProvider(event.target.value as AgentProviderId)}>
+                {(routerStatus?.providers ?? []).filter(item => item.id !== 'legacy' || item.configured || modelProviderDraft === 'legacy')
+                  .map(item => <option key={item.id} value={item.id}>{item.name}{item.configured ? ' · tersambung' : ' · belum tersambung'}</option>)}
+              </select>
+              <small>{modelProviderInfo?.endpoint ?? ''}</small>
+            </div>
+
             <div className="ai-model-active-card">
               <div className="ai-model-active-mark"><span>✓</span></div>
               <div className="ai-model-active-copy">
-                <small>MODEL AKTIF · {routerStatus?.providerName ?? 'Provider belum dipilih'}</small>
-                <strong>{routerStatus?.model ?? 'Belum ada model aktif'}</strong>
-                <code>{routerStatus?.endpoint ?? ''}</code>
+                <small>{routerStatus?.provider === modelProviderDraft ? 'PROVIDER AKTIF' : 'PROVIDER DIPILIH'} · {modelProviderInfo?.name ?? 'Provider'}</small>
+                <strong>{modelProviderInfo?.model ?? 'Belum ada model tersimpan untuk provider ini'}</strong>
+                <code>{modelProviderInfo?.endpoint ?? ''}</code>
               </div>
               <button type="button" className="ai-settings-test ai-model-diagnostic-button"
                 onClick={() => void diagnoseSelectedModel()}
-                disabled={!routerStatus?.configured || loading || diagnosingModel || savingModel || selectedModelDraft.trim() !== routerStatus?.model}>
-                {diagnosingModel ? 'Menguji…' : 'Uji kemampuan'}
+                disabled={!modelProviderInfo?.configured || loading || diagnosingModel || savingModel || !selectedModelDraft.trim()}>
+                {diagnosingModel ? 'Menguji…' : 'Uji model dipilih'}
               </button>
             </div>
 
-            {!routerStatus?.configured ? (
+            {!modelProviderInfo?.configured ? (
               <div className="ai-model-empty-state" role="status">
-                <strong>Hubungkan provider terlebih dahulu</strong>
-                <p>Daftar model belum bisa dimuat karena API key provider belum dikonfigurasi.</p>
+                <strong>{modelProviderInfo?.name ?? 'Provider'} belum terhubung</strong>
+                <p>Hubungkan akun atau API key provider ini terlebih dahulu. Provider lain tidak akan dicampur ke daftar model ini.</p>
                 <button type="button" className="ai-settings-save" onClick={() => {
                   setModelPickerOpen(false);
+                  setSelectedProviderDraft(modelProviderDraft);
                   setSettingsFocusTarget('connect');
                   setSettingsOpen(true);
-                }}>Buka /connect</button>
+                }}>Hubungkan {modelProviderInfo?.name ?? 'provider'}</button>
               </div>
             ) : (
               <>
@@ -2293,7 +2304,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                       onClick={() => setModelSearchQuery('')}>×</button> : null}
                   </label>
                   <button type="button" className="ai-settings-test ai-model-refresh"
-                    onClick={() => void refreshModelCatalog()} disabled={loadingModels}>
+                    onClick={() => void refreshModelCatalog(modelProviderDraft)} disabled={loadingModels}>
                     {loadingModels ? 'Memuat…' : 'Muat ulang'}
                   </button>
                 </div>
@@ -2328,7 +2339,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 </p>
 
                 <div className="ai-model-catalog-state" aria-live="polite">
-                  {loadingModels ? <span><Spinner size={12} /> Mengambil katalog dari {routerStatus.providerName}…</span>
+                  {loadingModels ? <span><Spinner size={12} /> Mengambil katalog dari {modelProviderInfo?.name ?? 'provider'}…</span>
                     : modelCatalog?.ok
                       ? <span className={modelCatalog.retrievedAt ? undefined : 'ai-model-catalog-error'}>
                           {modelCatalog.retrievedAt
@@ -2354,7 +2365,10 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                       <p>Coba ubah kata pencarian, filter biaya, atau filter input gambar.</p>
                     </div>
                   ) : modelCatalogOptions.map((model: AgentModelInfo) => {
-                    const isActive = model.id === routerStatus.model;
+                    const providerCurrentModel = routerStatus?.provider === modelProviderDraft
+                      ? routerStatus.model
+                      : modelProviderInfo?.model;
+                    const isActive = model.id === providerCurrentModel;
                     const isDraft = model.id === selectedModelDraft.trim();
                     const toolMetadata = model.supportedParameters?.some(parameter => /tools?|tool_choice|function/.test(parameter)) ?? false;
                     const modalityTags = [
@@ -2387,6 +2401,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                           {model.ownedBy ? <span>{model.ownedBy}</span> : null}
                           {model.freePlanEligible ? <span>Free Plan · kuota terbatas</span> : null}
                           {model.contextLength !== undefined ? <span>{model.contextLength.toLocaleString()} token konteks</span> : null}
+                          {model.maxCompletionTokens !== undefined ? <span>Maks. output {model.maxCompletionTokens.toLocaleString()} token</span> : null}
                           {modalityTags.map(tag => <span key={tag.key}>{tag.label}</span>)}
                           {toolMetadata ? <span>Tool calling tercantum</span> : null}
                           {model.supportedGenerationMethods?.length ? <span>API: {model.supportedGenerationMethods.join(', ')}</span> : null}
@@ -2397,6 +2412,3139 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                             ? <span>Modalitas dan dukungan tools belum tercantum di metadata</span> : null}
                         </div>
                         </button>
+                        <button type="button" className="ai-model-detail-toggle"
+                          aria-expanded={modelDetailsId === model.id}
+                          onClick={() => setModelDetailsId(current => current === model.id ? null : model.id)}>
+                          {modelDetailsId === model.id ? 'Tutup detail model' : 'Lihat detail model'}
+                        </button>
+                        {modelDetailsId === model.id ? (
+                          <div className="ai-model-detail-card">
+                            {model.description ? <p>{model.description}</p> : <p>Deskripsi resmi tidak disediakan oleh katalog {modelProviderInfo?.name ?? 'provider'}.</p>}
+                            <div className="ai-model-detail-grid">
+                              <div><small>Context window</small><strong>{model.contextLength !== undefined ? model.contextLength.toLocaleString() + ' token' : 'Tidak tersedia'}</strong></div>
+                              <div><small>Output maksimum</small><strong>{model.maxCompletionTokens !== undefined ? model.maxCompletionTokens.toLocaleString() + ' token' : 'Tidak tersedia'}</strong></div>
+                              <div><small>Input token / 1 juta</small><strong>{model.promptPrice !== undefined ? '
+                </div>
+
+                <div className="ai-model-dialog-footer">
+                  <label className="ai-model-custom-id" htmlFor="rk-model-custom-id">
+                    <span>ID model pilihan</span>
+                    <input id="rk-model-custom-id" value={selectedModelDraft}
+                      onChange={(event) => setSelectedModelDraft(event.target.value)}
+                      maxLength={200} spellCheck={false} placeholder="Pilih dari katalog atau masukkan ID model…" />
+                  </label>
+                  <button type="button" className="ai-settings-save ai-model-apply"
+                    disabled={!selectedModelDraft.trim() || savingModel || loading || (selectedModelDraft.trim() === modelProviderInfo?.model && modelProviderDraft === routerStatus?.provider)}
+                    onClick={() => void saveSelectedModel()}>
+                    {savingModel ? 'Menyimpan…' : selectedModelDraft.trim() === modelProviderInfo?.model && modelProviderDraft === routerStatus?.provider ? 'Model sedang aktif' : 'Gunakan provider & model'}
+                  </button>
+                </div>
+
+                {error ? <div className="ai-model-catalog-error" role="alert">{error}</div> : null}
+                {modelReport ? (
+                  <div className="ai-model-report" role={modelReport.ok ? 'status' : 'alert'}>
+                    <div className="ai-model-report-head">
+                      <strong>{modelReport.ok ? 'Hasil diagnostik' : 'Model belum siap'}</strong>
+                      <small>{modelReport.model} · {new Date(modelReport.checkedAt).toLocaleString()}</small>
+                    </div>
+                    {modelReport.checks.map(check => (
+                      <div className="ai-model-check" key={check.id}>
+                        <span className={'ai-model-check-state ' + check.status}>
+                          {check.status === 'supported' ? 'Lolos' : check.status === 'unsupported' ? 'Tidak didukung' : 'Belum pasti'}
+                        </span>
+                        <div>
+                          <strong>{check.label}</strong>
+                          <p>{check.message}</p>
+                          <small>{check.durationMs} ms</small>
+                        </div>
+                      </div>
+                    ))}
+                    <p className="ai-model-report-note">{modelReport.message}</p>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </section>
+        </div>
+      ) : null}
+
+      {historyOpen ? (
+        <div className="ai-session-overlay" role="presentation"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setHistoryOpen(false); }}>
+          <section className="ai-session-history ai-sessions-modal" role="dialog" aria-modal="true"
+            aria-label="Riwayat percakapan tersimpan" tabIndex={-1}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                setHistoryOpen(false);
+                inputRef.current?.focus();
+              }
+            }}>
+            <header className="ai-session-panel-head">
+              <div>
+                <strong>Riwayat sesi</strong>
+                <small>Pilih percakapan untuk melanjutkan. Hanya sesi pada workspace aktif yang ditampilkan.</small>
+              </div>
+              <button type="button" className="ai-icon-btn" autoFocus onClick={() => setHistoryOpen(false)} aria-label="Tutup riwayat"><IconX size={14} /></button>
+            </header>
+            {loadingSessions ? <p className="ai-session-empty">Memuat riwayat…</p> : workspaceSessions.length === 0 ? (
+              <p className="ai-session-empty">Belum ada percakapan tersimpan untuk workspace ini.</p>
+            ) : (
+              <div className="ai-session-list ai-sessions-modal-list">
+                {workspaceSessions.map(session => (
+                  <div className={'ai-session-item' + (session.id === conversationId ? ' active' : '')} key={session.id}>
+                    <button type="button" className="ai-session-open" disabled={loading}
+                      onClick={() => { setHistoryOpen(false); if (session.id !== conversationId) setConversationId(session.id); }}>
+                      <strong>{session.title || 'Percakapan baru'}</strong>
+                      <code className="ai-session-code">{session.id}</code>
+                      <span>{session.lastMessage || 'Belum ada pesan'}</span>
+                      <small>{new Date(session.updatedAt).toLocaleString()} · {session.messageCount} pesan · {session.checkpointCount} checkpoint{session.projectPath ? ' · ' + pathName(session.projectPath) : ''}</small>
+                    </button>
+                    <button type="button" className="ai-icon-btn ai-session-delete" title="Hapus riwayat ini"
+                      aria-label={'Hapus riwayat ' + (session.title || session.id)} disabled={loading}
+                      onClick={() => void deleteStoredSession(session.id)}><IconTrash size={13} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      ) : null}
+
+      {checkpointsOpen ? (
+        <section className="ai-session-history ai-checkpoint-panel" aria-label="Checkpoint perubahan file">
+          <header className="ai-session-panel-head">
+            <div>
+              <strong>Checkpoint perubahan file</strong>
+              <small>Rewind/redo hanya berjalan jika isi file masih cocok dengan checkpoint. Perubahan manual yang konflik tidak akan ditimpa.</small>
+            </div>
+            <button type="button" className="ai-icon-btn" onClick={() => setCheckpointsOpen(false)} aria-label="Tutup checkpoint"><IconX size={14} /></button>
+          </header>
+          {checkpoints.length === 0 ? <p className="ai-session-empty">Belum ada checkpoint untuk sesi ini. Checkpoint dibuat saat agent menulis file melalui tool-nya.</p> : (
+            <div className="ai-checkpoint-list">
+              {checkpoints.map(checkpoint => (
+                <article className="ai-checkpoint-item" key={checkpoint.id}>
+                  <div className="ai-checkpoint-info">
+                    <strong>{new Date(checkpoint.createdAt).toLocaleString()}</strong>
+                    <small>{checkpoint.paths.join(', ') || 'Perubahan file'}</small>
+                    <span className={'ai-checkpoint-status ' + checkpoint.status}>{checkpoint.status === 'applied' ? 'Perubahan aktif' : 'Sudah di-rewind'}</span>
+                  </div>
+                  {checkpoint.status === 'applied' ? (
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || !sessionProjectPath || !sameWorkspacePath(sessionProjectPath, wb.root) || checkpointActionBusy === checkpoint.id}
+                      onClick={() => void runCheckpointAction(checkpoint.id, 'rewind')}>
+                      {checkpointActionBusy === checkpoint.id ? 'Memulihkan…' : 'Rewind'}
+                    </button>
+                  ) : (
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || !sessionProjectPath || !sameWorkspacePath(sessionProjectPath, wb.root) || checkpointActionBusy === checkpoint.id}
+                      onClick={() => void runCheckpointAction(checkpoint.id, 'redo')}>
+                      {checkpointActionBusy === checkpoint.id ? 'Menerapkan…' : 'Redo'}
+                    </button>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      <div className="ai-agent-toolbar">
+        <div className="ai-workspace-status">
+          <span className={wb.root ? 'ready' : 'missing'} />
+          {wb.root ? 'Agent bekerja di folder project aktif' : 'Belum ada workspace'}
+        </div>
+        <button type="button" className={'ai-clear-btn' + (checkpointsOpen ? ' active' : '')}
+          onClick={() => { setCheckpointsOpen(open => !open); setHistoryOpen(false); }} title="Checkpoint dan rewind">
+          ↶ Checkpoint ({checkpoints.length})
+        </button>
+        {loading ? (
+          <button type="button" className="ai-clear-btn" onClick={() => void stopAgent()} title="Hentikan agent">
+            ■ Hentikan
+          </button>
+        ) : null}
+        <button type="button" className="ai-clear-btn" onClick={clearChat} disabled={messages.length === 0 && !loading}>
+          <IconTrash size={13} /> Chat baru
+        </button>
+      </div>
+
+      {!routerStatus?.configured ? (
+        <section className="ai-setup-needed">
+          <div className="ai-setup-icon">⚙</div>
+          <strong>Hubungkan provider AI sebelum mulai chat</strong>
+          <p>Pilih OpenRouter atau Google Gemini API, lalu simpan API key aktif. API key yang pernah dipublikasikan harus dicabut dan diganti.</p>
+          <button type="button" onClick={() => setSettingsOpen(true)}>Buka pengaturan AI</button>
+        </section>
+      ) : null}
+
+      <main className="ai-workspace-main">
+        <div className="ai-chat-column">
+          <div className="ai-messages" ref={messagesViewportRef} onScroll={handleMessagesScroll}>
+            {messages.filter((message) => message.role !== 'system' && message.content).length === 0 && !loading ? (
+              <div className="ai-empty">
+                <span className="ai-empty-icon">{activeAgent?.icon ?? '🌊'}</span>
+                <p className="ai-empty-title">Mulai coding bersama AI</p>
+                <p className="ai-empty-sub">
+                  Agent dapat membaca file, mencari simbol, membuat file, dan menulis perubahan ke workspace aktif. Saat kode berubah, periksa detail diff untuk melihat baris yang ditambahkan, diubah, atau dihapus.
+                </p>
+                <div className="ai-starter-prompts">
+                  <button type="button" onClick={() => setInput('Periksa struktur project ini dan jelaskan file penting yang ditemukan.')}>Jelaskan struktur project</button>
+                  <button type="button" onClick={() => setInput('Periksa file yang sedang terbuka, cari masalah, dan perbaiki langsung di workspace.') } disabled={!wb.activePath}>Periksa file terbuka</button>
+                  <button type="button" onClick={() => setInput('Tinjau project ini, jalankan analisis kode, dan sarankan perbaikan yang bisa diimplementasikan.')}>Tinjau kualitas kode</button>
+                </div>
+              </div>
+            ) : (
+              <AgentWorkTimeline
+                messages={messages}
+                activities={toolActivities}
+                terminalHistory={terminalHistory}
+                lastRunResult={lastRunResult}
+                copiedMessage={copiedMsg}
+                copiedTerminalId={terminalCopiedId}
+                checkpoints={checkpoints}
+                onMessageCopy={saveCopied}
+                onMessageRefork={(message) => void reforkFromMessage(message)}
+                onMessageRewind={rewindFromMessage}
+                messageActionsDisabled={loading || !sessionReady || !wb.root || pendingAttachments.length > 0}
+                onTerminalCopy={(entry) => void copyTerminalDiagnostics(entry)}
+              />
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          <div
+            className="ai-run-dock"
+            data-active={Boolean(loading || permission || agentQuestion || error)}
+            data-awaiting-response={Boolean(permission || agentQuestion)}
+          >
+            {loading || permission || agentQuestion ? (
+              <div className="ai-run-status-row" role="status">
+                {loading && !permission && !agentQuestion ? <Spinner size={15} /> : <span className="ai-run-status-dot" />}
+                <div>
+                  <strong>{permission ? 'Menunggu persetujuan terminal' : agentQuestion ? 'Menunggu jawabanmu' : 'AI sedang bekerja…'}</strong>
+                  <small title={activity || undefined}>{permission || agentQuestion ? 'Agent melanjutkan setelah keputusanmu dikirim' : 'Setiap langkah dan hasil tampil sebagai item di percakapan'}</small>
+                </div>
+                {loading ? <button type="button" className="ai-dock-stop" onClick={() => void stopAgent()}>Hentikan</button> : null}
+              </div>
+            ) : null}
+
+            {permission ? (
+              <section className="ai-permission-card ai-dock-interaction" aria-label="Persetujuan command terminal" aria-live="polite">
+                <div className="ai-permission-heading">
+                  <strong>Persetujuan terminal diperlukan</strong><span>Belum dijalankan</span>
+                </div>
+                <p>{permission.reason}</p>
+                <pre>{permission.command}</pre>
+                <small className="ai-interaction-guidance">Periksa command dan alasannya. Command hanya berjalan setelah kamu menyetujuinya.</small>
+                <div className="ai-permission-actions">
+                  <button type="button" className="ai-permission-deny" onClick={() => void resolvePermission(false)}>Tolak command</button>
+                  <button type="button" className="ai-permission-approve" onClick={() => void resolvePermission(true)}>Izinkan sekali</button>
+                </div>
+              </section>
+            ) : null}
+
+            {agentQuestion ? (
+              <section className="ai-question-card ai-dock-interaction" aria-label="Pertanyaan dari AI Agent" aria-live="polite">
+                <header className="ai-question-heading">
+                  <div><span className="ai-question-eyebrow">BUTUH KEPUTUSANMU</span><strong>{agentQuestion.question}</strong></div>
+                  <span className="ai-question-chip">Menunggu jawaban</span>
+                </header>
+                <p className="ai-question-context">{agentQuestion.context}</p>
+                <div className="ai-question-recommendation">
+                  <strong>Alasan rekomendasi</strong>
+                  <p>{agentQuestion.recommendationReason}</p>
+                </div>
+                <div className="ai-question-options" role="group" aria-label="Pilihan jawaban">
+                  {agentQuestion.options.map((option, index) => {
+                    const optionNumber = index + 1;
+                    const recommended = optionNumber === agentQuestion.recommendedOption;
+                    return (
+                      <button
+                        type="button"
+                        key={optionNumber}
+                        className={'ai-question-option' + (selectedQuestionOption === optionNumber ? ' selected' : '') + (recommended ? ' recommended' : '')}
+                        onClick={() => { setSelectedQuestionOption(optionNumber); setCustomQuestionAnswer(''); }}
+                        disabled={submittingQuestion}
+                        aria-pressed={selectedQuestionOption === optionNumber}
+                      >
+                        <span className="ai-question-option-top">
+                          <strong>{option.label}</strong>
+                          {recommended ? <span className="ai-recommended-label">Rekomendasi</span> : null}
+                        </span>
+                        <small>{option.description}</small>
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    key="custom"
+                    className={'ai-question-option ai-question-option-custom' + (selectedQuestionOption === CUSTOM_QUESTION_OPTION ? ' selected' : '')}
+                    onClick={() => { setSelectedQuestionOption(CUSTOM_QUESTION_OPTION); setCustomQuestionAnswer(''); }}
+                    disabled={submittingQuestion}
+                    aria-pressed={selectedQuestionOption === CUSTOM_QUESTION_OPTION}
+                  >
+                    <span className="ai-question-option-top">
+                      <strong>4. Custom (tulis sendiri)</strong>
+                    </span>
+                    <small>Tulis keputusan atau instruksi sendiri di luar tiga pilihan di atas.</small>
+                  </button>
+                </div>
+                {selectedQuestionOption === CUSTOM_QUESTION_OPTION ? (
+                  <div className="ai-question-custom">
+                    <label htmlFor="ai-question-custom-answer">Jawaban custom</label>
+                    <input
+                      id="ai-question-custom-answer"
+                      autoFocus
+                      value={customQuestionAnswer}
+                      onChange={(event) => setCustomQuestionAnswer(event.target.value)}
+                      maxLength={2000}
+                      placeholder="Masukkan keputusan atau instruksi khusus…"
+                      disabled={submittingQuestion}
+                    />
+                  </div>
+                ) : null}
+                <footer className="ai-question-actions">
+                  <span>Rekomendasi tidak dipilih otomatis. Agent menunggu keputusanmu.</span>
+                  <button
+                    type="button"
+                    className="ai-question-submit"
+                    disabled={submittingQuestion || (
+                      selectedQuestionOption === CUSTOM_QUESTION_OPTION
+                        ? !customQuestionAnswer.trim()
+                        : selectedQuestionOption === null
+                    )}
+                    onClick={() => void answerAgentQuestion()}
+                  >
+                    {submittingQuestion ? <Spinner size={14} /> : null}
+                    {submittingQuestion ? 'Mengirim…' : 'Kirim jawaban'}
+                  </button>
+                </footer>
+              </section>
+            ) : null}
+
+            {error ? <div className="ai-error ai-run-dock-error" role="alert">{error}</div> : null}
+          </div>
+
+          <div className={'ai-composer' + (permission || agentQuestion ? ' has-interaction' : '')}>
+            <div className="ai-composer-context">
+              <span>{permission ? 'Persetujuan command diperlukan' : agentQuestion ? 'Jawab pertanyaan agent di panel ini' : wb.activePath ? pathName(wb.activePath) : pathName(wb.root)}</span>
+              <span>{permission || agentQuestion ? 'Agent menunggu keputusanmu' : 'Enter untuk kirim · Shift+Enter untuk baris baru'}</span>
+            </div>
+            {pendingAttachments.length ? (
+              <div className="ai-pending-attachments" aria-label="Lampiran siap dikirim">
+                {pendingAttachments.map(item => (
+                  <span className="ai-attachment-chip" key={item.id} title={item.mimeType}>
+                    <span aria-hidden="true">▤</span><span>{item.name}</span>
+                    <button type="button" aria-label={'Hapus lampiran ' + item.name} disabled={loading}
+                      onClick={() => setPendingAttachments(items => items.filter(x => x.id !== item.id))}><IconX size={12} /></button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {slashMenuOpen ? (
+              <div className="ai-slash-menu" role="listbox" aria-label="Perintah Agentic Coding">
+                <div className="ai-slash-menu-heading">Perintah</div>
+                {filteredSlashCommands.length ? filteredSlashCommands.map((item, index) => (
+                  <button
+                    type="button"
+                    key={item.command}
+                    className={'ai-slash-command' + (index === activeSlashCommandIndex ? ' active' : '')}
+                    role="option"
+                    aria-selected={index === activeSlashCommandIndex}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setActiveSlashCommandIndex(index)}
+                    onClick={() => executeSlashCommand(item.command)}
+                  >
+                    <span className="ai-slash-command-icon" aria-hidden="true">{item.icon}</span>
+                    <span className="ai-slash-command-copy">
+                      <strong>{item.command}</strong>
+                      <small>{item.description}</small>
+                    </span>
+                    <span className="ai-slash-command-title">{item.title}</span>
+                  </button>
+                )) : <p className="ai-slash-menu-empty">Tidak ada perintah yang cocok.</p>}
+                <div className="ai-slash-menu-hint"><kbd>↑</kbd><kbd>↓</kbd> pilih <kbd>Enter</kbd> buka <kbd>Esc</kbd> tutup</div>
+              </div>
+            ) : null}
+            <div className="ai-input-row">
+              <button type="button" className="ai-attach-btn" aria-label="Lampirkan file"
+                title="Lampirkan gambar, dokumen, audio, video, atau file teks"
+                disabled={loading || selectingAttachments || !sessionReady || !wb.root}
+                onClick={() => void pickAttachments()}>
+                {selectingAttachments ? <Spinner size={16} /> : <IconPlus size={17} />}
+              </button>
+              <textarea
+                ref={inputRef}
+                className="ai-input"
+                value={input}
+                onChange={(event) => {
+                  const nextInput = event.target.value;
+                  setInput(nextInput);
+                  const trimmedStart = nextInput.trimStart();
+                  const opensCommandMenu = trimmedStart.startsWith('/') && !/\s/.test(trimmedStart);
+                  setSlashMenuOpen(opensCommandMenu);
+                  setActiveSlashCommandIndex(0);
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder={permission ? 'Setujui atau tolak command di panel di atas…' : agentQuestion ? 'Pilih opsi atau tulis jawaban custom pada panel di atas…' : loading ? 'Agent sedang bekerja…' : !sessionReady ? 'Menyiapkan sesi AI baru…' : !routerStatus?.configured ? 'Ketik /connect untuk menghubungkan AI, atau tulis instruksi…' : !wb.root ? 'Buka workspace proyek terlebih dahulu…' : 'Tulis instruksi atau ketik / untuk perintah…'}
+                rows={3}
+                disabled={loading || !sessionReady || !activeAgent}
+                aria-label="Pesan AI coding agent"
+              />
+              <button
+                type="button"
+                className="ai-send-btn"
+                onClick={() => void sendMessage()}
+                disabled={loading || (!input.trim() && pendingAttachments.length === 0) || !activeAgent || !wb.root}
+                title="Kirim (Enter)"
+              >
+                {loading ? <Spinner size={17} /> : <IconSend size={17} />}
+              </button>
+            </div>
+          </div>
+        </div>
+        <aside className="ai-agent-sidepanel" aria-label="Rincian kerja agent">
+          <section className="ai-side-card ai-side-workspace-card">
+            <div className="ai-side-card-title"><strong>Workspace aktif</strong><span className="ai-side-dot" /></div>
+            <div className="ai-root-path">{wb.root ?? 'Belum ada folder project'}</div>
+            {wb.activePath ? <div className="ai-active-file"><span>File terpilih di editor</span><code>{wb.activePath}</code></div> : null}
+          </section>
+
+          <section className="ai-side-card ai-side-skills-card">
+            <div className="ai-side-card-title">
+              <strong>Skill aktif</strong>
+              <span>{activeSkills.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-skills-scroll">
+              {activeSkills.length ? activeSkills.map((skill) => (
+                <div className="ai-side-skill" key={skill.id} title={skill.reason}>
+                  <strong>{skill.name}</strong>
+                  {skill.reason ? <small>{skill.reason}</small> : null}
+                </div>
+              )) : <p className="ai-side-empty">Skill yang digunakan selama tugas akan muncul di sini.</p>}
+            </div>
+          </section>
+
+          <section className="ai-side-card ai-side-tools-card">
+            <div className="ai-side-card-title">
+              <strong>Tool yang dipakai</strong>
+              <span>{toolActivities.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-tools-scroll">
+              {toolActivities.length ? toolActivities.slice(-12).slice().reverse().map((item) => (
+                <div className="ai-side-tool" key={item.id}>
+                  <span className={'ai-side-tool-mark status-' + item.status} aria-hidden="true">
+                    {item.status === 'running' ? '◌' : item.status === 'completed' ? '✓' : '×'}
+                  </span>
+                  <div>
+                    <strong>{AGENT_TOOL_DISPLAY_NAMES[item.name] || item.name}</strong>
+                    <small>{item.detail}</small>
+                  </div>
+                </div>
+              )) : <p className="ai-side-empty">Tool yang digunakan agent pada run ini akan tampil di sini.</p>}
+            </div>
+          </section>
+
+          <section className="ai-side-card ai-side-todo-card">
+            <div className="ai-side-card-title">
+              <strong>Todo List</strong>
+              <span>{todos.filter(todo => todo.status === 'completed').length}/{todos.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-todo-scroll">
+              {todos.length ? <TodoPanel todos={todos} /> : <p className="ai-side-empty">Rencana agent akan muncul di sini setelah Todo List dibuat.</p>}
+            </div>
+          </section>
+
+          <ChangeList changes={changes} onSelect={setSelectedChange} />
+        </aside>
+      </main>
+
+      <footer className="ai-panel-footer">
+        <span className="ai-footer-workspace">{wb.root ? 'Workspace siap' : 'Workspace belum aktif'}</span>
+        <span className="ai-footer-model">{routerStatus?.model ?? 'ps/poolside/laguna-s-2.1(high)'}</span>
+        <span className="ai-footer-shortcut">Ruang Kerja AI Agent · v{window.rk.version}</span>
+      </footer>
+
+      {selectedChange ? <DiffViewer change={selectedChange} onClose={() => setSelectedChange(null)} /> : null}
+    </section>
+  );
+}
+ + (model.promptPrice * 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }) : 'Harga tidak disediakan'}</strong></div>
+                              <div><small>Output token / 1 juta</small><strong>{model.completionPrice !== undefined ? '
+                </div>
+
+                <div className="ai-model-dialog-footer">
+                  <label className="ai-model-custom-id" htmlFor="rk-model-custom-id">
+                    <span>ID model pilihan</span>
+                    <input id="rk-model-custom-id" value={selectedModelDraft}
+                      onChange={(event) => setSelectedModelDraft(event.target.value)}
+                      maxLength={200} spellCheck={false} placeholder="Pilih dari katalog atau masukkan ID model…" />
+                  </label>
+                  <button type="button" className="ai-settings-save ai-model-apply"
+                    disabled={!selectedModelDraft.trim() || savingModel || loading || (selectedModelDraft.trim() === modelProviderInfo?.model && modelProviderDraft === routerStatus?.provider)}
+                    onClick={() => void saveSelectedModel()}>
+                    {savingModel ? 'Menyimpan…' : selectedModelDraft.trim() === modelProviderInfo?.model && modelProviderDraft === routerStatus?.provider ? 'Model sedang aktif' : 'Gunakan provider & model'}
+                  </button>
+                </div>
+
+                {error ? <div className="ai-model-catalog-error" role="alert">{error}</div> : null}
+                {modelReport ? (
+                  <div className="ai-model-report" role={modelReport.ok ? 'status' : 'alert'}>
+                    <div className="ai-model-report-head">
+                      <strong>{modelReport.ok ? 'Hasil diagnostik' : 'Model belum siap'}</strong>
+                      <small>{modelReport.model} · {new Date(modelReport.checkedAt).toLocaleString()}</small>
+                    </div>
+                    {modelReport.checks.map(check => (
+                      <div className="ai-model-check" key={check.id}>
+                        <span className={'ai-model-check-state ' + check.status}>
+                          {check.status === 'supported' ? 'Lolos' : check.status === 'unsupported' ? 'Tidak didukung' : 'Belum pasti'}
+                        </span>
+                        <div>
+                          <strong>{check.label}</strong>
+                          <p>{check.message}</p>
+                          <small>{check.durationMs} ms</small>
+                        </div>
+                      </div>
+                    ))}
+                    <p className="ai-model-report-note">{modelReport.message}</p>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </section>
+        </div>
+      ) : null}
+
+      {historyOpen ? (
+        <div className="ai-session-overlay" role="presentation"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setHistoryOpen(false); }}>
+          <section className="ai-session-history ai-sessions-modal" role="dialog" aria-modal="true"
+            aria-label="Riwayat percakapan tersimpan" tabIndex={-1}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                setHistoryOpen(false);
+                inputRef.current?.focus();
+              }
+            }}>
+            <header className="ai-session-panel-head">
+              <div>
+                <strong>Riwayat sesi</strong>
+                <small>Pilih percakapan untuk melanjutkan. Hanya sesi pada workspace aktif yang ditampilkan.</small>
+              </div>
+              <button type="button" className="ai-icon-btn" autoFocus onClick={() => setHistoryOpen(false)} aria-label="Tutup riwayat"><IconX size={14} /></button>
+            </header>
+            {loadingSessions ? <p className="ai-session-empty">Memuat riwayat…</p> : workspaceSessions.length === 0 ? (
+              <p className="ai-session-empty">Belum ada percakapan tersimpan untuk workspace ini.</p>
+            ) : (
+              <div className="ai-session-list ai-sessions-modal-list">
+                {workspaceSessions.map(session => (
+                  <div className={'ai-session-item' + (session.id === conversationId ? ' active' : '')} key={session.id}>
+                    <button type="button" className="ai-session-open" disabled={loading}
+                      onClick={() => { setHistoryOpen(false); if (session.id !== conversationId) setConversationId(session.id); }}>
+                      <strong>{session.title || 'Percakapan baru'}</strong>
+                      <code className="ai-session-code">{session.id}</code>
+                      <span>{session.lastMessage || 'Belum ada pesan'}</span>
+                      <small>{new Date(session.updatedAt).toLocaleString()} · {session.messageCount} pesan · {session.checkpointCount} checkpoint{session.projectPath ? ' · ' + pathName(session.projectPath) : ''}</small>
+                    </button>
+                    <button type="button" className="ai-icon-btn ai-session-delete" title="Hapus riwayat ini"
+                      aria-label={'Hapus riwayat ' + (session.title || session.id)} disabled={loading}
+                      onClick={() => void deleteStoredSession(session.id)}><IconTrash size={13} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      ) : null}
+
+      {checkpointsOpen ? (
+        <section className="ai-session-history ai-checkpoint-panel" aria-label="Checkpoint perubahan file">
+          <header className="ai-session-panel-head">
+            <div>
+              <strong>Checkpoint perubahan file</strong>
+              <small>Rewind/redo hanya berjalan jika isi file masih cocok dengan checkpoint. Perubahan manual yang konflik tidak akan ditimpa.</small>
+            </div>
+            <button type="button" className="ai-icon-btn" onClick={() => setCheckpointsOpen(false)} aria-label="Tutup checkpoint"><IconX size={14} /></button>
+          </header>
+          {checkpoints.length === 0 ? <p className="ai-session-empty">Belum ada checkpoint untuk sesi ini. Checkpoint dibuat saat agent menulis file melalui tool-nya.</p> : (
+            <div className="ai-checkpoint-list">
+              {checkpoints.map(checkpoint => (
+                <article className="ai-checkpoint-item" key={checkpoint.id}>
+                  <div className="ai-checkpoint-info">
+                    <strong>{new Date(checkpoint.createdAt).toLocaleString()}</strong>
+                    <small>{checkpoint.paths.join(', ') || 'Perubahan file'}</small>
+                    <span className={'ai-checkpoint-status ' + checkpoint.status}>{checkpoint.status === 'applied' ? 'Perubahan aktif' : 'Sudah di-rewind'}</span>
+                  </div>
+                  {checkpoint.status === 'applied' ? (
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || !sessionProjectPath || !sameWorkspacePath(sessionProjectPath, wb.root) || checkpointActionBusy === checkpoint.id}
+                      onClick={() => void runCheckpointAction(checkpoint.id, 'rewind')}>
+                      {checkpointActionBusy === checkpoint.id ? 'Memulihkan…' : 'Rewind'}
+                    </button>
+                  ) : (
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || !sessionProjectPath || !sameWorkspacePath(sessionProjectPath, wb.root) || checkpointActionBusy === checkpoint.id}
+                      onClick={() => void runCheckpointAction(checkpoint.id, 'redo')}>
+                      {checkpointActionBusy === checkpoint.id ? 'Menerapkan…' : 'Redo'}
+                    </button>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      <div className="ai-agent-toolbar">
+        <div className="ai-workspace-status">
+          <span className={wb.root ? 'ready' : 'missing'} />
+          {wb.root ? 'Agent bekerja di folder project aktif' : 'Belum ada workspace'}
+        </div>
+        <button type="button" className={'ai-clear-btn' + (checkpointsOpen ? ' active' : '')}
+          onClick={() => { setCheckpointsOpen(open => !open); setHistoryOpen(false); }} title="Checkpoint dan rewind">
+          ↶ Checkpoint ({checkpoints.length})
+        </button>
+        {loading ? (
+          <button type="button" className="ai-clear-btn" onClick={() => void stopAgent()} title="Hentikan agent">
+            ■ Hentikan
+          </button>
+        ) : null}
+        <button type="button" className="ai-clear-btn" onClick={clearChat} disabled={messages.length === 0 && !loading}>
+          <IconTrash size={13} /> Chat baru
+        </button>
+      </div>
+
+      {!routerStatus?.configured ? (
+        <section className="ai-setup-needed">
+          <div className="ai-setup-icon">⚙</div>
+          <strong>Hubungkan provider AI sebelum mulai chat</strong>
+          <p>Pilih OpenRouter atau Google Gemini API, lalu simpan API key aktif. API key yang pernah dipublikasikan harus dicabut dan diganti.</p>
+          <button type="button" onClick={() => setSettingsOpen(true)}>Buka pengaturan AI</button>
+        </section>
+      ) : null}
+
+      <main className="ai-workspace-main">
+        <div className="ai-chat-column">
+          <div className="ai-messages" ref={messagesViewportRef} onScroll={handleMessagesScroll}>
+            {messages.filter((message) => message.role !== 'system' && message.content).length === 0 && !loading ? (
+              <div className="ai-empty">
+                <span className="ai-empty-icon">{activeAgent?.icon ?? '🌊'}</span>
+                <p className="ai-empty-title">Mulai coding bersama AI</p>
+                <p className="ai-empty-sub">
+                  Agent dapat membaca file, mencari simbol, membuat file, dan menulis perubahan ke workspace aktif. Saat kode berubah, periksa detail diff untuk melihat baris yang ditambahkan, diubah, atau dihapus.
+                </p>
+                <div className="ai-starter-prompts">
+                  <button type="button" onClick={() => setInput('Periksa struktur project ini dan jelaskan file penting yang ditemukan.')}>Jelaskan struktur project</button>
+                  <button type="button" onClick={() => setInput('Periksa file yang sedang terbuka, cari masalah, dan perbaiki langsung di workspace.') } disabled={!wb.activePath}>Periksa file terbuka</button>
+                  <button type="button" onClick={() => setInput('Tinjau project ini, jalankan analisis kode, dan sarankan perbaikan yang bisa diimplementasikan.')}>Tinjau kualitas kode</button>
+                </div>
+              </div>
+            ) : (
+              <AgentWorkTimeline
+                messages={messages}
+                activities={toolActivities}
+                terminalHistory={terminalHistory}
+                lastRunResult={lastRunResult}
+                copiedMessage={copiedMsg}
+                copiedTerminalId={terminalCopiedId}
+                checkpoints={checkpoints}
+                onMessageCopy={saveCopied}
+                onMessageRefork={(message) => void reforkFromMessage(message)}
+                onMessageRewind={rewindFromMessage}
+                messageActionsDisabled={loading || !sessionReady || !wb.root || pendingAttachments.length > 0}
+                onTerminalCopy={(entry) => void copyTerminalDiagnostics(entry)}
+              />
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          <div
+            className="ai-run-dock"
+            data-active={Boolean(loading || permission || agentQuestion || error)}
+            data-awaiting-response={Boolean(permission || agentQuestion)}
+          >
+            {loading || permission || agentQuestion ? (
+              <div className="ai-run-status-row" role="status">
+                {loading && !permission && !agentQuestion ? <Spinner size={15} /> : <span className="ai-run-status-dot" />}
+                <div>
+                  <strong>{permission ? 'Menunggu persetujuan terminal' : agentQuestion ? 'Menunggu jawabanmu' : 'AI sedang bekerja…'}</strong>
+                  <small title={activity || undefined}>{permission || agentQuestion ? 'Agent melanjutkan setelah keputusanmu dikirim' : 'Setiap langkah dan hasil tampil sebagai item di percakapan'}</small>
+                </div>
+                {loading ? <button type="button" className="ai-dock-stop" onClick={() => void stopAgent()}>Hentikan</button> : null}
+              </div>
+            ) : null}
+
+            {permission ? (
+              <section className="ai-permission-card ai-dock-interaction" aria-label="Persetujuan command terminal" aria-live="polite">
+                <div className="ai-permission-heading">
+                  <strong>Persetujuan terminal diperlukan</strong><span>Belum dijalankan</span>
+                </div>
+                <p>{permission.reason}</p>
+                <pre>{permission.command}</pre>
+                <small className="ai-interaction-guidance">Periksa command dan alasannya. Command hanya berjalan setelah kamu menyetujuinya.</small>
+                <div className="ai-permission-actions">
+                  <button type="button" className="ai-permission-deny" onClick={() => void resolvePermission(false)}>Tolak command</button>
+                  <button type="button" className="ai-permission-approve" onClick={() => void resolvePermission(true)}>Izinkan sekali</button>
+                </div>
+              </section>
+            ) : null}
+
+            {agentQuestion ? (
+              <section className="ai-question-card ai-dock-interaction" aria-label="Pertanyaan dari AI Agent" aria-live="polite">
+                <header className="ai-question-heading">
+                  <div><span className="ai-question-eyebrow">BUTUH KEPUTUSANMU</span><strong>{agentQuestion.question}</strong></div>
+                  <span className="ai-question-chip">Menunggu jawaban</span>
+                </header>
+                <p className="ai-question-context">{agentQuestion.context}</p>
+                <div className="ai-question-recommendation">
+                  <strong>Alasan rekomendasi</strong>
+                  <p>{agentQuestion.recommendationReason}</p>
+                </div>
+                <div className="ai-question-options" role="group" aria-label="Pilihan jawaban">
+                  {agentQuestion.options.map((option, index) => {
+                    const optionNumber = index + 1;
+                    const recommended = optionNumber === agentQuestion.recommendedOption;
+                    return (
+                      <button
+                        type="button"
+                        key={optionNumber}
+                        className={'ai-question-option' + (selectedQuestionOption === optionNumber ? ' selected' : '') + (recommended ? ' recommended' : '')}
+                        onClick={() => { setSelectedQuestionOption(optionNumber); setCustomQuestionAnswer(''); }}
+                        disabled={submittingQuestion}
+                        aria-pressed={selectedQuestionOption === optionNumber}
+                      >
+                        <span className="ai-question-option-top">
+                          <strong>{option.label}</strong>
+                          {recommended ? <span className="ai-recommended-label">Rekomendasi</span> : null}
+                        </span>
+                        <small>{option.description}</small>
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    key="custom"
+                    className={'ai-question-option ai-question-option-custom' + (selectedQuestionOption === CUSTOM_QUESTION_OPTION ? ' selected' : '')}
+                    onClick={() => { setSelectedQuestionOption(CUSTOM_QUESTION_OPTION); setCustomQuestionAnswer(''); }}
+                    disabled={submittingQuestion}
+                    aria-pressed={selectedQuestionOption === CUSTOM_QUESTION_OPTION}
+                  >
+                    <span className="ai-question-option-top">
+                      <strong>4. Custom (tulis sendiri)</strong>
+                    </span>
+                    <small>Tulis keputusan atau instruksi sendiri di luar tiga pilihan di atas.</small>
+                  </button>
+                </div>
+                {selectedQuestionOption === CUSTOM_QUESTION_OPTION ? (
+                  <div className="ai-question-custom">
+                    <label htmlFor="ai-question-custom-answer">Jawaban custom</label>
+                    <input
+                      id="ai-question-custom-answer"
+                      autoFocus
+                      value={customQuestionAnswer}
+                      onChange={(event) => setCustomQuestionAnswer(event.target.value)}
+                      maxLength={2000}
+                      placeholder="Masukkan keputusan atau instruksi khusus…"
+                      disabled={submittingQuestion}
+                    />
+                  </div>
+                ) : null}
+                <footer className="ai-question-actions">
+                  <span>Rekomendasi tidak dipilih otomatis. Agent menunggu keputusanmu.</span>
+                  <button
+                    type="button"
+                    className="ai-question-submit"
+                    disabled={submittingQuestion || (
+                      selectedQuestionOption === CUSTOM_QUESTION_OPTION
+                        ? !customQuestionAnswer.trim()
+                        : selectedQuestionOption === null
+                    )}
+                    onClick={() => void answerAgentQuestion()}
+                  >
+                    {submittingQuestion ? <Spinner size={14} /> : null}
+                    {submittingQuestion ? 'Mengirim…' : 'Kirim jawaban'}
+                  </button>
+                </footer>
+              </section>
+            ) : null}
+
+            {error ? <div className="ai-error ai-run-dock-error" role="alert">{error}</div> : null}
+          </div>
+
+          <div className={'ai-composer' + (permission || agentQuestion ? ' has-interaction' : '')}>
+            <div className="ai-composer-context">
+              <span>{permission ? 'Persetujuan command diperlukan' : agentQuestion ? 'Jawab pertanyaan agent di panel ini' : wb.activePath ? pathName(wb.activePath) : pathName(wb.root)}</span>
+              <span>{permission || agentQuestion ? 'Agent menunggu keputusanmu' : 'Enter untuk kirim · Shift+Enter untuk baris baru'}</span>
+            </div>
+            {pendingAttachments.length ? (
+              <div className="ai-pending-attachments" aria-label="Lampiran siap dikirim">
+                {pendingAttachments.map(item => (
+                  <span className="ai-attachment-chip" key={item.id} title={item.mimeType}>
+                    <span aria-hidden="true">▤</span><span>{item.name}</span>
+                    <button type="button" aria-label={'Hapus lampiran ' + item.name} disabled={loading}
+                      onClick={() => setPendingAttachments(items => items.filter(x => x.id !== item.id))}><IconX size={12} /></button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {slashMenuOpen ? (
+              <div className="ai-slash-menu" role="listbox" aria-label="Perintah Agentic Coding">
+                <div className="ai-slash-menu-heading">Perintah</div>
+                {filteredSlashCommands.length ? filteredSlashCommands.map((item, index) => (
+                  <button
+                    type="button"
+                    key={item.command}
+                    className={'ai-slash-command' + (index === activeSlashCommandIndex ? ' active' : '')}
+                    role="option"
+                    aria-selected={index === activeSlashCommandIndex}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setActiveSlashCommandIndex(index)}
+                    onClick={() => executeSlashCommand(item.command)}
+                  >
+                    <span className="ai-slash-command-icon" aria-hidden="true">{item.icon}</span>
+                    <span className="ai-slash-command-copy">
+                      <strong>{item.command}</strong>
+                      <small>{item.description}</small>
+                    </span>
+                    <span className="ai-slash-command-title">{item.title}</span>
+                  </button>
+                )) : <p className="ai-slash-menu-empty">Tidak ada perintah yang cocok.</p>}
+                <div className="ai-slash-menu-hint"><kbd>↑</kbd><kbd>↓</kbd> pilih <kbd>Enter</kbd> buka <kbd>Esc</kbd> tutup</div>
+              </div>
+            ) : null}
+            <div className="ai-input-row">
+              <button type="button" className="ai-attach-btn" aria-label="Lampirkan file"
+                title="Lampirkan gambar, dokumen, audio, video, atau file teks"
+                disabled={loading || selectingAttachments || !sessionReady || !wb.root}
+                onClick={() => void pickAttachments()}>
+                {selectingAttachments ? <Spinner size={16} /> : <IconPlus size={17} />}
+              </button>
+              <textarea
+                ref={inputRef}
+                className="ai-input"
+                value={input}
+                onChange={(event) => {
+                  const nextInput = event.target.value;
+                  setInput(nextInput);
+                  const trimmedStart = nextInput.trimStart();
+                  const opensCommandMenu = trimmedStart.startsWith('/') && !/\s/.test(trimmedStart);
+                  setSlashMenuOpen(opensCommandMenu);
+                  setActiveSlashCommandIndex(0);
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder={permission ? 'Setujui atau tolak command di panel di atas…' : agentQuestion ? 'Pilih opsi atau tulis jawaban custom pada panel di atas…' : loading ? 'Agent sedang bekerja…' : !sessionReady ? 'Menyiapkan sesi AI baru…' : !routerStatus?.configured ? 'Ketik /connect untuk menghubungkan AI, atau tulis instruksi…' : !wb.root ? 'Buka workspace proyek terlebih dahulu…' : 'Tulis instruksi atau ketik / untuk perintah…'}
+                rows={3}
+                disabled={loading || !sessionReady || !activeAgent}
+                aria-label="Pesan AI coding agent"
+              />
+              <button
+                type="button"
+                className="ai-send-btn"
+                onClick={() => void sendMessage()}
+                disabled={loading || (!input.trim() && pendingAttachments.length === 0) || !activeAgent || !wb.root}
+                title="Kirim (Enter)"
+              >
+                {loading ? <Spinner size={17} /> : <IconSend size={17} />}
+              </button>
+            </div>
+          </div>
+        </div>
+        <aside className="ai-agent-sidepanel" aria-label="Rincian kerja agent">
+          <section className="ai-side-card ai-side-workspace-card">
+            <div className="ai-side-card-title"><strong>Workspace aktif</strong><span className="ai-side-dot" /></div>
+            <div className="ai-root-path">{wb.root ?? 'Belum ada folder project'}</div>
+            {wb.activePath ? <div className="ai-active-file"><span>File terpilih di editor</span><code>{wb.activePath}</code></div> : null}
+          </section>
+
+          <section className="ai-side-card ai-side-skills-card">
+            <div className="ai-side-card-title">
+              <strong>Skill aktif</strong>
+              <span>{activeSkills.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-skills-scroll">
+              {activeSkills.length ? activeSkills.map((skill) => (
+                <div className="ai-side-skill" key={skill.id} title={skill.reason}>
+                  <strong>{skill.name}</strong>
+                  {skill.reason ? <small>{skill.reason}</small> : null}
+                </div>
+              )) : <p className="ai-side-empty">Skill yang digunakan selama tugas akan muncul di sini.</p>}
+            </div>
+          </section>
+
+          <section className="ai-side-card ai-side-tools-card">
+            <div className="ai-side-card-title">
+              <strong>Tool yang dipakai</strong>
+              <span>{toolActivities.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-tools-scroll">
+              {toolActivities.length ? toolActivities.slice(-12).slice().reverse().map((item) => (
+                <div className="ai-side-tool" key={item.id}>
+                  <span className={'ai-side-tool-mark status-' + item.status} aria-hidden="true">
+                    {item.status === 'running' ? '◌' : item.status === 'completed' ? '✓' : '×'}
+                  </span>
+                  <div>
+                    <strong>{AGENT_TOOL_DISPLAY_NAMES[item.name] || item.name}</strong>
+                    <small>{item.detail}</small>
+                  </div>
+                </div>
+              )) : <p className="ai-side-empty">Tool yang digunakan agent pada run ini akan tampil di sini.</p>}
+            </div>
+          </section>
+
+          <section className="ai-side-card ai-side-todo-card">
+            <div className="ai-side-card-title">
+              <strong>Todo List</strong>
+              <span>{todos.filter(todo => todo.status === 'completed').length}/{todos.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-todo-scroll">
+              {todos.length ? <TodoPanel todos={todos} /> : <p className="ai-side-empty">Rencana agent akan muncul di sini setelah Todo List dibuat.</p>}
+            </div>
+          </section>
+
+          <ChangeList changes={changes} onSelect={setSelectedChange} />
+        </aside>
+      </main>
+
+      <footer className="ai-panel-footer">
+        <span className="ai-footer-workspace">{wb.root ? 'Workspace siap' : 'Workspace belum aktif'}</span>
+        <span className="ai-footer-model">{routerStatus?.model ?? 'ps/poolside/laguna-s-2.1(high)'}</span>
+        <span className="ai-footer-shortcut">Ruang Kerja AI Agent · v{window.rk.version}</span>
+      </footer>
+
+      {selectedChange ? <DiffViewer change={selectedChange} onClose={() => setSelectedChange(null)} /> : null}
+    </section>
+  );
+}
+ + (model.completionPrice * 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }) : 'Harga tidak disediakan'}</strong></div>
+                              <div><small>Request</small><strong>{model.requestPrice !== undefined ? '
+                </div>
+
+                <div className="ai-model-dialog-footer">
+                  <label className="ai-model-custom-id" htmlFor="rk-model-custom-id">
+                    <span>ID model pilihan</span>
+                    <input id="rk-model-custom-id" value={selectedModelDraft}
+                      onChange={(event) => setSelectedModelDraft(event.target.value)}
+                      maxLength={200} spellCheck={false} placeholder="Pilih dari katalog atau masukkan ID model…" />
+                  </label>
+                  <button type="button" className="ai-settings-save ai-model-apply"
+                    disabled={!selectedModelDraft.trim() || savingModel || loading || (selectedModelDraft.trim() === modelProviderInfo?.model && modelProviderDraft === routerStatus?.provider)}
+                    onClick={() => void saveSelectedModel()}>
+                    {savingModel ? 'Menyimpan…' : selectedModelDraft.trim() === modelProviderInfo?.model && modelProviderDraft === routerStatus?.provider ? 'Model sedang aktif' : 'Gunakan provider & model'}
+                  </button>
+                </div>
+
+                {error ? <div className="ai-model-catalog-error" role="alert">{error}</div> : null}
+                {modelReport ? (
+                  <div className="ai-model-report" role={modelReport.ok ? 'status' : 'alert'}>
+                    <div className="ai-model-report-head">
+                      <strong>{modelReport.ok ? 'Hasil diagnostik' : 'Model belum siap'}</strong>
+                      <small>{modelReport.model} · {new Date(modelReport.checkedAt).toLocaleString()}</small>
+                    </div>
+                    {modelReport.checks.map(check => (
+                      <div className="ai-model-check" key={check.id}>
+                        <span className={'ai-model-check-state ' + check.status}>
+                          {check.status === 'supported' ? 'Lolos' : check.status === 'unsupported' ? 'Tidak didukung' : 'Belum pasti'}
+                        </span>
+                        <div>
+                          <strong>{check.label}</strong>
+                          <p>{check.message}</p>
+                          <small>{check.durationMs} ms</small>
+                        </div>
+                      </div>
+                    ))}
+                    <p className="ai-model-report-note">{modelReport.message}</p>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </section>
+        </div>
+      ) : null}
+
+      {historyOpen ? (
+        <div className="ai-session-overlay" role="presentation"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setHistoryOpen(false); }}>
+          <section className="ai-session-history ai-sessions-modal" role="dialog" aria-modal="true"
+            aria-label="Riwayat percakapan tersimpan" tabIndex={-1}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                setHistoryOpen(false);
+                inputRef.current?.focus();
+              }
+            }}>
+            <header className="ai-session-panel-head">
+              <div>
+                <strong>Riwayat sesi</strong>
+                <small>Pilih percakapan untuk melanjutkan. Hanya sesi pada workspace aktif yang ditampilkan.</small>
+              </div>
+              <button type="button" className="ai-icon-btn" autoFocus onClick={() => setHistoryOpen(false)} aria-label="Tutup riwayat"><IconX size={14} /></button>
+            </header>
+            {loadingSessions ? <p className="ai-session-empty">Memuat riwayat…</p> : workspaceSessions.length === 0 ? (
+              <p className="ai-session-empty">Belum ada percakapan tersimpan untuk workspace ini.</p>
+            ) : (
+              <div className="ai-session-list ai-sessions-modal-list">
+                {workspaceSessions.map(session => (
+                  <div className={'ai-session-item' + (session.id === conversationId ? ' active' : '')} key={session.id}>
+                    <button type="button" className="ai-session-open" disabled={loading}
+                      onClick={() => { setHistoryOpen(false); if (session.id !== conversationId) setConversationId(session.id); }}>
+                      <strong>{session.title || 'Percakapan baru'}</strong>
+                      <code className="ai-session-code">{session.id}</code>
+                      <span>{session.lastMessage || 'Belum ada pesan'}</span>
+                      <small>{new Date(session.updatedAt).toLocaleString()} · {session.messageCount} pesan · {session.checkpointCount} checkpoint{session.projectPath ? ' · ' + pathName(session.projectPath) : ''}</small>
+                    </button>
+                    <button type="button" className="ai-icon-btn ai-session-delete" title="Hapus riwayat ini"
+                      aria-label={'Hapus riwayat ' + (session.title || session.id)} disabled={loading}
+                      onClick={() => void deleteStoredSession(session.id)}><IconTrash size={13} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      ) : null}
+
+      {checkpointsOpen ? (
+        <section className="ai-session-history ai-checkpoint-panel" aria-label="Checkpoint perubahan file">
+          <header className="ai-session-panel-head">
+            <div>
+              <strong>Checkpoint perubahan file</strong>
+              <small>Rewind/redo hanya berjalan jika isi file masih cocok dengan checkpoint. Perubahan manual yang konflik tidak akan ditimpa.</small>
+            </div>
+            <button type="button" className="ai-icon-btn" onClick={() => setCheckpointsOpen(false)} aria-label="Tutup checkpoint"><IconX size={14} /></button>
+          </header>
+          {checkpoints.length === 0 ? <p className="ai-session-empty">Belum ada checkpoint untuk sesi ini. Checkpoint dibuat saat agent menulis file melalui tool-nya.</p> : (
+            <div className="ai-checkpoint-list">
+              {checkpoints.map(checkpoint => (
+                <article className="ai-checkpoint-item" key={checkpoint.id}>
+                  <div className="ai-checkpoint-info">
+                    <strong>{new Date(checkpoint.createdAt).toLocaleString()}</strong>
+                    <small>{checkpoint.paths.join(', ') || 'Perubahan file'}</small>
+                    <span className={'ai-checkpoint-status ' + checkpoint.status}>{checkpoint.status === 'applied' ? 'Perubahan aktif' : 'Sudah di-rewind'}</span>
+                  </div>
+                  {checkpoint.status === 'applied' ? (
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || !sessionProjectPath || !sameWorkspacePath(sessionProjectPath, wb.root) || checkpointActionBusy === checkpoint.id}
+                      onClick={() => void runCheckpointAction(checkpoint.id, 'rewind')}>
+                      {checkpointActionBusy === checkpoint.id ? 'Memulihkan…' : 'Rewind'}
+                    </button>
+                  ) : (
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || !sessionProjectPath || !sameWorkspacePath(sessionProjectPath, wb.root) || checkpointActionBusy === checkpoint.id}
+                      onClick={() => void runCheckpointAction(checkpoint.id, 'redo')}>
+                      {checkpointActionBusy === checkpoint.id ? 'Menerapkan…' : 'Redo'}
+                    </button>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      <div className="ai-agent-toolbar">
+        <div className="ai-workspace-status">
+          <span className={wb.root ? 'ready' : 'missing'} />
+          {wb.root ? 'Agent bekerja di folder project aktif' : 'Belum ada workspace'}
+        </div>
+        <button type="button" className={'ai-clear-btn' + (checkpointsOpen ? ' active' : '')}
+          onClick={() => { setCheckpointsOpen(open => !open); setHistoryOpen(false); }} title="Checkpoint dan rewind">
+          ↶ Checkpoint ({checkpoints.length})
+        </button>
+        {loading ? (
+          <button type="button" className="ai-clear-btn" onClick={() => void stopAgent()} title="Hentikan agent">
+            ■ Hentikan
+          </button>
+        ) : null}
+        <button type="button" className="ai-clear-btn" onClick={clearChat} disabled={messages.length === 0 && !loading}>
+          <IconTrash size={13} /> Chat baru
+        </button>
+      </div>
+
+      {!routerStatus?.configured ? (
+        <section className="ai-setup-needed">
+          <div className="ai-setup-icon">⚙</div>
+          <strong>Hubungkan provider AI sebelum mulai chat</strong>
+          <p>Pilih OpenRouter atau Google Gemini API, lalu simpan API key aktif. API key yang pernah dipublikasikan harus dicabut dan diganti.</p>
+          <button type="button" onClick={() => setSettingsOpen(true)}>Buka pengaturan AI</button>
+        </section>
+      ) : null}
+
+      <main className="ai-workspace-main">
+        <div className="ai-chat-column">
+          <div className="ai-messages" ref={messagesViewportRef} onScroll={handleMessagesScroll}>
+            {messages.filter((message) => message.role !== 'system' && message.content).length === 0 && !loading ? (
+              <div className="ai-empty">
+                <span className="ai-empty-icon">{activeAgent?.icon ?? '🌊'}</span>
+                <p className="ai-empty-title">Mulai coding bersama AI</p>
+                <p className="ai-empty-sub">
+                  Agent dapat membaca file, mencari simbol, membuat file, dan menulis perubahan ke workspace aktif. Saat kode berubah, periksa detail diff untuk melihat baris yang ditambahkan, diubah, atau dihapus.
+                </p>
+                <div className="ai-starter-prompts">
+                  <button type="button" onClick={() => setInput('Periksa struktur project ini dan jelaskan file penting yang ditemukan.')}>Jelaskan struktur project</button>
+                  <button type="button" onClick={() => setInput('Periksa file yang sedang terbuka, cari masalah, dan perbaiki langsung di workspace.') } disabled={!wb.activePath}>Periksa file terbuka</button>
+                  <button type="button" onClick={() => setInput('Tinjau project ini, jalankan analisis kode, dan sarankan perbaikan yang bisa diimplementasikan.')}>Tinjau kualitas kode</button>
+                </div>
+              </div>
+            ) : (
+              <AgentWorkTimeline
+                messages={messages}
+                activities={toolActivities}
+                terminalHistory={terminalHistory}
+                lastRunResult={lastRunResult}
+                copiedMessage={copiedMsg}
+                copiedTerminalId={terminalCopiedId}
+                checkpoints={checkpoints}
+                onMessageCopy={saveCopied}
+                onMessageRefork={(message) => void reforkFromMessage(message)}
+                onMessageRewind={rewindFromMessage}
+                messageActionsDisabled={loading || !sessionReady || !wb.root || pendingAttachments.length > 0}
+                onTerminalCopy={(entry) => void copyTerminalDiagnostics(entry)}
+              />
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          <div
+            className="ai-run-dock"
+            data-active={Boolean(loading || permission || agentQuestion || error)}
+            data-awaiting-response={Boolean(permission || agentQuestion)}
+          >
+            {loading || permission || agentQuestion ? (
+              <div className="ai-run-status-row" role="status">
+                {loading && !permission && !agentQuestion ? <Spinner size={15} /> : <span className="ai-run-status-dot" />}
+                <div>
+                  <strong>{permission ? 'Menunggu persetujuan terminal' : agentQuestion ? 'Menunggu jawabanmu' : 'AI sedang bekerja…'}</strong>
+                  <small title={activity || undefined}>{permission || agentQuestion ? 'Agent melanjutkan setelah keputusanmu dikirim' : 'Setiap langkah dan hasil tampil sebagai item di percakapan'}</small>
+                </div>
+                {loading ? <button type="button" className="ai-dock-stop" onClick={() => void stopAgent()}>Hentikan</button> : null}
+              </div>
+            ) : null}
+
+            {permission ? (
+              <section className="ai-permission-card ai-dock-interaction" aria-label="Persetujuan command terminal" aria-live="polite">
+                <div className="ai-permission-heading">
+                  <strong>Persetujuan terminal diperlukan</strong><span>Belum dijalankan</span>
+                </div>
+                <p>{permission.reason}</p>
+                <pre>{permission.command}</pre>
+                <small className="ai-interaction-guidance">Periksa command dan alasannya. Command hanya berjalan setelah kamu menyetujuinya.</small>
+                <div className="ai-permission-actions">
+                  <button type="button" className="ai-permission-deny" onClick={() => void resolvePermission(false)}>Tolak command</button>
+                  <button type="button" className="ai-permission-approve" onClick={() => void resolvePermission(true)}>Izinkan sekali</button>
+                </div>
+              </section>
+            ) : null}
+
+            {agentQuestion ? (
+              <section className="ai-question-card ai-dock-interaction" aria-label="Pertanyaan dari AI Agent" aria-live="polite">
+                <header className="ai-question-heading">
+                  <div><span className="ai-question-eyebrow">BUTUH KEPUTUSANMU</span><strong>{agentQuestion.question}</strong></div>
+                  <span className="ai-question-chip">Menunggu jawaban</span>
+                </header>
+                <p className="ai-question-context">{agentQuestion.context}</p>
+                <div className="ai-question-recommendation">
+                  <strong>Alasan rekomendasi</strong>
+                  <p>{agentQuestion.recommendationReason}</p>
+                </div>
+                <div className="ai-question-options" role="group" aria-label="Pilihan jawaban">
+                  {agentQuestion.options.map((option, index) => {
+                    const optionNumber = index + 1;
+                    const recommended = optionNumber === agentQuestion.recommendedOption;
+                    return (
+                      <button
+                        type="button"
+                        key={optionNumber}
+                        className={'ai-question-option' + (selectedQuestionOption === optionNumber ? ' selected' : '') + (recommended ? ' recommended' : '')}
+                        onClick={() => { setSelectedQuestionOption(optionNumber); setCustomQuestionAnswer(''); }}
+                        disabled={submittingQuestion}
+                        aria-pressed={selectedQuestionOption === optionNumber}
+                      >
+                        <span className="ai-question-option-top">
+                          <strong>{option.label}</strong>
+                          {recommended ? <span className="ai-recommended-label">Rekomendasi</span> : null}
+                        </span>
+                        <small>{option.description}</small>
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    key="custom"
+                    className={'ai-question-option ai-question-option-custom' + (selectedQuestionOption === CUSTOM_QUESTION_OPTION ? ' selected' : '')}
+                    onClick={() => { setSelectedQuestionOption(CUSTOM_QUESTION_OPTION); setCustomQuestionAnswer(''); }}
+                    disabled={submittingQuestion}
+                    aria-pressed={selectedQuestionOption === CUSTOM_QUESTION_OPTION}
+                  >
+                    <span className="ai-question-option-top">
+                      <strong>4. Custom (tulis sendiri)</strong>
+                    </span>
+                    <small>Tulis keputusan atau instruksi sendiri di luar tiga pilihan di atas.</small>
+                  </button>
+                </div>
+                {selectedQuestionOption === CUSTOM_QUESTION_OPTION ? (
+                  <div className="ai-question-custom">
+                    <label htmlFor="ai-question-custom-answer">Jawaban custom</label>
+                    <input
+                      id="ai-question-custom-answer"
+                      autoFocus
+                      value={customQuestionAnswer}
+                      onChange={(event) => setCustomQuestionAnswer(event.target.value)}
+                      maxLength={2000}
+                      placeholder="Masukkan keputusan atau instruksi khusus…"
+                      disabled={submittingQuestion}
+                    />
+                  </div>
+                ) : null}
+                <footer className="ai-question-actions">
+                  <span>Rekomendasi tidak dipilih otomatis. Agent menunggu keputusanmu.</span>
+                  <button
+                    type="button"
+                    className="ai-question-submit"
+                    disabled={submittingQuestion || (
+                      selectedQuestionOption === CUSTOM_QUESTION_OPTION
+                        ? !customQuestionAnswer.trim()
+                        : selectedQuestionOption === null
+                    )}
+                    onClick={() => void answerAgentQuestion()}
+                  >
+                    {submittingQuestion ? <Spinner size={14} /> : null}
+                    {submittingQuestion ? 'Mengirim…' : 'Kirim jawaban'}
+                  </button>
+                </footer>
+              </section>
+            ) : null}
+
+            {error ? <div className="ai-error ai-run-dock-error" role="alert">{error}</div> : null}
+          </div>
+
+          <div className={'ai-composer' + (permission || agentQuestion ? ' has-interaction' : '')}>
+            <div className="ai-composer-context">
+              <span>{permission ? 'Persetujuan command diperlukan' : agentQuestion ? 'Jawab pertanyaan agent di panel ini' : wb.activePath ? pathName(wb.activePath) : pathName(wb.root)}</span>
+              <span>{permission || agentQuestion ? 'Agent menunggu keputusanmu' : 'Enter untuk kirim · Shift+Enter untuk baris baru'}</span>
+            </div>
+            {pendingAttachments.length ? (
+              <div className="ai-pending-attachments" aria-label="Lampiran siap dikirim">
+                {pendingAttachments.map(item => (
+                  <span className="ai-attachment-chip" key={item.id} title={item.mimeType}>
+                    <span aria-hidden="true">▤</span><span>{item.name}</span>
+                    <button type="button" aria-label={'Hapus lampiran ' + item.name} disabled={loading}
+                      onClick={() => setPendingAttachments(items => items.filter(x => x.id !== item.id))}><IconX size={12} /></button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {slashMenuOpen ? (
+              <div className="ai-slash-menu" role="listbox" aria-label="Perintah Agentic Coding">
+                <div className="ai-slash-menu-heading">Perintah</div>
+                {filteredSlashCommands.length ? filteredSlashCommands.map((item, index) => (
+                  <button
+                    type="button"
+                    key={item.command}
+                    className={'ai-slash-command' + (index === activeSlashCommandIndex ? ' active' : '')}
+                    role="option"
+                    aria-selected={index === activeSlashCommandIndex}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setActiveSlashCommandIndex(index)}
+                    onClick={() => executeSlashCommand(item.command)}
+                  >
+                    <span className="ai-slash-command-icon" aria-hidden="true">{item.icon}</span>
+                    <span className="ai-slash-command-copy">
+                      <strong>{item.command}</strong>
+                      <small>{item.description}</small>
+                    </span>
+                    <span className="ai-slash-command-title">{item.title}</span>
+                  </button>
+                )) : <p className="ai-slash-menu-empty">Tidak ada perintah yang cocok.</p>}
+                <div className="ai-slash-menu-hint"><kbd>↑</kbd><kbd>↓</kbd> pilih <kbd>Enter</kbd> buka <kbd>Esc</kbd> tutup</div>
+              </div>
+            ) : null}
+            <div className="ai-input-row">
+              <button type="button" className="ai-attach-btn" aria-label="Lampirkan file"
+                title="Lampirkan gambar, dokumen, audio, video, atau file teks"
+                disabled={loading || selectingAttachments || !sessionReady || !wb.root}
+                onClick={() => void pickAttachments()}>
+                {selectingAttachments ? <Spinner size={16} /> : <IconPlus size={17} />}
+              </button>
+              <textarea
+                ref={inputRef}
+                className="ai-input"
+                value={input}
+                onChange={(event) => {
+                  const nextInput = event.target.value;
+                  setInput(nextInput);
+                  const trimmedStart = nextInput.trimStart();
+                  const opensCommandMenu = trimmedStart.startsWith('/') && !/\s/.test(trimmedStart);
+                  setSlashMenuOpen(opensCommandMenu);
+                  setActiveSlashCommandIndex(0);
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder={permission ? 'Setujui atau tolak command di panel di atas…' : agentQuestion ? 'Pilih opsi atau tulis jawaban custom pada panel di atas…' : loading ? 'Agent sedang bekerja…' : !sessionReady ? 'Menyiapkan sesi AI baru…' : !routerStatus?.configured ? 'Ketik /connect untuk menghubungkan AI, atau tulis instruksi…' : !wb.root ? 'Buka workspace proyek terlebih dahulu…' : 'Tulis instruksi atau ketik / untuk perintah…'}
+                rows={3}
+                disabled={loading || !sessionReady || !activeAgent}
+                aria-label="Pesan AI coding agent"
+              />
+              <button
+                type="button"
+                className="ai-send-btn"
+                onClick={() => void sendMessage()}
+                disabled={loading || (!input.trim() && pendingAttachments.length === 0) || !activeAgent || !wb.root}
+                title="Kirim (Enter)"
+              >
+                {loading ? <Spinner size={17} /> : <IconSend size={17} />}
+              </button>
+            </div>
+          </div>
+        </div>
+        <aside className="ai-agent-sidepanel" aria-label="Rincian kerja agent">
+          <section className="ai-side-card ai-side-workspace-card">
+            <div className="ai-side-card-title"><strong>Workspace aktif</strong><span className="ai-side-dot" /></div>
+            <div className="ai-root-path">{wb.root ?? 'Belum ada folder project'}</div>
+            {wb.activePath ? <div className="ai-active-file"><span>File terpilih di editor</span><code>{wb.activePath}</code></div> : null}
+          </section>
+
+          <section className="ai-side-card ai-side-skills-card">
+            <div className="ai-side-card-title">
+              <strong>Skill aktif</strong>
+              <span>{activeSkills.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-skills-scroll">
+              {activeSkills.length ? activeSkills.map((skill) => (
+                <div className="ai-side-skill" key={skill.id} title={skill.reason}>
+                  <strong>{skill.name}</strong>
+                  {skill.reason ? <small>{skill.reason}</small> : null}
+                </div>
+              )) : <p className="ai-side-empty">Skill yang digunakan selama tugas akan muncul di sini.</p>}
+            </div>
+          </section>
+
+          <section className="ai-side-card ai-side-tools-card">
+            <div className="ai-side-card-title">
+              <strong>Tool yang dipakai</strong>
+              <span>{toolActivities.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-tools-scroll">
+              {toolActivities.length ? toolActivities.slice(-12).slice().reverse().map((item) => (
+                <div className="ai-side-tool" key={item.id}>
+                  <span className={'ai-side-tool-mark status-' + item.status} aria-hidden="true">
+                    {item.status === 'running' ? '◌' : item.status === 'completed' ? '✓' : '×'}
+                  </span>
+                  <div>
+                    <strong>{AGENT_TOOL_DISPLAY_NAMES[item.name] || item.name}</strong>
+                    <small>{item.detail}</small>
+                  </div>
+                </div>
+              )) : <p className="ai-side-empty">Tool yang digunakan agent pada run ini akan tampil di sini.</p>}
+            </div>
+          </section>
+
+          <section className="ai-side-card ai-side-todo-card">
+            <div className="ai-side-card-title">
+              <strong>Todo List</strong>
+              <span>{todos.filter(todo => todo.status === 'completed').length}/{todos.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-todo-scroll">
+              {todos.length ? <TodoPanel todos={todos} /> : <p className="ai-side-empty">Rencana agent akan muncul di sini setelah Todo List dibuat.</p>}
+            </div>
+          </section>
+
+          <ChangeList changes={changes} onSelect={setSelectedChange} />
+        </aside>
+      </main>
+
+      <footer className="ai-panel-footer">
+        <span className="ai-footer-workspace">{wb.root ? 'Workspace siap' : 'Workspace belum aktif'}</span>
+        <span className="ai-footer-model">{routerStatus?.model ?? 'ps/poolside/laguna-s-2.1(high)'}</span>
+        <span className="ai-footer-shortcut">Ruang Kerja AI Agent · v{window.rk.version}</span>
+      </footer>
+
+      {selectedChange ? <DiffViewer change={selectedChange} onClose={() => setSelectedChange(null)} /> : null}
+    </section>
+  );
+}
+ + model.requestPrice : 'Tidak tersedia'}</strong></div>
+                              <div><small>Image input</small><strong>{model.imagePrice !== undefined ? '
+                </div>
+
+                <div className="ai-model-dialog-footer">
+                  <label className="ai-model-custom-id" htmlFor="rk-model-custom-id">
+                    <span>ID model pilihan</span>
+                    <input id="rk-model-custom-id" value={selectedModelDraft}
+                      onChange={(event) => setSelectedModelDraft(event.target.value)}
+                      maxLength={200} spellCheck={false} placeholder="Pilih dari katalog atau masukkan ID model…" />
+                  </label>
+                  <button type="button" className="ai-settings-save ai-model-apply"
+                    disabled={!selectedModelDraft.trim() || savingModel || loading || (selectedModelDraft.trim() === modelProviderInfo?.model && modelProviderDraft === routerStatus?.provider)}
+                    onClick={() => void saveSelectedModel()}>
+                    {savingModel ? 'Menyimpan…' : selectedModelDraft.trim() === modelProviderInfo?.model && modelProviderDraft === routerStatus?.provider ? 'Model sedang aktif' : 'Gunakan provider & model'}
+                  </button>
+                </div>
+
+                {error ? <div className="ai-model-catalog-error" role="alert">{error}</div> : null}
+                {modelReport ? (
+                  <div className="ai-model-report" role={modelReport.ok ? 'status' : 'alert'}>
+                    <div className="ai-model-report-head">
+                      <strong>{modelReport.ok ? 'Hasil diagnostik' : 'Model belum siap'}</strong>
+                      <small>{modelReport.model} · {new Date(modelReport.checkedAt).toLocaleString()}</small>
+                    </div>
+                    {modelReport.checks.map(check => (
+                      <div className="ai-model-check" key={check.id}>
+                        <span className={'ai-model-check-state ' + check.status}>
+                          {check.status === 'supported' ? 'Lolos' : check.status === 'unsupported' ? 'Tidak didukung' : 'Belum pasti'}
+                        </span>
+                        <div>
+                          <strong>{check.label}</strong>
+                          <p>{check.message}</p>
+                          <small>{check.durationMs} ms</small>
+                        </div>
+                      </div>
+                    ))}
+                    <p className="ai-model-report-note">{modelReport.message}</p>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </section>
+        </div>
+      ) : null}
+
+      {historyOpen ? (
+        <div className="ai-session-overlay" role="presentation"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setHistoryOpen(false); }}>
+          <section className="ai-session-history ai-sessions-modal" role="dialog" aria-modal="true"
+            aria-label="Riwayat percakapan tersimpan" tabIndex={-1}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                setHistoryOpen(false);
+                inputRef.current?.focus();
+              }
+            }}>
+            <header className="ai-session-panel-head">
+              <div>
+                <strong>Riwayat sesi</strong>
+                <small>Pilih percakapan untuk melanjutkan. Hanya sesi pada workspace aktif yang ditampilkan.</small>
+              </div>
+              <button type="button" className="ai-icon-btn" autoFocus onClick={() => setHistoryOpen(false)} aria-label="Tutup riwayat"><IconX size={14} /></button>
+            </header>
+            {loadingSessions ? <p className="ai-session-empty">Memuat riwayat…</p> : workspaceSessions.length === 0 ? (
+              <p className="ai-session-empty">Belum ada percakapan tersimpan untuk workspace ini.</p>
+            ) : (
+              <div className="ai-session-list ai-sessions-modal-list">
+                {workspaceSessions.map(session => (
+                  <div className={'ai-session-item' + (session.id === conversationId ? ' active' : '')} key={session.id}>
+                    <button type="button" className="ai-session-open" disabled={loading}
+                      onClick={() => { setHistoryOpen(false); if (session.id !== conversationId) setConversationId(session.id); }}>
+                      <strong>{session.title || 'Percakapan baru'}</strong>
+                      <code className="ai-session-code">{session.id}</code>
+                      <span>{session.lastMessage || 'Belum ada pesan'}</span>
+                      <small>{new Date(session.updatedAt).toLocaleString()} · {session.messageCount} pesan · {session.checkpointCount} checkpoint{session.projectPath ? ' · ' + pathName(session.projectPath) : ''}</small>
+                    </button>
+                    <button type="button" className="ai-icon-btn ai-session-delete" title="Hapus riwayat ini"
+                      aria-label={'Hapus riwayat ' + (session.title || session.id)} disabled={loading}
+                      onClick={() => void deleteStoredSession(session.id)}><IconTrash size={13} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      ) : null}
+
+      {checkpointsOpen ? (
+        <section className="ai-session-history ai-checkpoint-panel" aria-label="Checkpoint perubahan file">
+          <header className="ai-session-panel-head">
+            <div>
+              <strong>Checkpoint perubahan file</strong>
+              <small>Rewind/redo hanya berjalan jika isi file masih cocok dengan checkpoint. Perubahan manual yang konflik tidak akan ditimpa.</small>
+            </div>
+            <button type="button" className="ai-icon-btn" onClick={() => setCheckpointsOpen(false)} aria-label="Tutup checkpoint"><IconX size={14} /></button>
+          </header>
+          {checkpoints.length === 0 ? <p className="ai-session-empty">Belum ada checkpoint untuk sesi ini. Checkpoint dibuat saat agent menulis file melalui tool-nya.</p> : (
+            <div className="ai-checkpoint-list">
+              {checkpoints.map(checkpoint => (
+                <article className="ai-checkpoint-item" key={checkpoint.id}>
+                  <div className="ai-checkpoint-info">
+                    <strong>{new Date(checkpoint.createdAt).toLocaleString()}</strong>
+                    <small>{checkpoint.paths.join(', ') || 'Perubahan file'}</small>
+                    <span className={'ai-checkpoint-status ' + checkpoint.status}>{checkpoint.status === 'applied' ? 'Perubahan aktif' : 'Sudah di-rewind'}</span>
+                  </div>
+                  {checkpoint.status === 'applied' ? (
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || !sessionProjectPath || !sameWorkspacePath(sessionProjectPath, wb.root) || checkpointActionBusy === checkpoint.id}
+                      onClick={() => void runCheckpointAction(checkpoint.id, 'rewind')}>
+                      {checkpointActionBusy === checkpoint.id ? 'Memulihkan…' : 'Rewind'}
+                    </button>
+                  ) : (
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || !sessionProjectPath || !sameWorkspacePath(sessionProjectPath, wb.root) || checkpointActionBusy === checkpoint.id}
+                      onClick={() => void runCheckpointAction(checkpoint.id, 'redo')}>
+                      {checkpointActionBusy === checkpoint.id ? 'Menerapkan…' : 'Redo'}
+                    </button>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      <div className="ai-agent-toolbar">
+        <div className="ai-workspace-status">
+          <span className={wb.root ? 'ready' : 'missing'} />
+          {wb.root ? 'Agent bekerja di folder project aktif' : 'Belum ada workspace'}
+        </div>
+        <button type="button" className={'ai-clear-btn' + (checkpointsOpen ? ' active' : '')}
+          onClick={() => { setCheckpointsOpen(open => !open); setHistoryOpen(false); }} title="Checkpoint dan rewind">
+          ↶ Checkpoint ({checkpoints.length})
+        </button>
+        {loading ? (
+          <button type="button" className="ai-clear-btn" onClick={() => void stopAgent()} title="Hentikan agent">
+            ■ Hentikan
+          </button>
+        ) : null}
+        <button type="button" className="ai-clear-btn" onClick={clearChat} disabled={messages.length === 0 && !loading}>
+          <IconTrash size={13} /> Chat baru
+        </button>
+      </div>
+
+      {!routerStatus?.configured ? (
+        <section className="ai-setup-needed">
+          <div className="ai-setup-icon">⚙</div>
+          <strong>Hubungkan provider AI sebelum mulai chat</strong>
+          <p>Pilih OpenRouter atau Google Gemini API, lalu simpan API key aktif. API key yang pernah dipublikasikan harus dicabut dan diganti.</p>
+          <button type="button" onClick={() => setSettingsOpen(true)}>Buka pengaturan AI</button>
+        </section>
+      ) : null}
+
+      <main className="ai-workspace-main">
+        <div className="ai-chat-column">
+          <div className="ai-messages" ref={messagesViewportRef} onScroll={handleMessagesScroll}>
+            {messages.filter((message) => message.role !== 'system' && message.content).length === 0 && !loading ? (
+              <div className="ai-empty">
+                <span className="ai-empty-icon">{activeAgent?.icon ?? '🌊'}</span>
+                <p className="ai-empty-title">Mulai coding bersama AI</p>
+                <p className="ai-empty-sub">
+                  Agent dapat membaca file, mencari simbol, membuat file, dan menulis perubahan ke workspace aktif. Saat kode berubah, periksa detail diff untuk melihat baris yang ditambahkan, diubah, atau dihapus.
+                </p>
+                <div className="ai-starter-prompts">
+                  <button type="button" onClick={() => setInput('Periksa struktur project ini dan jelaskan file penting yang ditemukan.')}>Jelaskan struktur project</button>
+                  <button type="button" onClick={() => setInput('Periksa file yang sedang terbuka, cari masalah, dan perbaiki langsung di workspace.') } disabled={!wb.activePath}>Periksa file terbuka</button>
+                  <button type="button" onClick={() => setInput('Tinjau project ini, jalankan analisis kode, dan sarankan perbaikan yang bisa diimplementasikan.')}>Tinjau kualitas kode</button>
+                </div>
+              </div>
+            ) : (
+              <AgentWorkTimeline
+                messages={messages}
+                activities={toolActivities}
+                terminalHistory={terminalHistory}
+                lastRunResult={lastRunResult}
+                copiedMessage={copiedMsg}
+                copiedTerminalId={terminalCopiedId}
+                checkpoints={checkpoints}
+                onMessageCopy={saveCopied}
+                onMessageRefork={(message) => void reforkFromMessage(message)}
+                onMessageRewind={rewindFromMessage}
+                messageActionsDisabled={loading || !sessionReady || !wb.root || pendingAttachments.length > 0}
+                onTerminalCopy={(entry) => void copyTerminalDiagnostics(entry)}
+              />
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          <div
+            className="ai-run-dock"
+            data-active={Boolean(loading || permission || agentQuestion || error)}
+            data-awaiting-response={Boolean(permission || agentQuestion)}
+          >
+            {loading || permission || agentQuestion ? (
+              <div className="ai-run-status-row" role="status">
+                {loading && !permission && !agentQuestion ? <Spinner size={15} /> : <span className="ai-run-status-dot" />}
+                <div>
+                  <strong>{permission ? 'Menunggu persetujuan terminal' : agentQuestion ? 'Menunggu jawabanmu' : 'AI sedang bekerja…'}</strong>
+                  <small title={activity || undefined}>{permission || agentQuestion ? 'Agent melanjutkan setelah keputusanmu dikirim' : 'Setiap langkah dan hasil tampil sebagai item di percakapan'}</small>
+                </div>
+                {loading ? <button type="button" className="ai-dock-stop" onClick={() => void stopAgent()}>Hentikan</button> : null}
+              </div>
+            ) : null}
+
+            {permission ? (
+              <section className="ai-permission-card ai-dock-interaction" aria-label="Persetujuan command terminal" aria-live="polite">
+                <div className="ai-permission-heading">
+                  <strong>Persetujuan terminal diperlukan</strong><span>Belum dijalankan</span>
+                </div>
+                <p>{permission.reason}</p>
+                <pre>{permission.command}</pre>
+                <small className="ai-interaction-guidance">Periksa command dan alasannya. Command hanya berjalan setelah kamu menyetujuinya.</small>
+                <div className="ai-permission-actions">
+                  <button type="button" className="ai-permission-deny" onClick={() => void resolvePermission(false)}>Tolak command</button>
+                  <button type="button" className="ai-permission-approve" onClick={() => void resolvePermission(true)}>Izinkan sekali</button>
+                </div>
+              </section>
+            ) : null}
+
+            {agentQuestion ? (
+              <section className="ai-question-card ai-dock-interaction" aria-label="Pertanyaan dari AI Agent" aria-live="polite">
+                <header className="ai-question-heading">
+                  <div><span className="ai-question-eyebrow">BUTUH KEPUTUSANMU</span><strong>{agentQuestion.question}</strong></div>
+                  <span className="ai-question-chip">Menunggu jawaban</span>
+                </header>
+                <p className="ai-question-context">{agentQuestion.context}</p>
+                <div className="ai-question-recommendation">
+                  <strong>Alasan rekomendasi</strong>
+                  <p>{agentQuestion.recommendationReason}</p>
+                </div>
+                <div className="ai-question-options" role="group" aria-label="Pilihan jawaban">
+                  {agentQuestion.options.map((option, index) => {
+                    const optionNumber = index + 1;
+                    const recommended = optionNumber === agentQuestion.recommendedOption;
+                    return (
+                      <button
+                        type="button"
+                        key={optionNumber}
+                        className={'ai-question-option' + (selectedQuestionOption === optionNumber ? ' selected' : '') + (recommended ? ' recommended' : '')}
+                        onClick={() => { setSelectedQuestionOption(optionNumber); setCustomQuestionAnswer(''); }}
+                        disabled={submittingQuestion}
+                        aria-pressed={selectedQuestionOption === optionNumber}
+                      >
+                        <span className="ai-question-option-top">
+                          <strong>{option.label}</strong>
+                          {recommended ? <span className="ai-recommended-label">Rekomendasi</span> : null}
+                        </span>
+                        <small>{option.description}</small>
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    key="custom"
+                    className={'ai-question-option ai-question-option-custom' + (selectedQuestionOption === CUSTOM_QUESTION_OPTION ? ' selected' : '')}
+                    onClick={() => { setSelectedQuestionOption(CUSTOM_QUESTION_OPTION); setCustomQuestionAnswer(''); }}
+                    disabled={submittingQuestion}
+                    aria-pressed={selectedQuestionOption === CUSTOM_QUESTION_OPTION}
+                  >
+                    <span className="ai-question-option-top">
+                      <strong>4. Custom (tulis sendiri)</strong>
+                    </span>
+                    <small>Tulis keputusan atau instruksi sendiri di luar tiga pilihan di atas.</small>
+                  </button>
+                </div>
+                {selectedQuestionOption === CUSTOM_QUESTION_OPTION ? (
+                  <div className="ai-question-custom">
+                    <label htmlFor="ai-question-custom-answer">Jawaban custom</label>
+                    <input
+                      id="ai-question-custom-answer"
+                      autoFocus
+                      value={customQuestionAnswer}
+                      onChange={(event) => setCustomQuestionAnswer(event.target.value)}
+                      maxLength={2000}
+                      placeholder="Masukkan keputusan atau instruksi khusus…"
+                      disabled={submittingQuestion}
+                    />
+                  </div>
+                ) : null}
+                <footer className="ai-question-actions">
+                  <span>Rekomendasi tidak dipilih otomatis. Agent menunggu keputusanmu.</span>
+                  <button
+                    type="button"
+                    className="ai-question-submit"
+                    disabled={submittingQuestion || (
+                      selectedQuestionOption === CUSTOM_QUESTION_OPTION
+                        ? !customQuestionAnswer.trim()
+                        : selectedQuestionOption === null
+                    )}
+                    onClick={() => void answerAgentQuestion()}
+                  >
+                    {submittingQuestion ? <Spinner size={14} /> : null}
+                    {submittingQuestion ? 'Mengirim…' : 'Kirim jawaban'}
+                  </button>
+                </footer>
+              </section>
+            ) : null}
+
+            {error ? <div className="ai-error ai-run-dock-error" role="alert">{error}</div> : null}
+          </div>
+
+          <div className={'ai-composer' + (permission || agentQuestion ? ' has-interaction' : '')}>
+            <div className="ai-composer-context">
+              <span>{permission ? 'Persetujuan command diperlukan' : agentQuestion ? 'Jawab pertanyaan agent di panel ini' : wb.activePath ? pathName(wb.activePath) : pathName(wb.root)}</span>
+              <span>{permission || agentQuestion ? 'Agent menunggu keputusanmu' : 'Enter untuk kirim · Shift+Enter untuk baris baru'}</span>
+            </div>
+            {pendingAttachments.length ? (
+              <div className="ai-pending-attachments" aria-label="Lampiran siap dikirim">
+                {pendingAttachments.map(item => (
+                  <span className="ai-attachment-chip" key={item.id} title={item.mimeType}>
+                    <span aria-hidden="true">▤</span><span>{item.name}</span>
+                    <button type="button" aria-label={'Hapus lampiran ' + item.name} disabled={loading}
+                      onClick={() => setPendingAttachments(items => items.filter(x => x.id !== item.id))}><IconX size={12} /></button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {slashMenuOpen ? (
+              <div className="ai-slash-menu" role="listbox" aria-label="Perintah Agentic Coding">
+                <div className="ai-slash-menu-heading">Perintah</div>
+                {filteredSlashCommands.length ? filteredSlashCommands.map((item, index) => (
+                  <button
+                    type="button"
+                    key={item.command}
+                    className={'ai-slash-command' + (index === activeSlashCommandIndex ? ' active' : '')}
+                    role="option"
+                    aria-selected={index === activeSlashCommandIndex}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setActiveSlashCommandIndex(index)}
+                    onClick={() => executeSlashCommand(item.command)}
+                  >
+                    <span className="ai-slash-command-icon" aria-hidden="true">{item.icon}</span>
+                    <span className="ai-slash-command-copy">
+                      <strong>{item.command}</strong>
+                      <small>{item.description}</small>
+                    </span>
+                    <span className="ai-slash-command-title">{item.title}</span>
+                  </button>
+                )) : <p className="ai-slash-menu-empty">Tidak ada perintah yang cocok.</p>}
+                <div className="ai-slash-menu-hint"><kbd>↑</kbd><kbd>↓</kbd> pilih <kbd>Enter</kbd> buka <kbd>Esc</kbd> tutup</div>
+              </div>
+            ) : null}
+            <div className="ai-input-row">
+              <button type="button" className="ai-attach-btn" aria-label="Lampirkan file"
+                title="Lampirkan gambar, dokumen, audio, video, atau file teks"
+                disabled={loading || selectingAttachments || !sessionReady || !wb.root}
+                onClick={() => void pickAttachments()}>
+                {selectingAttachments ? <Spinner size={16} /> : <IconPlus size={17} />}
+              </button>
+              <textarea
+                ref={inputRef}
+                className="ai-input"
+                value={input}
+                onChange={(event) => {
+                  const nextInput = event.target.value;
+                  setInput(nextInput);
+                  const trimmedStart = nextInput.trimStart();
+                  const opensCommandMenu = trimmedStart.startsWith('/') && !/\s/.test(trimmedStart);
+                  setSlashMenuOpen(opensCommandMenu);
+                  setActiveSlashCommandIndex(0);
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder={permission ? 'Setujui atau tolak command di panel di atas…' : agentQuestion ? 'Pilih opsi atau tulis jawaban custom pada panel di atas…' : loading ? 'Agent sedang bekerja…' : !sessionReady ? 'Menyiapkan sesi AI baru…' : !routerStatus?.configured ? 'Ketik /connect untuk menghubungkan AI, atau tulis instruksi…' : !wb.root ? 'Buka workspace proyek terlebih dahulu…' : 'Tulis instruksi atau ketik / untuk perintah…'}
+                rows={3}
+                disabled={loading || !sessionReady || !activeAgent}
+                aria-label="Pesan AI coding agent"
+              />
+              <button
+                type="button"
+                className="ai-send-btn"
+                onClick={() => void sendMessage()}
+                disabled={loading || (!input.trim() && pendingAttachments.length === 0) || !activeAgent || !wb.root}
+                title="Kirim (Enter)"
+              >
+                {loading ? <Spinner size={17} /> : <IconSend size={17} />}
+              </button>
+            </div>
+          </div>
+        </div>
+        <aside className="ai-agent-sidepanel" aria-label="Rincian kerja agent">
+          <section className="ai-side-card ai-side-workspace-card">
+            <div className="ai-side-card-title"><strong>Workspace aktif</strong><span className="ai-side-dot" /></div>
+            <div className="ai-root-path">{wb.root ?? 'Belum ada folder project'}</div>
+            {wb.activePath ? <div className="ai-active-file"><span>File terpilih di editor</span><code>{wb.activePath}</code></div> : null}
+          </section>
+
+          <section className="ai-side-card ai-side-skills-card">
+            <div className="ai-side-card-title">
+              <strong>Skill aktif</strong>
+              <span>{activeSkills.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-skills-scroll">
+              {activeSkills.length ? activeSkills.map((skill) => (
+                <div className="ai-side-skill" key={skill.id} title={skill.reason}>
+                  <strong>{skill.name}</strong>
+                  {skill.reason ? <small>{skill.reason}</small> : null}
+                </div>
+              )) : <p className="ai-side-empty">Skill yang digunakan selama tugas akan muncul di sini.</p>}
+            </div>
+          </section>
+
+          <section className="ai-side-card ai-side-tools-card">
+            <div className="ai-side-card-title">
+              <strong>Tool yang dipakai</strong>
+              <span>{toolActivities.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-tools-scroll">
+              {toolActivities.length ? toolActivities.slice(-12).slice().reverse().map((item) => (
+                <div className="ai-side-tool" key={item.id}>
+                  <span className={'ai-side-tool-mark status-' + item.status} aria-hidden="true">
+                    {item.status === 'running' ? '◌' : item.status === 'completed' ? '✓' : '×'}
+                  </span>
+                  <div>
+                    <strong>{AGENT_TOOL_DISPLAY_NAMES[item.name] || item.name}</strong>
+                    <small>{item.detail}</small>
+                  </div>
+                </div>
+              )) : <p className="ai-side-empty">Tool yang digunakan agent pada run ini akan tampil di sini.</p>}
+            </div>
+          </section>
+
+          <section className="ai-side-card ai-side-todo-card">
+            <div className="ai-side-card-title">
+              <strong>Todo List</strong>
+              <span>{todos.filter(todo => todo.status === 'completed').length}/{todos.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-todo-scroll">
+              {todos.length ? <TodoPanel todos={todos} /> : <p className="ai-side-empty">Rencana agent akan muncul di sini setelah Todo List dibuat.</p>}
+            </div>
+          </section>
+
+          <ChangeList changes={changes} onSelect={setSelectedChange} />
+        </aside>
+      </main>
+
+      <footer className="ai-panel-footer">
+        <span className="ai-footer-workspace">{wb.root ? 'Workspace siap' : 'Workspace belum aktif'}</span>
+        <span className="ai-footer-model">{routerStatus?.model ?? 'ps/poolside/laguna-s-2.1(high)'}</span>
+        <span className="ai-footer-shortcut">Ruang Kerja AI Agent · v{window.rk.version}</span>
+      </footer>
+
+      {selectedChange ? <DiffViewer change={selectedChange} onClose={() => setSelectedChange(null)} /> : null}
+    </section>
+  );
+}
+ + model.imagePrice : 'Tidak tersedia'}</strong></div>
+                              <div><small>Cache read / 1 juta</small><strong>{model.inputCacheReadPrice !== undefined ? '
+                </div>
+
+                <div className="ai-model-dialog-footer">
+                  <label className="ai-model-custom-id" htmlFor="rk-model-custom-id">
+                    <span>ID model pilihan</span>
+                    <input id="rk-model-custom-id" value={selectedModelDraft}
+                      onChange={(event) => setSelectedModelDraft(event.target.value)}
+                      maxLength={200} spellCheck={false} placeholder="Pilih dari katalog atau masukkan ID model…" />
+                  </label>
+                  <button type="button" className="ai-settings-save ai-model-apply"
+                    disabled={!selectedModelDraft.trim() || savingModel || loading || (selectedModelDraft.trim() === modelProviderInfo?.model && modelProviderDraft === routerStatus?.provider)}
+                    onClick={() => void saveSelectedModel()}>
+                    {savingModel ? 'Menyimpan…' : selectedModelDraft.trim() === modelProviderInfo?.model && modelProviderDraft === routerStatus?.provider ? 'Model sedang aktif' : 'Gunakan provider & model'}
+                  </button>
+                </div>
+
+                {error ? <div className="ai-model-catalog-error" role="alert">{error}</div> : null}
+                {modelReport ? (
+                  <div className="ai-model-report" role={modelReport.ok ? 'status' : 'alert'}>
+                    <div className="ai-model-report-head">
+                      <strong>{modelReport.ok ? 'Hasil diagnostik' : 'Model belum siap'}</strong>
+                      <small>{modelReport.model} · {new Date(modelReport.checkedAt).toLocaleString()}</small>
+                    </div>
+                    {modelReport.checks.map(check => (
+                      <div className="ai-model-check" key={check.id}>
+                        <span className={'ai-model-check-state ' + check.status}>
+                          {check.status === 'supported' ? 'Lolos' : check.status === 'unsupported' ? 'Tidak didukung' : 'Belum pasti'}
+                        </span>
+                        <div>
+                          <strong>{check.label}</strong>
+                          <p>{check.message}</p>
+                          <small>{check.durationMs} ms</small>
+                        </div>
+                      </div>
+                    ))}
+                    <p className="ai-model-report-note">{modelReport.message}</p>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </section>
+        </div>
+      ) : null}
+
+      {historyOpen ? (
+        <div className="ai-session-overlay" role="presentation"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setHistoryOpen(false); }}>
+          <section className="ai-session-history ai-sessions-modal" role="dialog" aria-modal="true"
+            aria-label="Riwayat percakapan tersimpan" tabIndex={-1}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                setHistoryOpen(false);
+                inputRef.current?.focus();
+              }
+            }}>
+            <header className="ai-session-panel-head">
+              <div>
+                <strong>Riwayat sesi</strong>
+                <small>Pilih percakapan untuk melanjutkan. Hanya sesi pada workspace aktif yang ditampilkan.</small>
+              </div>
+              <button type="button" className="ai-icon-btn" autoFocus onClick={() => setHistoryOpen(false)} aria-label="Tutup riwayat"><IconX size={14} /></button>
+            </header>
+            {loadingSessions ? <p className="ai-session-empty">Memuat riwayat…</p> : workspaceSessions.length === 0 ? (
+              <p className="ai-session-empty">Belum ada percakapan tersimpan untuk workspace ini.</p>
+            ) : (
+              <div className="ai-session-list ai-sessions-modal-list">
+                {workspaceSessions.map(session => (
+                  <div className={'ai-session-item' + (session.id === conversationId ? ' active' : '')} key={session.id}>
+                    <button type="button" className="ai-session-open" disabled={loading}
+                      onClick={() => { setHistoryOpen(false); if (session.id !== conversationId) setConversationId(session.id); }}>
+                      <strong>{session.title || 'Percakapan baru'}</strong>
+                      <code className="ai-session-code">{session.id}</code>
+                      <span>{session.lastMessage || 'Belum ada pesan'}</span>
+                      <small>{new Date(session.updatedAt).toLocaleString()} · {session.messageCount} pesan · {session.checkpointCount} checkpoint{session.projectPath ? ' · ' + pathName(session.projectPath) : ''}</small>
+                    </button>
+                    <button type="button" className="ai-icon-btn ai-session-delete" title="Hapus riwayat ini"
+                      aria-label={'Hapus riwayat ' + (session.title || session.id)} disabled={loading}
+                      onClick={() => void deleteStoredSession(session.id)}><IconTrash size={13} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      ) : null}
+
+      {checkpointsOpen ? (
+        <section className="ai-session-history ai-checkpoint-panel" aria-label="Checkpoint perubahan file">
+          <header className="ai-session-panel-head">
+            <div>
+              <strong>Checkpoint perubahan file</strong>
+              <small>Rewind/redo hanya berjalan jika isi file masih cocok dengan checkpoint. Perubahan manual yang konflik tidak akan ditimpa.</small>
+            </div>
+            <button type="button" className="ai-icon-btn" onClick={() => setCheckpointsOpen(false)} aria-label="Tutup checkpoint"><IconX size={14} /></button>
+          </header>
+          {checkpoints.length === 0 ? <p className="ai-session-empty">Belum ada checkpoint untuk sesi ini. Checkpoint dibuat saat agent menulis file melalui tool-nya.</p> : (
+            <div className="ai-checkpoint-list">
+              {checkpoints.map(checkpoint => (
+                <article className="ai-checkpoint-item" key={checkpoint.id}>
+                  <div className="ai-checkpoint-info">
+                    <strong>{new Date(checkpoint.createdAt).toLocaleString()}</strong>
+                    <small>{checkpoint.paths.join(', ') || 'Perubahan file'}</small>
+                    <span className={'ai-checkpoint-status ' + checkpoint.status}>{checkpoint.status === 'applied' ? 'Perubahan aktif' : 'Sudah di-rewind'}</span>
+                  </div>
+                  {checkpoint.status === 'applied' ? (
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || !sessionProjectPath || !sameWorkspacePath(sessionProjectPath, wb.root) || checkpointActionBusy === checkpoint.id}
+                      onClick={() => void runCheckpointAction(checkpoint.id, 'rewind')}>
+                      {checkpointActionBusy === checkpoint.id ? 'Memulihkan…' : 'Rewind'}
+                    </button>
+                  ) : (
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || !sessionProjectPath || !sameWorkspacePath(sessionProjectPath, wb.root) || checkpointActionBusy === checkpoint.id}
+                      onClick={() => void runCheckpointAction(checkpoint.id, 'redo')}>
+                      {checkpointActionBusy === checkpoint.id ? 'Menerapkan…' : 'Redo'}
+                    </button>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      <div className="ai-agent-toolbar">
+        <div className="ai-workspace-status">
+          <span className={wb.root ? 'ready' : 'missing'} />
+          {wb.root ? 'Agent bekerja di folder project aktif' : 'Belum ada workspace'}
+        </div>
+        <button type="button" className={'ai-clear-btn' + (checkpointsOpen ? ' active' : '')}
+          onClick={() => { setCheckpointsOpen(open => !open); setHistoryOpen(false); }} title="Checkpoint dan rewind">
+          ↶ Checkpoint ({checkpoints.length})
+        </button>
+        {loading ? (
+          <button type="button" className="ai-clear-btn" onClick={() => void stopAgent()} title="Hentikan agent">
+            ■ Hentikan
+          </button>
+        ) : null}
+        <button type="button" className="ai-clear-btn" onClick={clearChat} disabled={messages.length === 0 && !loading}>
+          <IconTrash size={13} /> Chat baru
+        </button>
+      </div>
+
+      {!routerStatus?.configured ? (
+        <section className="ai-setup-needed">
+          <div className="ai-setup-icon">⚙</div>
+          <strong>Hubungkan provider AI sebelum mulai chat</strong>
+          <p>Pilih OpenRouter atau Google Gemini API, lalu simpan API key aktif. API key yang pernah dipublikasikan harus dicabut dan diganti.</p>
+          <button type="button" onClick={() => setSettingsOpen(true)}>Buka pengaturan AI</button>
+        </section>
+      ) : null}
+
+      <main className="ai-workspace-main">
+        <div className="ai-chat-column">
+          <div className="ai-messages" ref={messagesViewportRef} onScroll={handleMessagesScroll}>
+            {messages.filter((message) => message.role !== 'system' && message.content).length === 0 && !loading ? (
+              <div className="ai-empty">
+                <span className="ai-empty-icon">{activeAgent?.icon ?? '🌊'}</span>
+                <p className="ai-empty-title">Mulai coding bersama AI</p>
+                <p className="ai-empty-sub">
+                  Agent dapat membaca file, mencari simbol, membuat file, dan menulis perubahan ke workspace aktif. Saat kode berubah, periksa detail diff untuk melihat baris yang ditambahkan, diubah, atau dihapus.
+                </p>
+                <div className="ai-starter-prompts">
+                  <button type="button" onClick={() => setInput('Periksa struktur project ini dan jelaskan file penting yang ditemukan.')}>Jelaskan struktur project</button>
+                  <button type="button" onClick={() => setInput('Periksa file yang sedang terbuka, cari masalah, dan perbaiki langsung di workspace.') } disabled={!wb.activePath}>Periksa file terbuka</button>
+                  <button type="button" onClick={() => setInput('Tinjau project ini, jalankan analisis kode, dan sarankan perbaikan yang bisa diimplementasikan.')}>Tinjau kualitas kode</button>
+                </div>
+              </div>
+            ) : (
+              <AgentWorkTimeline
+                messages={messages}
+                activities={toolActivities}
+                terminalHistory={terminalHistory}
+                lastRunResult={lastRunResult}
+                copiedMessage={copiedMsg}
+                copiedTerminalId={terminalCopiedId}
+                checkpoints={checkpoints}
+                onMessageCopy={saveCopied}
+                onMessageRefork={(message) => void reforkFromMessage(message)}
+                onMessageRewind={rewindFromMessage}
+                messageActionsDisabled={loading || !sessionReady || !wb.root || pendingAttachments.length > 0}
+                onTerminalCopy={(entry) => void copyTerminalDiagnostics(entry)}
+              />
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          <div
+            className="ai-run-dock"
+            data-active={Boolean(loading || permission || agentQuestion || error)}
+            data-awaiting-response={Boolean(permission || agentQuestion)}
+          >
+            {loading || permission || agentQuestion ? (
+              <div className="ai-run-status-row" role="status">
+                {loading && !permission && !agentQuestion ? <Spinner size={15} /> : <span className="ai-run-status-dot" />}
+                <div>
+                  <strong>{permission ? 'Menunggu persetujuan terminal' : agentQuestion ? 'Menunggu jawabanmu' : 'AI sedang bekerja…'}</strong>
+                  <small title={activity || undefined}>{permission || agentQuestion ? 'Agent melanjutkan setelah keputusanmu dikirim' : 'Setiap langkah dan hasil tampil sebagai item di percakapan'}</small>
+                </div>
+                {loading ? <button type="button" className="ai-dock-stop" onClick={() => void stopAgent()}>Hentikan</button> : null}
+              </div>
+            ) : null}
+
+            {permission ? (
+              <section className="ai-permission-card ai-dock-interaction" aria-label="Persetujuan command terminal" aria-live="polite">
+                <div className="ai-permission-heading">
+                  <strong>Persetujuan terminal diperlukan</strong><span>Belum dijalankan</span>
+                </div>
+                <p>{permission.reason}</p>
+                <pre>{permission.command}</pre>
+                <small className="ai-interaction-guidance">Periksa command dan alasannya. Command hanya berjalan setelah kamu menyetujuinya.</small>
+                <div className="ai-permission-actions">
+                  <button type="button" className="ai-permission-deny" onClick={() => void resolvePermission(false)}>Tolak command</button>
+                  <button type="button" className="ai-permission-approve" onClick={() => void resolvePermission(true)}>Izinkan sekali</button>
+                </div>
+              </section>
+            ) : null}
+
+            {agentQuestion ? (
+              <section className="ai-question-card ai-dock-interaction" aria-label="Pertanyaan dari AI Agent" aria-live="polite">
+                <header className="ai-question-heading">
+                  <div><span className="ai-question-eyebrow">BUTUH KEPUTUSANMU</span><strong>{agentQuestion.question}</strong></div>
+                  <span className="ai-question-chip">Menunggu jawaban</span>
+                </header>
+                <p className="ai-question-context">{agentQuestion.context}</p>
+                <div className="ai-question-recommendation">
+                  <strong>Alasan rekomendasi</strong>
+                  <p>{agentQuestion.recommendationReason}</p>
+                </div>
+                <div className="ai-question-options" role="group" aria-label="Pilihan jawaban">
+                  {agentQuestion.options.map((option, index) => {
+                    const optionNumber = index + 1;
+                    const recommended = optionNumber === agentQuestion.recommendedOption;
+                    return (
+                      <button
+                        type="button"
+                        key={optionNumber}
+                        className={'ai-question-option' + (selectedQuestionOption === optionNumber ? ' selected' : '') + (recommended ? ' recommended' : '')}
+                        onClick={() => { setSelectedQuestionOption(optionNumber); setCustomQuestionAnswer(''); }}
+                        disabled={submittingQuestion}
+                        aria-pressed={selectedQuestionOption === optionNumber}
+                      >
+                        <span className="ai-question-option-top">
+                          <strong>{option.label}</strong>
+                          {recommended ? <span className="ai-recommended-label">Rekomendasi</span> : null}
+                        </span>
+                        <small>{option.description}</small>
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    key="custom"
+                    className={'ai-question-option ai-question-option-custom' + (selectedQuestionOption === CUSTOM_QUESTION_OPTION ? ' selected' : '')}
+                    onClick={() => { setSelectedQuestionOption(CUSTOM_QUESTION_OPTION); setCustomQuestionAnswer(''); }}
+                    disabled={submittingQuestion}
+                    aria-pressed={selectedQuestionOption === CUSTOM_QUESTION_OPTION}
+                  >
+                    <span className="ai-question-option-top">
+                      <strong>4. Custom (tulis sendiri)</strong>
+                    </span>
+                    <small>Tulis keputusan atau instruksi sendiri di luar tiga pilihan di atas.</small>
+                  </button>
+                </div>
+                {selectedQuestionOption === CUSTOM_QUESTION_OPTION ? (
+                  <div className="ai-question-custom">
+                    <label htmlFor="ai-question-custom-answer">Jawaban custom</label>
+                    <input
+                      id="ai-question-custom-answer"
+                      autoFocus
+                      value={customQuestionAnswer}
+                      onChange={(event) => setCustomQuestionAnswer(event.target.value)}
+                      maxLength={2000}
+                      placeholder="Masukkan keputusan atau instruksi khusus…"
+                      disabled={submittingQuestion}
+                    />
+                  </div>
+                ) : null}
+                <footer className="ai-question-actions">
+                  <span>Rekomendasi tidak dipilih otomatis. Agent menunggu keputusanmu.</span>
+                  <button
+                    type="button"
+                    className="ai-question-submit"
+                    disabled={submittingQuestion || (
+                      selectedQuestionOption === CUSTOM_QUESTION_OPTION
+                        ? !customQuestionAnswer.trim()
+                        : selectedQuestionOption === null
+                    )}
+                    onClick={() => void answerAgentQuestion()}
+                  >
+                    {submittingQuestion ? <Spinner size={14} /> : null}
+                    {submittingQuestion ? 'Mengirim…' : 'Kirim jawaban'}
+                  </button>
+                </footer>
+              </section>
+            ) : null}
+
+            {error ? <div className="ai-error ai-run-dock-error" role="alert">{error}</div> : null}
+          </div>
+
+          <div className={'ai-composer' + (permission || agentQuestion ? ' has-interaction' : '')}>
+            <div className="ai-composer-context">
+              <span>{permission ? 'Persetujuan command diperlukan' : agentQuestion ? 'Jawab pertanyaan agent di panel ini' : wb.activePath ? pathName(wb.activePath) : pathName(wb.root)}</span>
+              <span>{permission || agentQuestion ? 'Agent menunggu keputusanmu' : 'Enter untuk kirim · Shift+Enter untuk baris baru'}</span>
+            </div>
+            {pendingAttachments.length ? (
+              <div className="ai-pending-attachments" aria-label="Lampiran siap dikirim">
+                {pendingAttachments.map(item => (
+                  <span className="ai-attachment-chip" key={item.id} title={item.mimeType}>
+                    <span aria-hidden="true">▤</span><span>{item.name}</span>
+                    <button type="button" aria-label={'Hapus lampiran ' + item.name} disabled={loading}
+                      onClick={() => setPendingAttachments(items => items.filter(x => x.id !== item.id))}><IconX size={12} /></button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {slashMenuOpen ? (
+              <div className="ai-slash-menu" role="listbox" aria-label="Perintah Agentic Coding">
+                <div className="ai-slash-menu-heading">Perintah</div>
+                {filteredSlashCommands.length ? filteredSlashCommands.map((item, index) => (
+                  <button
+                    type="button"
+                    key={item.command}
+                    className={'ai-slash-command' + (index === activeSlashCommandIndex ? ' active' : '')}
+                    role="option"
+                    aria-selected={index === activeSlashCommandIndex}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setActiveSlashCommandIndex(index)}
+                    onClick={() => executeSlashCommand(item.command)}
+                  >
+                    <span className="ai-slash-command-icon" aria-hidden="true">{item.icon}</span>
+                    <span className="ai-slash-command-copy">
+                      <strong>{item.command}</strong>
+                      <small>{item.description}</small>
+                    </span>
+                    <span className="ai-slash-command-title">{item.title}</span>
+                  </button>
+                )) : <p className="ai-slash-menu-empty">Tidak ada perintah yang cocok.</p>}
+                <div className="ai-slash-menu-hint"><kbd>↑</kbd><kbd>↓</kbd> pilih <kbd>Enter</kbd> buka <kbd>Esc</kbd> tutup</div>
+              </div>
+            ) : null}
+            <div className="ai-input-row">
+              <button type="button" className="ai-attach-btn" aria-label="Lampirkan file"
+                title="Lampirkan gambar, dokumen, audio, video, atau file teks"
+                disabled={loading || selectingAttachments || !sessionReady || !wb.root}
+                onClick={() => void pickAttachments()}>
+                {selectingAttachments ? <Spinner size={16} /> : <IconPlus size={17} />}
+              </button>
+              <textarea
+                ref={inputRef}
+                className="ai-input"
+                value={input}
+                onChange={(event) => {
+                  const nextInput = event.target.value;
+                  setInput(nextInput);
+                  const trimmedStart = nextInput.trimStart();
+                  const opensCommandMenu = trimmedStart.startsWith('/') && !/\s/.test(trimmedStart);
+                  setSlashMenuOpen(opensCommandMenu);
+                  setActiveSlashCommandIndex(0);
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder={permission ? 'Setujui atau tolak command di panel di atas…' : agentQuestion ? 'Pilih opsi atau tulis jawaban custom pada panel di atas…' : loading ? 'Agent sedang bekerja…' : !sessionReady ? 'Menyiapkan sesi AI baru…' : !routerStatus?.configured ? 'Ketik /connect untuk menghubungkan AI, atau tulis instruksi…' : !wb.root ? 'Buka workspace proyek terlebih dahulu…' : 'Tulis instruksi atau ketik / untuk perintah…'}
+                rows={3}
+                disabled={loading || !sessionReady || !activeAgent}
+                aria-label="Pesan AI coding agent"
+              />
+              <button
+                type="button"
+                className="ai-send-btn"
+                onClick={() => void sendMessage()}
+                disabled={loading || (!input.trim() && pendingAttachments.length === 0) || !activeAgent || !wb.root}
+                title="Kirim (Enter)"
+              >
+                {loading ? <Spinner size={17} /> : <IconSend size={17} />}
+              </button>
+            </div>
+          </div>
+        </div>
+        <aside className="ai-agent-sidepanel" aria-label="Rincian kerja agent">
+          <section className="ai-side-card ai-side-workspace-card">
+            <div className="ai-side-card-title"><strong>Workspace aktif</strong><span className="ai-side-dot" /></div>
+            <div className="ai-root-path">{wb.root ?? 'Belum ada folder project'}</div>
+            {wb.activePath ? <div className="ai-active-file"><span>File terpilih di editor</span><code>{wb.activePath}</code></div> : null}
+          </section>
+
+          <section className="ai-side-card ai-side-skills-card">
+            <div className="ai-side-card-title">
+              <strong>Skill aktif</strong>
+              <span>{activeSkills.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-skills-scroll">
+              {activeSkills.length ? activeSkills.map((skill) => (
+                <div className="ai-side-skill" key={skill.id} title={skill.reason}>
+                  <strong>{skill.name}</strong>
+                  {skill.reason ? <small>{skill.reason}</small> : null}
+                </div>
+              )) : <p className="ai-side-empty">Skill yang digunakan selama tugas akan muncul di sini.</p>}
+            </div>
+          </section>
+
+          <section className="ai-side-card ai-side-tools-card">
+            <div className="ai-side-card-title">
+              <strong>Tool yang dipakai</strong>
+              <span>{toolActivities.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-tools-scroll">
+              {toolActivities.length ? toolActivities.slice(-12).slice().reverse().map((item) => (
+                <div className="ai-side-tool" key={item.id}>
+                  <span className={'ai-side-tool-mark status-' + item.status} aria-hidden="true">
+                    {item.status === 'running' ? '◌' : item.status === 'completed' ? '✓' : '×'}
+                  </span>
+                  <div>
+                    <strong>{AGENT_TOOL_DISPLAY_NAMES[item.name] || item.name}</strong>
+                    <small>{item.detail}</small>
+                  </div>
+                </div>
+              )) : <p className="ai-side-empty">Tool yang digunakan agent pada run ini akan tampil di sini.</p>}
+            </div>
+          </section>
+
+          <section className="ai-side-card ai-side-todo-card">
+            <div className="ai-side-card-title">
+              <strong>Todo List</strong>
+              <span>{todos.filter(todo => todo.status === 'completed').length}/{todos.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-todo-scroll">
+              {todos.length ? <TodoPanel todos={todos} /> : <p className="ai-side-empty">Rencana agent akan muncul di sini setelah Todo List dibuat.</p>}
+            </div>
+          </section>
+
+          <ChangeList changes={changes} onSelect={setSelectedChange} />
+        </aside>
+      </main>
+
+      <footer className="ai-panel-footer">
+        <span className="ai-footer-workspace">{wb.root ? 'Workspace siap' : 'Workspace belum aktif'}</span>
+        <span className="ai-footer-model">{routerStatus?.model ?? 'ps/poolside/laguna-s-2.1(high)'}</span>
+        <span className="ai-footer-shortcut">Ruang Kerja AI Agent · v{window.rk.version}</span>
+      </footer>
+
+      {selectedChange ? <DiffViewer change={selectedChange} onClose={() => setSelectedChange(null)} /> : null}
+    </section>
+  );
+}
+ + (model.inputCacheReadPrice * 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }) : 'Tidak tersedia'}</strong></div>
+                              <div><small>Cache write / 1 juta</small><strong>{model.inputCacheWritePrice !== undefined ? '
+                </div>
+
+                <div className="ai-model-dialog-footer">
+                  <label className="ai-model-custom-id" htmlFor="rk-model-custom-id">
+                    <span>ID model pilihan</span>
+                    <input id="rk-model-custom-id" value={selectedModelDraft}
+                      onChange={(event) => setSelectedModelDraft(event.target.value)}
+                      maxLength={200} spellCheck={false} placeholder="Pilih dari katalog atau masukkan ID model…" />
+                  </label>
+                  <button type="button" className="ai-settings-save ai-model-apply"
+                    disabled={!selectedModelDraft.trim() || savingModel || loading || (selectedModelDraft.trim() === modelProviderInfo?.model && modelProviderDraft === routerStatus?.provider)}
+                    onClick={() => void saveSelectedModel()}>
+                    {savingModel ? 'Menyimpan…' : selectedModelDraft.trim() === modelProviderInfo?.model && modelProviderDraft === routerStatus?.provider ? 'Model sedang aktif' : 'Gunakan provider & model'}
+                  </button>
+                </div>
+
+                {error ? <div className="ai-model-catalog-error" role="alert">{error}</div> : null}
+                {modelReport ? (
+                  <div className="ai-model-report" role={modelReport.ok ? 'status' : 'alert'}>
+                    <div className="ai-model-report-head">
+                      <strong>{modelReport.ok ? 'Hasil diagnostik' : 'Model belum siap'}</strong>
+                      <small>{modelReport.model} · {new Date(modelReport.checkedAt).toLocaleString()}</small>
+                    </div>
+                    {modelReport.checks.map(check => (
+                      <div className="ai-model-check" key={check.id}>
+                        <span className={'ai-model-check-state ' + check.status}>
+                          {check.status === 'supported' ? 'Lolos' : check.status === 'unsupported' ? 'Tidak didukung' : 'Belum pasti'}
+                        </span>
+                        <div>
+                          <strong>{check.label}</strong>
+                          <p>{check.message}</p>
+                          <small>{check.durationMs} ms</small>
+                        </div>
+                      </div>
+                    ))}
+                    <p className="ai-model-report-note">{modelReport.message}</p>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </section>
+        </div>
+      ) : null}
+
+      {historyOpen ? (
+        <div className="ai-session-overlay" role="presentation"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setHistoryOpen(false); }}>
+          <section className="ai-session-history ai-sessions-modal" role="dialog" aria-modal="true"
+            aria-label="Riwayat percakapan tersimpan" tabIndex={-1}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                setHistoryOpen(false);
+                inputRef.current?.focus();
+              }
+            }}>
+            <header className="ai-session-panel-head">
+              <div>
+                <strong>Riwayat sesi</strong>
+                <small>Pilih percakapan untuk melanjutkan. Hanya sesi pada workspace aktif yang ditampilkan.</small>
+              </div>
+              <button type="button" className="ai-icon-btn" autoFocus onClick={() => setHistoryOpen(false)} aria-label="Tutup riwayat"><IconX size={14} /></button>
+            </header>
+            {loadingSessions ? <p className="ai-session-empty">Memuat riwayat…</p> : workspaceSessions.length === 0 ? (
+              <p className="ai-session-empty">Belum ada percakapan tersimpan untuk workspace ini.</p>
+            ) : (
+              <div className="ai-session-list ai-sessions-modal-list">
+                {workspaceSessions.map(session => (
+                  <div className={'ai-session-item' + (session.id === conversationId ? ' active' : '')} key={session.id}>
+                    <button type="button" className="ai-session-open" disabled={loading}
+                      onClick={() => { setHistoryOpen(false); if (session.id !== conversationId) setConversationId(session.id); }}>
+                      <strong>{session.title || 'Percakapan baru'}</strong>
+                      <code className="ai-session-code">{session.id}</code>
+                      <span>{session.lastMessage || 'Belum ada pesan'}</span>
+                      <small>{new Date(session.updatedAt).toLocaleString()} · {session.messageCount} pesan · {session.checkpointCount} checkpoint{session.projectPath ? ' · ' + pathName(session.projectPath) : ''}</small>
+                    </button>
+                    <button type="button" className="ai-icon-btn ai-session-delete" title="Hapus riwayat ini"
+                      aria-label={'Hapus riwayat ' + (session.title || session.id)} disabled={loading}
+                      onClick={() => void deleteStoredSession(session.id)}><IconTrash size={13} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      ) : null}
+
+      {checkpointsOpen ? (
+        <section className="ai-session-history ai-checkpoint-panel" aria-label="Checkpoint perubahan file">
+          <header className="ai-session-panel-head">
+            <div>
+              <strong>Checkpoint perubahan file</strong>
+              <small>Rewind/redo hanya berjalan jika isi file masih cocok dengan checkpoint. Perubahan manual yang konflik tidak akan ditimpa.</small>
+            </div>
+            <button type="button" className="ai-icon-btn" onClick={() => setCheckpointsOpen(false)} aria-label="Tutup checkpoint"><IconX size={14} /></button>
+          </header>
+          {checkpoints.length === 0 ? <p className="ai-session-empty">Belum ada checkpoint untuk sesi ini. Checkpoint dibuat saat agent menulis file melalui tool-nya.</p> : (
+            <div className="ai-checkpoint-list">
+              {checkpoints.map(checkpoint => (
+                <article className="ai-checkpoint-item" key={checkpoint.id}>
+                  <div className="ai-checkpoint-info">
+                    <strong>{new Date(checkpoint.createdAt).toLocaleString()}</strong>
+                    <small>{checkpoint.paths.join(', ') || 'Perubahan file'}</small>
+                    <span className={'ai-checkpoint-status ' + checkpoint.status}>{checkpoint.status === 'applied' ? 'Perubahan aktif' : 'Sudah di-rewind'}</span>
+                  </div>
+                  {checkpoint.status === 'applied' ? (
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || !sessionProjectPath || !sameWorkspacePath(sessionProjectPath, wb.root) || checkpointActionBusy === checkpoint.id}
+                      onClick={() => void runCheckpointAction(checkpoint.id, 'rewind')}>
+                      {checkpointActionBusy === checkpoint.id ? 'Memulihkan…' : 'Rewind'}
+                    </button>
+                  ) : (
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || !sessionProjectPath || !sameWorkspacePath(sessionProjectPath, wb.root) || checkpointActionBusy === checkpoint.id}
+                      onClick={() => void runCheckpointAction(checkpoint.id, 'redo')}>
+                      {checkpointActionBusy === checkpoint.id ? 'Menerapkan…' : 'Redo'}
+                    </button>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      <div className="ai-agent-toolbar">
+        <div className="ai-workspace-status">
+          <span className={wb.root ? 'ready' : 'missing'} />
+          {wb.root ? 'Agent bekerja di folder project aktif' : 'Belum ada workspace'}
+        </div>
+        <button type="button" className={'ai-clear-btn' + (checkpointsOpen ? ' active' : '')}
+          onClick={() => { setCheckpointsOpen(open => !open); setHistoryOpen(false); }} title="Checkpoint dan rewind">
+          ↶ Checkpoint ({checkpoints.length})
+        </button>
+        {loading ? (
+          <button type="button" className="ai-clear-btn" onClick={() => void stopAgent()} title="Hentikan agent">
+            ■ Hentikan
+          </button>
+        ) : null}
+        <button type="button" className="ai-clear-btn" onClick={clearChat} disabled={messages.length === 0 && !loading}>
+          <IconTrash size={13} /> Chat baru
+        </button>
+      </div>
+
+      {!routerStatus?.configured ? (
+        <section className="ai-setup-needed">
+          <div className="ai-setup-icon">⚙</div>
+          <strong>Hubungkan provider AI sebelum mulai chat</strong>
+          <p>Pilih OpenRouter atau Google Gemini API, lalu simpan API key aktif. API key yang pernah dipublikasikan harus dicabut dan diganti.</p>
+          <button type="button" onClick={() => setSettingsOpen(true)}>Buka pengaturan AI</button>
+        </section>
+      ) : null}
+
+      <main className="ai-workspace-main">
+        <div className="ai-chat-column">
+          <div className="ai-messages" ref={messagesViewportRef} onScroll={handleMessagesScroll}>
+            {messages.filter((message) => message.role !== 'system' && message.content).length === 0 && !loading ? (
+              <div className="ai-empty">
+                <span className="ai-empty-icon">{activeAgent?.icon ?? '🌊'}</span>
+                <p className="ai-empty-title">Mulai coding bersama AI</p>
+                <p className="ai-empty-sub">
+                  Agent dapat membaca file, mencari simbol, membuat file, dan menulis perubahan ke workspace aktif. Saat kode berubah, periksa detail diff untuk melihat baris yang ditambahkan, diubah, atau dihapus.
+                </p>
+                <div className="ai-starter-prompts">
+                  <button type="button" onClick={() => setInput('Periksa struktur project ini dan jelaskan file penting yang ditemukan.')}>Jelaskan struktur project</button>
+                  <button type="button" onClick={() => setInput('Periksa file yang sedang terbuka, cari masalah, dan perbaiki langsung di workspace.') } disabled={!wb.activePath}>Periksa file terbuka</button>
+                  <button type="button" onClick={() => setInput('Tinjau project ini, jalankan analisis kode, dan sarankan perbaikan yang bisa diimplementasikan.')}>Tinjau kualitas kode</button>
+                </div>
+              </div>
+            ) : (
+              <AgentWorkTimeline
+                messages={messages}
+                activities={toolActivities}
+                terminalHistory={terminalHistory}
+                lastRunResult={lastRunResult}
+                copiedMessage={copiedMsg}
+                copiedTerminalId={terminalCopiedId}
+                checkpoints={checkpoints}
+                onMessageCopy={saveCopied}
+                onMessageRefork={(message) => void reforkFromMessage(message)}
+                onMessageRewind={rewindFromMessage}
+                messageActionsDisabled={loading || !sessionReady || !wb.root || pendingAttachments.length > 0}
+                onTerminalCopy={(entry) => void copyTerminalDiagnostics(entry)}
+              />
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          <div
+            className="ai-run-dock"
+            data-active={Boolean(loading || permission || agentQuestion || error)}
+            data-awaiting-response={Boolean(permission || agentQuestion)}
+          >
+            {loading || permission || agentQuestion ? (
+              <div className="ai-run-status-row" role="status">
+                {loading && !permission && !agentQuestion ? <Spinner size={15} /> : <span className="ai-run-status-dot" />}
+                <div>
+                  <strong>{permission ? 'Menunggu persetujuan terminal' : agentQuestion ? 'Menunggu jawabanmu' : 'AI sedang bekerja…'}</strong>
+                  <small title={activity || undefined}>{permission || agentQuestion ? 'Agent melanjutkan setelah keputusanmu dikirim' : 'Setiap langkah dan hasil tampil sebagai item di percakapan'}</small>
+                </div>
+                {loading ? <button type="button" className="ai-dock-stop" onClick={() => void stopAgent()}>Hentikan</button> : null}
+              </div>
+            ) : null}
+
+            {permission ? (
+              <section className="ai-permission-card ai-dock-interaction" aria-label="Persetujuan command terminal" aria-live="polite">
+                <div className="ai-permission-heading">
+                  <strong>Persetujuan terminal diperlukan</strong><span>Belum dijalankan</span>
+                </div>
+                <p>{permission.reason}</p>
+                <pre>{permission.command}</pre>
+                <small className="ai-interaction-guidance">Periksa command dan alasannya. Command hanya berjalan setelah kamu menyetujuinya.</small>
+                <div className="ai-permission-actions">
+                  <button type="button" className="ai-permission-deny" onClick={() => void resolvePermission(false)}>Tolak command</button>
+                  <button type="button" className="ai-permission-approve" onClick={() => void resolvePermission(true)}>Izinkan sekali</button>
+                </div>
+              </section>
+            ) : null}
+
+            {agentQuestion ? (
+              <section className="ai-question-card ai-dock-interaction" aria-label="Pertanyaan dari AI Agent" aria-live="polite">
+                <header className="ai-question-heading">
+                  <div><span className="ai-question-eyebrow">BUTUH KEPUTUSANMU</span><strong>{agentQuestion.question}</strong></div>
+                  <span className="ai-question-chip">Menunggu jawaban</span>
+                </header>
+                <p className="ai-question-context">{agentQuestion.context}</p>
+                <div className="ai-question-recommendation">
+                  <strong>Alasan rekomendasi</strong>
+                  <p>{agentQuestion.recommendationReason}</p>
+                </div>
+                <div className="ai-question-options" role="group" aria-label="Pilihan jawaban">
+                  {agentQuestion.options.map((option, index) => {
+                    const optionNumber = index + 1;
+                    const recommended = optionNumber === agentQuestion.recommendedOption;
+                    return (
+                      <button
+                        type="button"
+                        key={optionNumber}
+                        className={'ai-question-option' + (selectedQuestionOption === optionNumber ? ' selected' : '') + (recommended ? ' recommended' : '')}
+                        onClick={() => { setSelectedQuestionOption(optionNumber); setCustomQuestionAnswer(''); }}
+                        disabled={submittingQuestion}
+                        aria-pressed={selectedQuestionOption === optionNumber}
+                      >
+                        <span className="ai-question-option-top">
+                          <strong>{option.label}</strong>
+                          {recommended ? <span className="ai-recommended-label">Rekomendasi</span> : null}
+                        </span>
+                        <small>{option.description}</small>
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    key="custom"
+                    className={'ai-question-option ai-question-option-custom' + (selectedQuestionOption === CUSTOM_QUESTION_OPTION ? ' selected' : '')}
+                    onClick={() => { setSelectedQuestionOption(CUSTOM_QUESTION_OPTION); setCustomQuestionAnswer(''); }}
+                    disabled={submittingQuestion}
+                    aria-pressed={selectedQuestionOption === CUSTOM_QUESTION_OPTION}
+                  >
+                    <span className="ai-question-option-top">
+                      <strong>4. Custom (tulis sendiri)</strong>
+                    </span>
+                    <small>Tulis keputusan atau instruksi sendiri di luar tiga pilihan di atas.</small>
+                  </button>
+                </div>
+                {selectedQuestionOption === CUSTOM_QUESTION_OPTION ? (
+                  <div className="ai-question-custom">
+                    <label htmlFor="ai-question-custom-answer">Jawaban custom</label>
+                    <input
+                      id="ai-question-custom-answer"
+                      autoFocus
+                      value={customQuestionAnswer}
+                      onChange={(event) => setCustomQuestionAnswer(event.target.value)}
+                      maxLength={2000}
+                      placeholder="Masukkan keputusan atau instruksi khusus…"
+                      disabled={submittingQuestion}
+                    />
+                  </div>
+                ) : null}
+                <footer className="ai-question-actions">
+                  <span>Rekomendasi tidak dipilih otomatis. Agent menunggu keputusanmu.</span>
+                  <button
+                    type="button"
+                    className="ai-question-submit"
+                    disabled={submittingQuestion || (
+                      selectedQuestionOption === CUSTOM_QUESTION_OPTION
+                        ? !customQuestionAnswer.trim()
+                        : selectedQuestionOption === null
+                    )}
+                    onClick={() => void answerAgentQuestion()}
+                  >
+                    {submittingQuestion ? <Spinner size={14} /> : null}
+                    {submittingQuestion ? 'Mengirim…' : 'Kirim jawaban'}
+                  </button>
+                </footer>
+              </section>
+            ) : null}
+
+            {error ? <div className="ai-error ai-run-dock-error" role="alert">{error}</div> : null}
+          </div>
+
+          <div className={'ai-composer' + (permission || agentQuestion ? ' has-interaction' : '')}>
+            <div className="ai-composer-context">
+              <span>{permission ? 'Persetujuan command diperlukan' : agentQuestion ? 'Jawab pertanyaan agent di panel ini' : wb.activePath ? pathName(wb.activePath) : pathName(wb.root)}</span>
+              <span>{permission || agentQuestion ? 'Agent menunggu keputusanmu' : 'Enter untuk kirim · Shift+Enter untuk baris baru'}</span>
+            </div>
+            {pendingAttachments.length ? (
+              <div className="ai-pending-attachments" aria-label="Lampiran siap dikirim">
+                {pendingAttachments.map(item => (
+                  <span className="ai-attachment-chip" key={item.id} title={item.mimeType}>
+                    <span aria-hidden="true">▤</span><span>{item.name}</span>
+                    <button type="button" aria-label={'Hapus lampiran ' + item.name} disabled={loading}
+                      onClick={() => setPendingAttachments(items => items.filter(x => x.id !== item.id))}><IconX size={12} /></button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {slashMenuOpen ? (
+              <div className="ai-slash-menu" role="listbox" aria-label="Perintah Agentic Coding">
+                <div className="ai-slash-menu-heading">Perintah</div>
+                {filteredSlashCommands.length ? filteredSlashCommands.map((item, index) => (
+                  <button
+                    type="button"
+                    key={item.command}
+                    className={'ai-slash-command' + (index === activeSlashCommandIndex ? ' active' : '')}
+                    role="option"
+                    aria-selected={index === activeSlashCommandIndex}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setActiveSlashCommandIndex(index)}
+                    onClick={() => executeSlashCommand(item.command)}
+                  >
+                    <span className="ai-slash-command-icon" aria-hidden="true">{item.icon}</span>
+                    <span className="ai-slash-command-copy">
+                      <strong>{item.command}</strong>
+                      <small>{item.description}</small>
+                    </span>
+                    <span className="ai-slash-command-title">{item.title}</span>
+                  </button>
+                )) : <p className="ai-slash-menu-empty">Tidak ada perintah yang cocok.</p>}
+                <div className="ai-slash-menu-hint"><kbd>↑</kbd><kbd>↓</kbd> pilih <kbd>Enter</kbd> buka <kbd>Esc</kbd> tutup</div>
+              </div>
+            ) : null}
+            <div className="ai-input-row">
+              <button type="button" className="ai-attach-btn" aria-label="Lampirkan file"
+                title="Lampirkan gambar, dokumen, audio, video, atau file teks"
+                disabled={loading || selectingAttachments || !sessionReady || !wb.root}
+                onClick={() => void pickAttachments()}>
+                {selectingAttachments ? <Spinner size={16} /> : <IconPlus size={17} />}
+              </button>
+              <textarea
+                ref={inputRef}
+                className="ai-input"
+                value={input}
+                onChange={(event) => {
+                  const nextInput = event.target.value;
+                  setInput(nextInput);
+                  const trimmedStart = nextInput.trimStart();
+                  const opensCommandMenu = trimmedStart.startsWith('/') && !/\s/.test(trimmedStart);
+                  setSlashMenuOpen(opensCommandMenu);
+                  setActiveSlashCommandIndex(0);
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder={permission ? 'Setujui atau tolak command di panel di atas…' : agentQuestion ? 'Pilih opsi atau tulis jawaban custom pada panel di atas…' : loading ? 'Agent sedang bekerja…' : !sessionReady ? 'Menyiapkan sesi AI baru…' : !routerStatus?.configured ? 'Ketik /connect untuk menghubungkan AI, atau tulis instruksi…' : !wb.root ? 'Buka workspace proyek terlebih dahulu…' : 'Tulis instruksi atau ketik / untuk perintah…'}
+                rows={3}
+                disabled={loading || !sessionReady || !activeAgent}
+                aria-label="Pesan AI coding agent"
+              />
+              <button
+                type="button"
+                className="ai-send-btn"
+                onClick={() => void sendMessage()}
+                disabled={loading || (!input.trim() && pendingAttachments.length === 0) || !activeAgent || !wb.root}
+                title="Kirim (Enter)"
+              >
+                {loading ? <Spinner size={17} /> : <IconSend size={17} />}
+              </button>
+            </div>
+          </div>
+        </div>
+        <aside className="ai-agent-sidepanel" aria-label="Rincian kerja agent">
+          <section className="ai-side-card ai-side-workspace-card">
+            <div className="ai-side-card-title"><strong>Workspace aktif</strong><span className="ai-side-dot" /></div>
+            <div className="ai-root-path">{wb.root ?? 'Belum ada folder project'}</div>
+            {wb.activePath ? <div className="ai-active-file"><span>File terpilih di editor</span><code>{wb.activePath}</code></div> : null}
+          </section>
+
+          <section className="ai-side-card ai-side-skills-card">
+            <div className="ai-side-card-title">
+              <strong>Skill aktif</strong>
+              <span>{activeSkills.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-skills-scroll">
+              {activeSkills.length ? activeSkills.map((skill) => (
+                <div className="ai-side-skill" key={skill.id} title={skill.reason}>
+                  <strong>{skill.name}</strong>
+                  {skill.reason ? <small>{skill.reason}</small> : null}
+                </div>
+              )) : <p className="ai-side-empty">Skill yang digunakan selama tugas akan muncul di sini.</p>}
+            </div>
+          </section>
+
+          <section className="ai-side-card ai-side-tools-card">
+            <div className="ai-side-card-title">
+              <strong>Tool yang dipakai</strong>
+              <span>{toolActivities.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-tools-scroll">
+              {toolActivities.length ? toolActivities.slice(-12).slice().reverse().map((item) => (
+                <div className="ai-side-tool" key={item.id}>
+                  <span className={'ai-side-tool-mark status-' + item.status} aria-hidden="true">
+                    {item.status === 'running' ? '◌' : item.status === 'completed' ? '✓' : '×'}
+                  </span>
+                  <div>
+                    <strong>{AGENT_TOOL_DISPLAY_NAMES[item.name] || item.name}</strong>
+                    <small>{item.detail}</small>
+                  </div>
+                </div>
+              )) : <p className="ai-side-empty">Tool yang digunakan agent pada run ini akan tampil di sini.</p>}
+            </div>
+          </section>
+
+          <section className="ai-side-card ai-side-todo-card">
+            <div className="ai-side-card-title">
+              <strong>Todo List</strong>
+              <span>{todos.filter(todo => todo.status === 'completed').length}/{todos.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-todo-scroll">
+              {todos.length ? <TodoPanel todos={todos} /> : <p className="ai-side-empty">Rencana agent akan muncul di sini setelah Todo List dibuat.</p>}
+            </div>
+          </section>
+
+          <ChangeList changes={changes} onSelect={setSelectedChange} />
+        </aside>
+      </main>
+
+      <footer className="ai-panel-footer">
+        <span className="ai-footer-workspace">{wb.root ? 'Workspace siap' : 'Workspace belum aktif'}</span>
+        <span className="ai-footer-model">{routerStatus?.model ?? 'ps/poolside/laguna-s-2.1(high)'}</span>
+        <span className="ai-footer-shortcut">Ruang Kerja AI Agent · v{window.rk.version}</span>
+      </footer>
+
+      {selectedChange ? <DiffViewer change={selectedChange} onClose={() => setSelectedChange(null)} /> : null}
+    </section>
+  );
+}
+ + (model.inputCacheWritePrice * 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }) : 'Tidak tersedia'}</strong></div>
+                              <div><small>Internal reasoning / 1 juta</small><strong>{model.internalReasoningPrice !== undefined ? '
+                </div>
+
+                <div className="ai-model-dialog-footer">
+                  <label className="ai-model-custom-id" htmlFor="rk-model-custom-id">
+                    <span>ID model pilihan</span>
+                    <input id="rk-model-custom-id" value={selectedModelDraft}
+                      onChange={(event) => setSelectedModelDraft(event.target.value)}
+                      maxLength={200} spellCheck={false} placeholder="Pilih dari katalog atau masukkan ID model…" />
+                  </label>
+                  <button type="button" className="ai-settings-save ai-model-apply"
+                    disabled={!selectedModelDraft.trim() || savingModel || loading || (selectedModelDraft.trim() === modelProviderInfo?.model && modelProviderDraft === routerStatus?.provider)}
+                    onClick={() => void saveSelectedModel()}>
+                    {savingModel ? 'Menyimpan…' : selectedModelDraft.trim() === modelProviderInfo?.model && modelProviderDraft === routerStatus?.provider ? 'Model sedang aktif' : 'Gunakan provider & model'}
+                  </button>
+                </div>
+
+                {error ? <div className="ai-model-catalog-error" role="alert">{error}</div> : null}
+                {modelReport ? (
+                  <div className="ai-model-report" role={modelReport.ok ? 'status' : 'alert'}>
+                    <div className="ai-model-report-head">
+                      <strong>{modelReport.ok ? 'Hasil diagnostik' : 'Model belum siap'}</strong>
+                      <small>{modelReport.model} · {new Date(modelReport.checkedAt).toLocaleString()}</small>
+                    </div>
+                    {modelReport.checks.map(check => (
+                      <div className="ai-model-check" key={check.id}>
+                        <span className={'ai-model-check-state ' + check.status}>
+                          {check.status === 'supported' ? 'Lolos' : check.status === 'unsupported' ? 'Tidak didukung' : 'Belum pasti'}
+                        </span>
+                        <div>
+                          <strong>{check.label}</strong>
+                          <p>{check.message}</p>
+                          <small>{check.durationMs} ms</small>
+                        </div>
+                      </div>
+                    ))}
+                    <p className="ai-model-report-note">{modelReport.message}</p>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </section>
+        </div>
+      ) : null}
+
+      {historyOpen ? (
+        <div className="ai-session-overlay" role="presentation"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setHistoryOpen(false); }}>
+          <section className="ai-session-history ai-sessions-modal" role="dialog" aria-modal="true"
+            aria-label="Riwayat percakapan tersimpan" tabIndex={-1}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                setHistoryOpen(false);
+                inputRef.current?.focus();
+              }
+            }}>
+            <header className="ai-session-panel-head">
+              <div>
+                <strong>Riwayat sesi</strong>
+                <small>Pilih percakapan untuk melanjutkan. Hanya sesi pada workspace aktif yang ditampilkan.</small>
+              </div>
+              <button type="button" className="ai-icon-btn" autoFocus onClick={() => setHistoryOpen(false)} aria-label="Tutup riwayat"><IconX size={14} /></button>
+            </header>
+            {loadingSessions ? <p className="ai-session-empty">Memuat riwayat…</p> : workspaceSessions.length === 0 ? (
+              <p className="ai-session-empty">Belum ada percakapan tersimpan untuk workspace ini.</p>
+            ) : (
+              <div className="ai-session-list ai-sessions-modal-list">
+                {workspaceSessions.map(session => (
+                  <div className={'ai-session-item' + (session.id === conversationId ? ' active' : '')} key={session.id}>
+                    <button type="button" className="ai-session-open" disabled={loading}
+                      onClick={() => { setHistoryOpen(false); if (session.id !== conversationId) setConversationId(session.id); }}>
+                      <strong>{session.title || 'Percakapan baru'}</strong>
+                      <code className="ai-session-code">{session.id}</code>
+                      <span>{session.lastMessage || 'Belum ada pesan'}</span>
+                      <small>{new Date(session.updatedAt).toLocaleString()} · {session.messageCount} pesan · {session.checkpointCount} checkpoint{session.projectPath ? ' · ' + pathName(session.projectPath) : ''}</small>
+                    </button>
+                    <button type="button" className="ai-icon-btn ai-session-delete" title="Hapus riwayat ini"
+                      aria-label={'Hapus riwayat ' + (session.title || session.id)} disabled={loading}
+                      onClick={() => void deleteStoredSession(session.id)}><IconTrash size={13} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      ) : null}
+
+      {checkpointsOpen ? (
+        <section className="ai-session-history ai-checkpoint-panel" aria-label="Checkpoint perubahan file">
+          <header className="ai-session-panel-head">
+            <div>
+              <strong>Checkpoint perubahan file</strong>
+              <small>Rewind/redo hanya berjalan jika isi file masih cocok dengan checkpoint. Perubahan manual yang konflik tidak akan ditimpa.</small>
+            </div>
+            <button type="button" className="ai-icon-btn" onClick={() => setCheckpointsOpen(false)} aria-label="Tutup checkpoint"><IconX size={14} /></button>
+          </header>
+          {checkpoints.length === 0 ? <p className="ai-session-empty">Belum ada checkpoint untuk sesi ini. Checkpoint dibuat saat agent menulis file melalui tool-nya.</p> : (
+            <div className="ai-checkpoint-list">
+              {checkpoints.map(checkpoint => (
+                <article className="ai-checkpoint-item" key={checkpoint.id}>
+                  <div className="ai-checkpoint-info">
+                    <strong>{new Date(checkpoint.createdAt).toLocaleString()}</strong>
+                    <small>{checkpoint.paths.join(', ') || 'Perubahan file'}</small>
+                    <span className={'ai-checkpoint-status ' + checkpoint.status}>{checkpoint.status === 'applied' ? 'Perubahan aktif' : 'Sudah di-rewind'}</span>
+                  </div>
+                  {checkpoint.status === 'applied' ? (
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || !sessionProjectPath || !sameWorkspacePath(sessionProjectPath, wb.root) || checkpointActionBusy === checkpoint.id}
+                      onClick={() => void runCheckpointAction(checkpoint.id, 'rewind')}>
+                      {checkpointActionBusy === checkpoint.id ? 'Memulihkan…' : 'Rewind'}
+                    </button>
+                  ) : (
+                    <button type="button" className="ai-checkpoint-action" disabled={loading || !wb.root || !sessionProjectPath || !sameWorkspacePath(sessionProjectPath, wb.root) || checkpointActionBusy === checkpoint.id}
+                      onClick={() => void runCheckpointAction(checkpoint.id, 'redo')}>
+                      {checkpointActionBusy === checkpoint.id ? 'Menerapkan…' : 'Redo'}
+                    </button>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      <div className="ai-agent-toolbar">
+        <div className="ai-workspace-status">
+          <span className={wb.root ? 'ready' : 'missing'} />
+          {wb.root ? 'Agent bekerja di folder project aktif' : 'Belum ada workspace'}
+        </div>
+        <button type="button" className={'ai-clear-btn' + (checkpointsOpen ? ' active' : '')}
+          onClick={() => { setCheckpointsOpen(open => !open); setHistoryOpen(false); }} title="Checkpoint dan rewind">
+          ↶ Checkpoint ({checkpoints.length})
+        </button>
+        {loading ? (
+          <button type="button" className="ai-clear-btn" onClick={() => void stopAgent()} title="Hentikan agent">
+            ■ Hentikan
+          </button>
+        ) : null}
+        <button type="button" className="ai-clear-btn" onClick={clearChat} disabled={messages.length === 0 && !loading}>
+          <IconTrash size={13} /> Chat baru
+        </button>
+      </div>
+
+      {!routerStatus?.configured ? (
+        <section className="ai-setup-needed">
+          <div className="ai-setup-icon">⚙</div>
+          <strong>Hubungkan provider AI sebelum mulai chat</strong>
+          <p>Pilih OpenRouter atau Google Gemini API, lalu simpan API key aktif. API key yang pernah dipublikasikan harus dicabut dan diganti.</p>
+          <button type="button" onClick={() => setSettingsOpen(true)}>Buka pengaturan AI</button>
+        </section>
+      ) : null}
+
+      <main className="ai-workspace-main">
+        <div className="ai-chat-column">
+          <div className="ai-messages" ref={messagesViewportRef} onScroll={handleMessagesScroll}>
+            {messages.filter((message) => message.role !== 'system' && message.content).length === 0 && !loading ? (
+              <div className="ai-empty">
+                <span className="ai-empty-icon">{activeAgent?.icon ?? '🌊'}</span>
+                <p className="ai-empty-title">Mulai coding bersama AI</p>
+                <p className="ai-empty-sub">
+                  Agent dapat membaca file, mencari simbol, membuat file, dan menulis perubahan ke workspace aktif. Saat kode berubah, periksa detail diff untuk melihat baris yang ditambahkan, diubah, atau dihapus.
+                </p>
+                <div className="ai-starter-prompts">
+                  <button type="button" onClick={() => setInput('Periksa struktur project ini dan jelaskan file penting yang ditemukan.')}>Jelaskan struktur project</button>
+                  <button type="button" onClick={() => setInput('Periksa file yang sedang terbuka, cari masalah, dan perbaiki langsung di workspace.') } disabled={!wb.activePath}>Periksa file terbuka</button>
+                  <button type="button" onClick={() => setInput('Tinjau project ini, jalankan analisis kode, dan sarankan perbaikan yang bisa diimplementasikan.')}>Tinjau kualitas kode</button>
+                </div>
+              </div>
+            ) : (
+              <AgentWorkTimeline
+                messages={messages}
+                activities={toolActivities}
+                terminalHistory={terminalHistory}
+                lastRunResult={lastRunResult}
+                copiedMessage={copiedMsg}
+                copiedTerminalId={terminalCopiedId}
+                checkpoints={checkpoints}
+                onMessageCopy={saveCopied}
+                onMessageRefork={(message) => void reforkFromMessage(message)}
+                onMessageRewind={rewindFromMessage}
+                messageActionsDisabled={loading || !sessionReady || !wb.root || pendingAttachments.length > 0}
+                onTerminalCopy={(entry) => void copyTerminalDiagnostics(entry)}
+              />
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          <div
+            className="ai-run-dock"
+            data-active={Boolean(loading || permission || agentQuestion || error)}
+            data-awaiting-response={Boolean(permission || agentQuestion)}
+          >
+            {loading || permission || agentQuestion ? (
+              <div className="ai-run-status-row" role="status">
+                {loading && !permission && !agentQuestion ? <Spinner size={15} /> : <span className="ai-run-status-dot" />}
+                <div>
+                  <strong>{permission ? 'Menunggu persetujuan terminal' : agentQuestion ? 'Menunggu jawabanmu' : 'AI sedang bekerja…'}</strong>
+                  <small title={activity || undefined}>{permission || agentQuestion ? 'Agent melanjutkan setelah keputusanmu dikirim' : 'Setiap langkah dan hasil tampil sebagai item di percakapan'}</small>
+                </div>
+                {loading ? <button type="button" className="ai-dock-stop" onClick={() => void stopAgent()}>Hentikan</button> : null}
+              </div>
+            ) : null}
+
+            {permission ? (
+              <section className="ai-permission-card ai-dock-interaction" aria-label="Persetujuan command terminal" aria-live="polite">
+                <div className="ai-permission-heading">
+                  <strong>Persetujuan terminal diperlukan</strong><span>Belum dijalankan</span>
+                </div>
+                <p>{permission.reason}</p>
+                <pre>{permission.command}</pre>
+                <small className="ai-interaction-guidance">Periksa command dan alasannya. Command hanya berjalan setelah kamu menyetujuinya.</small>
+                <div className="ai-permission-actions">
+                  <button type="button" className="ai-permission-deny" onClick={() => void resolvePermission(false)}>Tolak command</button>
+                  <button type="button" className="ai-permission-approve" onClick={() => void resolvePermission(true)}>Izinkan sekali</button>
+                </div>
+              </section>
+            ) : null}
+
+            {agentQuestion ? (
+              <section className="ai-question-card ai-dock-interaction" aria-label="Pertanyaan dari AI Agent" aria-live="polite">
+                <header className="ai-question-heading">
+                  <div><span className="ai-question-eyebrow">BUTUH KEPUTUSANMU</span><strong>{agentQuestion.question}</strong></div>
+                  <span className="ai-question-chip">Menunggu jawaban</span>
+                </header>
+                <p className="ai-question-context">{agentQuestion.context}</p>
+                <div className="ai-question-recommendation">
+                  <strong>Alasan rekomendasi</strong>
+                  <p>{agentQuestion.recommendationReason}</p>
+                </div>
+                <div className="ai-question-options" role="group" aria-label="Pilihan jawaban">
+                  {agentQuestion.options.map((option, index) => {
+                    const optionNumber = index + 1;
+                    const recommended = optionNumber === agentQuestion.recommendedOption;
+                    return (
+                      <button
+                        type="button"
+                        key={optionNumber}
+                        className={'ai-question-option' + (selectedQuestionOption === optionNumber ? ' selected' : '') + (recommended ? ' recommended' : '')}
+                        onClick={() => { setSelectedQuestionOption(optionNumber); setCustomQuestionAnswer(''); }}
+                        disabled={submittingQuestion}
+                        aria-pressed={selectedQuestionOption === optionNumber}
+                      >
+                        <span className="ai-question-option-top">
+                          <strong>{option.label}</strong>
+                          {recommended ? <span className="ai-recommended-label">Rekomendasi</span> : null}
+                        </span>
+                        <small>{option.description}</small>
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    key="custom"
+                    className={'ai-question-option ai-question-option-custom' + (selectedQuestionOption === CUSTOM_QUESTION_OPTION ? ' selected' : '')}
+                    onClick={() => { setSelectedQuestionOption(CUSTOM_QUESTION_OPTION); setCustomQuestionAnswer(''); }}
+                    disabled={submittingQuestion}
+                    aria-pressed={selectedQuestionOption === CUSTOM_QUESTION_OPTION}
+                  >
+                    <span className="ai-question-option-top">
+                      <strong>4. Custom (tulis sendiri)</strong>
+                    </span>
+                    <small>Tulis keputusan atau instruksi sendiri di luar tiga pilihan di atas.</small>
+                  </button>
+                </div>
+                {selectedQuestionOption === CUSTOM_QUESTION_OPTION ? (
+                  <div className="ai-question-custom">
+                    <label htmlFor="ai-question-custom-answer">Jawaban custom</label>
+                    <input
+                      id="ai-question-custom-answer"
+                      autoFocus
+                      value={customQuestionAnswer}
+                      onChange={(event) => setCustomQuestionAnswer(event.target.value)}
+                      maxLength={2000}
+                      placeholder="Masukkan keputusan atau instruksi khusus…"
+                      disabled={submittingQuestion}
+                    />
+                  </div>
+                ) : null}
+                <footer className="ai-question-actions">
+                  <span>Rekomendasi tidak dipilih otomatis. Agent menunggu keputusanmu.</span>
+                  <button
+                    type="button"
+                    className="ai-question-submit"
+                    disabled={submittingQuestion || (
+                      selectedQuestionOption === CUSTOM_QUESTION_OPTION
+                        ? !customQuestionAnswer.trim()
+                        : selectedQuestionOption === null
+                    )}
+                    onClick={() => void answerAgentQuestion()}
+                  >
+                    {submittingQuestion ? <Spinner size={14} /> : null}
+                    {submittingQuestion ? 'Mengirim…' : 'Kirim jawaban'}
+                  </button>
+                </footer>
+              </section>
+            ) : null}
+
+            {error ? <div className="ai-error ai-run-dock-error" role="alert">{error}</div> : null}
+          </div>
+
+          <div className={'ai-composer' + (permission || agentQuestion ? ' has-interaction' : '')}>
+            <div className="ai-composer-context">
+              <span>{permission ? 'Persetujuan command diperlukan' : agentQuestion ? 'Jawab pertanyaan agent di panel ini' : wb.activePath ? pathName(wb.activePath) : pathName(wb.root)}</span>
+              <span>{permission || agentQuestion ? 'Agent menunggu keputusanmu' : 'Enter untuk kirim · Shift+Enter untuk baris baru'}</span>
+            </div>
+            {pendingAttachments.length ? (
+              <div className="ai-pending-attachments" aria-label="Lampiran siap dikirim">
+                {pendingAttachments.map(item => (
+                  <span className="ai-attachment-chip" key={item.id} title={item.mimeType}>
+                    <span aria-hidden="true">▤</span><span>{item.name}</span>
+                    <button type="button" aria-label={'Hapus lampiran ' + item.name} disabled={loading}
+                      onClick={() => setPendingAttachments(items => items.filter(x => x.id !== item.id))}><IconX size={12} /></button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {slashMenuOpen ? (
+              <div className="ai-slash-menu" role="listbox" aria-label="Perintah Agentic Coding">
+                <div className="ai-slash-menu-heading">Perintah</div>
+                {filteredSlashCommands.length ? filteredSlashCommands.map((item, index) => (
+                  <button
+                    type="button"
+                    key={item.command}
+                    className={'ai-slash-command' + (index === activeSlashCommandIndex ? ' active' : '')}
+                    role="option"
+                    aria-selected={index === activeSlashCommandIndex}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setActiveSlashCommandIndex(index)}
+                    onClick={() => executeSlashCommand(item.command)}
+                  >
+                    <span className="ai-slash-command-icon" aria-hidden="true">{item.icon}</span>
+                    <span className="ai-slash-command-copy">
+                      <strong>{item.command}</strong>
+                      <small>{item.description}</small>
+                    </span>
+                    <span className="ai-slash-command-title">{item.title}</span>
+                  </button>
+                )) : <p className="ai-slash-menu-empty">Tidak ada perintah yang cocok.</p>}
+                <div className="ai-slash-menu-hint"><kbd>↑</kbd><kbd>↓</kbd> pilih <kbd>Enter</kbd> buka <kbd>Esc</kbd> tutup</div>
+              </div>
+            ) : null}
+            <div className="ai-input-row">
+              <button type="button" className="ai-attach-btn" aria-label="Lampirkan file"
+                title="Lampirkan gambar, dokumen, audio, video, atau file teks"
+                disabled={loading || selectingAttachments || !sessionReady || !wb.root}
+                onClick={() => void pickAttachments()}>
+                {selectingAttachments ? <Spinner size={16} /> : <IconPlus size={17} />}
+              </button>
+              <textarea
+                ref={inputRef}
+                className="ai-input"
+                value={input}
+                onChange={(event) => {
+                  const nextInput = event.target.value;
+                  setInput(nextInput);
+                  const trimmedStart = nextInput.trimStart();
+                  const opensCommandMenu = trimmedStart.startsWith('/') && !/\s/.test(trimmedStart);
+                  setSlashMenuOpen(opensCommandMenu);
+                  setActiveSlashCommandIndex(0);
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder={permission ? 'Setujui atau tolak command di panel di atas…' : agentQuestion ? 'Pilih opsi atau tulis jawaban custom pada panel di atas…' : loading ? 'Agent sedang bekerja…' : !sessionReady ? 'Menyiapkan sesi AI baru…' : !routerStatus?.configured ? 'Ketik /connect untuk menghubungkan AI, atau tulis instruksi…' : !wb.root ? 'Buka workspace proyek terlebih dahulu…' : 'Tulis instruksi atau ketik / untuk perintah…'}
+                rows={3}
+                disabled={loading || !sessionReady || !activeAgent}
+                aria-label="Pesan AI coding agent"
+              />
+              <button
+                type="button"
+                className="ai-send-btn"
+                onClick={() => void sendMessage()}
+                disabled={loading || (!input.trim() && pendingAttachments.length === 0) || !activeAgent || !wb.root}
+                title="Kirim (Enter)"
+              >
+                {loading ? <Spinner size={17} /> : <IconSend size={17} />}
+              </button>
+            </div>
+          </div>
+        </div>
+        <aside className="ai-agent-sidepanel" aria-label="Rincian kerja agent">
+          <section className="ai-side-card ai-side-workspace-card">
+            <div className="ai-side-card-title"><strong>Workspace aktif</strong><span className="ai-side-dot" /></div>
+            <div className="ai-root-path">{wb.root ?? 'Belum ada folder project'}</div>
+            {wb.activePath ? <div className="ai-active-file"><span>File terpilih di editor</span><code>{wb.activePath}</code></div> : null}
+          </section>
+
+          <section className="ai-side-card ai-side-skills-card">
+            <div className="ai-side-card-title">
+              <strong>Skill aktif</strong>
+              <span>{activeSkills.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-skills-scroll">
+              {activeSkills.length ? activeSkills.map((skill) => (
+                <div className="ai-side-skill" key={skill.id} title={skill.reason}>
+                  <strong>{skill.name}</strong>
+                  {skill.reason ? <small>{skill.reason}</small> : null}
+                </div>
+              )) : <p className="ai-side-empty">Skill yang digunakan selama tugas akan muncul di sini.</p>}
+            </div>
+          </section>
+
+          <section className="ai-side-card ai-side-tools-card">
+            <div className="ai-side-card-title">
+              <strong>Tool yang dipakai</strong>
+              <span>{toolActivities.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-tools-scroll">
+              {toolActivities.length ? toolActivities.slice(-12).slice().reverse().map((item) => (
+                <div className="ai-side-tool" key={item.id}>
+                  <span className={'ai-side-tool-mark status-' + item.status} aria-hidden="true">
+                    {item.status === 'running' ? '◌' : item.status === 'completed' ? '✓' : '×'}
+                  </span>
+                  <div>
+                    <strong>{AGENT_TOOL_DISPLAY_NAMES[item.name] || item.name}</strong>
+                    <small>{item.detail}</small>
+                  </div>
+                </div>
+              )) : <p className="ai-side-empty">Tool yang digunakan agent pada run ini akan tampil di sini.</p>}
+            </div>
+          </section>
+
+          <section className="ai-side-card ai-side-todo-card">
+            <div className="ai-side-card-title">
+              <strong>Todo List</strong>
+              <span>{todos.filter(todo => todo.status === 'completed').length}/{todos.length}</span>
+            </div>
+            <div className="ai-side-scroll ai-side-todo-scroll">
+              {todos.length ? <TodoPanel todos={todos} /> : <p className="ai-side-empty">Rencana agent akan muncul di sini setelah Todo List dibuat.</p>}
+            </div>
+          </section>
+
+          <ChangeList changes={changes} onSelect={setSelectedChange} />
+        </aside>
+      </main>
+
+      <footer className="ai-panel-footer">
+        <span className="ai-footer-workspace">{wb.root ? 'Workspace siap' : 'Workspace belum aktif'}</span>
+        <span className="ai-footer-model">{routerStatus?.model ?? 'ps/poolside/laguna-s-2.1(high)'}</span>
+        <span className="ai-footer-shortcut">Ruang Kerja AI Agent · v{window.rk.version}</span>
+      </footer>
+
+      {selectedChange ? <DiffViewer change={selectedChange} onClose={() => setSelectedChange(null)} /> : null}
+    </section>
+  );
+}
+ + (model.internalReasoningPrice * 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }) : 'Tidak tersedia'}</strong></div>
+                              <div><small>Dibuat</small><strong>{model.createdAt ? new Date(model.createdAt * 1000).toLocaleDateString() : 'Tidak tersedia'}</strong></div>
+                              <div><small>Masa berlaku</small><strong>{model.expirationDate ? new Date(model.expirationDate).toLocaleString() : 'Tidak tercantum'}</strong></div>
+                            </div>
+                            {model.perRequestLimits ? <small>Batas per request: {model.perRequestLimits}</small> : null}
+                            <small>Metadata berasal dari katalog {modelProviderInfo?.name ?? 'provider'}; nilai yang tidak disediakan tidak ditebak.</small>
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}
@@ -2410,9 +5558,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                       maxLength={200} spellCheck={false} placeholder="Pilih dari katalog atau masukkan ID model…" />
                   </label>
                   <button type="button" className="ai-settings-save ai-model-apply"
-                    disabled={!selectedModelDraft.trim() || savingModel || loading || selectedModelDraft.trim() === routerStatus?.model}
+                    disabled={!selectedModelDraft.trim() || savingModel || loading || (selectedModelDraft.trim() === modelProviderInfo?.model && modelProviderDraft === routerStatus?.provider)}
                     onClick={() => void saveSelectedModel()}>
-                    {savingModel ? 'Menyimpan…' : selectedModelDraft.trim() === routerStatus?.model ? 'Model sedang aktif' : 'Gunakan model'}
+                    {savingModel ? 'Menyimpan…' : selectedModelDraft.trim() === modelProviderInfo?.model && modelProviderDraft === routerStatus?.provider ? 'Model sedang aktif' : 'Gunakan provider & model'}
                   </button>
                 </div>
 
