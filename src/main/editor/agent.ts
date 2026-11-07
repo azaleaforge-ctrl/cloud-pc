@@ -997,6 +997,8 @@ async function openCompletionStream(
           stream: true,
           max_tokens: 6144,
           temperature: 0.2,
+          ...(provider === 'openrouter' ? { usage: { include: true } } : {}),
+          ...(provider === 'groq' ? { stream_options: { include_usage: true } } : {}),
         }),
         signal: AbortSignal.any([session.controller.signal, AbortSignal.timeout(120_000)]),
       });
@@ -1015,13 +1017,19 @@ async function openCompletionStream(
   throw new Error(providerName + ' tidak dapat memproses permintaan. ' + lastError + '. Periksa endpoint, koneksi, dan API key di Pengaturan AI.');
 }
 
-async function readCompletion(response: Response, session: LlmSession): Promise<{ content: string; toolCalls: ToolCall[] }> {
+async function readCompletion(
+  response: Response,
+  session: LlmSession,
+  provider: AgentProviderId,
+  model: string,
+): Promise<{ content: string; toolCalls: ToolCall[] }> {
   const reader = response.body?.getReader();
   if (!reader) throw new Error('Respons provider AI tidak memiliki stream body.');
   const decoder = new TextDecoder();
   let buffer = '';
   let content = '';
   let doneSignal = false;
+  let usage: { promptTokens: number; completionTokens: number; totalTokens: number; costUsd: number | null } | null = null;
   const calls = new Map<number, ToolCall>();
 
   const processSseLine = (rawLine: string) => {
@@ -1038,8 +1046,31 @@ async function readCompletion(response: Response, session: LlmSession): Promise<
           tool_calls?: Array<{ index?: number; id?: string; thought_signature?: string; gemini_function_call_id?: string; function?: { name?: string; arguments?: string } }>;
         };
       }>;
+      usage?: Record<string, unknown>;
     };
     try { payload = JSON.parse(data) as typeof payload; } catch { return; }
+
+    if (payload.usage && typeof payload.usage === 'object') {
+      const rawUsage = payload.usage;
+      const readCount = (...values: unknown[]): number => {
+        for (const value of values) {
+          const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+          if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+        }
+        return 0;
+      };
+      usage = {
+        promptTokens: readCount(rawUsage.prompt_tokens, rawUsage.input_tokens, rawUsage.promptTokenCount),
+        completionTokens: readCount(rawUsage.completion_tokens, rawUsage.output_tokens, rawUsage.candidatesTokenCount),
+        totalTokens: readCount(rawUsage.total_tokens, rawUsage.totalTokenCount),
+        costUsd: (() => {
+          const raw = rawUsage.cost ?? rawUsage.total_cost;
+          const parsed = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+          return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+        })(),
+      };
+      if (!usage.totalTokens) usage.totalTokens = usage.promptTokens + usage.completionTokens;
+    }
 
     const delta = payload.choices?.[0]?.delta;
     const deltaContent = delta?.content;
@@ -1083,6 +1114,42 @@ async function readCompletion(response: Response, session: LlmSession): Promise<
   } finally {
     try { await reader.cancel(); } catch { /* already closed */ }
     reader.releaseLock();
+  }
+
+  const headerNumber = (...names: string[]): number | null => {
+    for (const name of names) {
+      const raw = response.headers.get(name);
+      if (raw === null || !raw.trim()) continue;
+      const parsed = Number(raw);
+      if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    }
+    return null;
+  };
+  const tokenLimit = headerNumber('x-ratelimit-limit-tokens');
+  const tokenRemaining = headerNumber('x-ratelimit-remaining-tokens');
+  const requestLimit = headerNumber('x-ratelimit-limit-requests', 'x-ratelimit-limit');
+  const requestRemaining = headerNumber('x-ratelimit-remaining-requests', 'x-ratelimit-remaining');
+  const tokenReset = response.headers.get('x-ratelimit-reset-tokens') ?? response.headers.get('x-ratelimit-reset');
+  const requestReset = response.headers.get('x-ratelimit-reset-requests');
+  if (usage || tokenLimit !== null || tokenRemaining !== null || requestLimit !== null || requestRemaining !== null) {
+    emit(session, {
+      type: 'provider-usage',
+      usage: {
+        provider,
+        model,
+        promptTokens: usage?.promptTokens ?? 0,
+        completionTokens: usage?.completionTokens ?? 0,
+        totalTokens: usage?.totalTokens ?? 0,
+        costUsd: usage?.costUsd ?? null,
+        tokenLimit,
+        tokenRemaining,
+        tokenReset,
+        requestLimit,
+        requestRemaining,
+        requestReset,
+        reportedAt: Date.now(),
+      },
+    });
   }
 
   return {
@@ -1354,7 +1421,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
           }
         }
 
-        const completion = await readCompletion(response, session);
+        const completion = await readCompletion(response, session, config.provider ?? 'legacy', config.models[0] || session.agent.model || DEFAULT_MODEL);
         if (session.killed) break;
 
         if (completion.toolCalls.length === 0) {
