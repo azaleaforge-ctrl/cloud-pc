@@ -549,10 +549,11 @@ function saveAgentRouterKey(input: unknown): { ok: boolean; error?: string } {
     };
   }
   try {
-    mkdirSync(dirname(providerKeyPath(provider)), { recursive: true });
-    const keyPath = providerKeyPath(provider);
-    writeFileSync(keyPath, safeStorage.encryptString(clean), { mode: 0o600 });
-    if (process.platform !== 'win32') chmodSync(keyPath, 0o600);
+    saveEncryptedProviderApiKey(provider, clean);
+    if (provider === 'openrouter') {
+      // Manual key entry replaces any older OAuth account identity metadata.
+      writeOpenRouterAccountMetadata({ authMethod: 'api-key', userId: null, linkedAt: new Date().toISOString() });
+    }
     const selected = saveAgentProviderSelection(provider);
     if (!selected.ok) return selected;
     return { ok: true };
