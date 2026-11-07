@@ -107,7 +107,7 @@ export function openRouterHttpErrorMessage(
   const error = record(payload.error);
   const metadata = record(error.metadata);
   const limitSource = nullableString(metadata.limit_source);
-  const detail = nullableString(error.message) ?? redactSecretValues(bodyText, [apiKey]).replace(/\s+/g, ' ').trim().slice(0, 160);
+  const detail = redactSecretValues(nullableString(error.message) ?? bodyText, [apiKey]).replace(/\s+/g, ' ').trim().slice(0, 160);
 
   if (status === 402) {
     if (limitSource === 'openrouter_key_limit') {
