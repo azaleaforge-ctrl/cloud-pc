@@ -1870,7 +1870,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
               : selectedProviderDraft === 'gemini'
                 ? 'Gunakan API key Gemini dari Google AI Studio. Nama dan akses model mengikuti katalog akun Google-mu.'
                 : selectedProviderDraft === 'groq'
-                  ? 'Groq Free Tier: katalog dibatasi ke GPT-OSS 120B, GPT-OSS 20B, dan Qwen 3.8 27B yang tercantum pada tabel batas Free Plan resmi. Batas akun berlaku; saat kuota habis, Groq mengembalikan HTTP 429. Jika akun dinaikkan ke Developer Tier, pemakaian dapat ditagihkan.'
+                  ? 'Groq Free Tier: hanya GPT-OSS 120B, GPT-OSS 20B, dan Qwen 3.8 27B dari daftar model Free Plan yang ditampilkan. Batas publik saat ini untuk model tersebut: 30 request/menit, 1.000 request/hari, 8.000 token/menit, dan 200.000 token/hari per model; akun dapat memiliki variasi batas. HTTP 429 berarti kuota terlampaui. Developer Tier bersifat berbayar.'
                   : 'Mode kompatibilitas untuk instalasi 9router lama; opsi ini hanya ditampilkan saat konfigurasi lama terdeteksi.'}
           </p>
           <label className="ai-settings-label" htmlFor="rk-router-key">API key {routerStatus?.providers.find(item => item.id === selectedProviderDraft)?.configured ? '(tersimpan; isi untuk mengganti)' : ''}</label>
