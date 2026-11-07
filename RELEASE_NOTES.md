@@ -24,8 +24,8 @@
 - 9Router tetap Local Only di `http://localhost:20128/v1`; tidak ada perubahan remote fallback.
 - Provider Gemini yang sudah ada tidak diubah dalam rilis ini.
 
-### 4. Detail Version
-Buka versi pada bilah status bawah untuk melihat deskripsi rilis v1.2.0. Gunakan **Muat Ulang Versi** untuk memperbarui daftar dan deskripsi dari GitHub.
+### Detail Version di dalam aplikasi
+Buka nomor versi pada bilah status bawah untuk melihat **deskripsi perubahan/fitur/perbaikan** v1.2.0. Riwayat menampilkan **maksimal tiga rilis terbaru**. Gunakan tombol **Muat Ulang Versi** untuk memperbarui daftar dan deskripsi dari GitHub.
 
 ---
 
