@@ -1,3 +1,37 @@
+# Ruang Kerja v1.2.3
+
+## Billing OpenRouter dalam Rupiah — saldo akun, penggunaan, dan kurs USD/IDR
+
+### 1. Saldo akun OpenRouter
+- Menambahkan pembacaan total kredit dibeli, total penggunaan akun, dan saldo tersisa melalui endpoint OpenRouter `/api/v1/credits`.
+- Saldo akun dibedakan dari limit serta penggunaan API key inferensi aktif; keduanya tidak lagi disamakan.
+- Pembacaan saldo membutuhkan Management API Key terpisah. Key bersifat opsional, hanya dipakai untuk membaca endpoint credits, dan tidak dipakai untuk request model.
+- Management API Key diverifikasi sebelum disimpan, dienkripsi melalui Electron safeStorage, tidak dikirim ke renderer sebagai teks, dan dapat diganti atau dihapus dari pengaturan.
+- Logout OpenRouter juga menghapus Management API Key lokal. Logout tidak mencabut key di dashboard OpenRouter.
+
+### 2. Tampilan biaya dalam Rupiah
+- Mengubah tampilan saldo akun, total kredit, penggunaan akun, penggunaan API key, budget key, dan biaya aktual yang dilaporkan untuk request Ruang Kerja menjadi Rupiah (IDR).
+- Mengubah harga model per satu juta token, biaya request, image, cache, dan reasoning di katalog model menjadi Rupiah.
+- OpenRouter tetap menyimpan saldo dan membebankan penggunaan dalam USD. Konversi di Ruang Kerja hanya untuk tampilan; nilai sumber dan request billing tidak diubah.
+- Token, request, limit token, dan limit request tetap menggunakan satuan asli provider.
+
+### 3. Kurs USD/IDR
+- Mengambil kurs referensi USD/IDR dari Frankfurter API dan menampilkan tanggal kurs yang digunakan.
+- Kurs di-cache di proses aplikasi selama 12 jam untuk mengurangi request berulang; pengguna dapat memperbaruinya secara manual.
+- Saat API kurs tidak tersedia, Ruang Kerja tidak mengarang nilai konversi dan menandai nilai Rupiah sebagai belum tersedia.
+- Semua nominal pada panel billing menggunakan kurs referensi yang sama sehingga saldo akun, key, dan biaya aplikasi dapat dibandingkan.
+
+### 4. Pemisahan cakupan billing
+- **Saldo akun OpenRouter** berasal dari total kredit dibeli dikurangi total penggunaan akun pada endpoint credits.
+- **Penggunaan API key** berasal dari endpoint current-key dan hanya menggambarkan key inferensi aktif.
+- **Pengeluaran Ruang Kerja** adalah biaya aktual request yang dilaporkan provider dan disimpan lokal pada profil aplikasi; ini bukan total seluruh penggunaan akun.
+- Data yang tidak disediakan API ditampilkan sebagai tidak tersedia. Aplikasi tidak mengestimasi biaya berdasarkan jumlah token.
+
+### Detail Version di dalam aplikasi
+Buka nomor versi pada bilah status bawah untuk melihat deskripsi perubahan/fitur/perbaikan v1.2.3. Riwayat menampilkan maksimal tiga rilis terbaru beserta deskripsi masing-masing versi. Gunakan tombol Muat Ulang Versi untuk memperbarui daftar dan deskripsi dari GitHub.
+
+---
+
 # Ruang Kerja v1.2.2
 
 ## Agentic Coding — provider-first model picker, model pricing details, and live usage dashboard

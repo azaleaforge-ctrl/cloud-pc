@@ -71,6 +71,22 @@ try {
   assert.equal(status.keySettingsUrl,'https://openrouter.ai/keys/'+('a'.repeat(64)));
   assert.equal(status.activityUrl,'https://openrouter.ai/logs?api_key_hash='+('a'.repeat(64)));
 
+  const credits=api.normalizeOpenRouterCredits({data:{total_credits:5,total_usage:1.275}},'2026-11-07T00:00:00.000Z');
+  assert.equal(credits.configured,true);
+  assert.equal(credits.totalCreditsUsd,5);
+  assert.equal(credits.totalUsageUsd,1.275);
+  assert.equal(credits.balanceUsd,3.725);
+  assert.equal(credits.fetchedAt,'2026-11-07T00:00:00.000Z');
+  const incompleteCredits=api.normalizeOpenRouterCredits({data:{total_credits:5}});
+  assert.equal(incompleteCredits.balanceUsd,null,'balance must not be guessed if usage is absent');
+
+  const fx=api.normalizeUsdIdrRate({base:'USD',quote:'IDR',rate:15875.25,date:'2026-11-06'},'2026-11-07T00:00:00.000Z');
+  assert.equal(fx.rate,15875.25);
+  assert.equal(fx.date,'2026-11-06');
+  assert.equal(fx.source,'Frankfurter');
+  const invalidFx=api.normalizeUsdIdrRate({base:'USD',quote:'EUR',rate:0.92,date:'2026-11-06'});
+  assert.equal(invalidFx.rate,null,'do not accept a different FX pair');
+
   const keyLimit=api.openRouterHttpErrorMessage(402,JSON.stringify({
     error:{message:'key budget spent',metadata:{limit_source:'openrouter_key_limit'}},
   }));
