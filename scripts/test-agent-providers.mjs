@@ -381,7 +381,7 @@ try {
     assert.equal(requests.length,3);
     assert.ok(requests.every(item=>item.url==='https://api.groq.com/openai/v1/chat/completions'));
     assert.ok(requests[1].body.tools.length>0);
-    assert.equal(requests[1].body.tool_choice,'required');
+    assert.deepEqual(requests[1].body.tool_choice,{type:'function',function:{name:'capability_probe'}});
   });
 
   await test('lists only Gemini content-generation models and strips the models/ prefix', async () => {
