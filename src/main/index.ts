@@ -767,7 +767,7 @@ async function fetchOpenRouterCreditsWithKey(apiKey: string): Promise<OpenRouter
   let payload: Record<string, unknown> = {};
   try { payload = bodyText ? JSON.parse(bodyText) as Record<string, unknown> : {}; } catch { /* handled below */ }
   if (!response.ok) {
-    const detail = redactSecretValues(bodyText, [apiKey]).replace(/\\s+/g, ' ').slice(0, 180);
+    const detail = redactSecretValues(bodyText, [apiKey]).replace(/\s+/g, ' ').slice(0, 180);
     const message = response.status === 401 || response.status === 403
       ? 'OpenRouter menolak Management API key. Pastikan key dibuat sebagai Management API Key dan akun memiliki akses ke endpoint credits.'
       : 'Gagal membaca saldo OpenRouter (HTTP ' + response.status + ').' + (detail ? ' ' + detail : '');

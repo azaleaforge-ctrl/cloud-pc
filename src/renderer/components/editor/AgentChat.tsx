@@ -1050,6 +1050,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       const result = await window.rk.agentDisconnectOpenRouter();
       if (!result.ok) throw new Error(result.error || 'Gagal logout dari OpenRouter.');
       setOpenRouterAccount(null);
+      setOpenRouterCredits({ configured: false, totalCreditsUsd: null, totalUsageUsd: null, balanceUsd: null, fetchedAt: null });
+      setOpenRouterManagementKey('');
       setApiKey('');
       setTestResult(null);
       await refreshRouterStatus();
@@ -2929,6 +2931,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 {openRouterCredits?.error ? <small className="ai-usage-warning">{openRouterCredits.error}</small> : null}
                 <small>{openRouterAccount.isFreeTier === true ? 'Akun OpenRouter ditandai Free Tier. Model gratis tetap memiliki batas request dan kapasitas provider.' : openRouterAccount.isFreeTier === false ? 'Akun/key OpenRouter bukan Free Tier.' : 'Status Free/Paid tidak disediakan oleh endpoint key.'}</small>
                 <small>Usage API key hanya menggambarkan key inferensi yang aktif; saldo total akun dibaca terpisah memakai Management API Key.</small>
+                <small>OpenRouter tetap menghitung saldo dan tagihan dalam USD; konversi ini hanya untuk tampilan Ruang Kerja.</small>
                 <small>{usdIdrRate?.rate ? 'Kurs referensi: 1 USD = ' + new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(usdIdrRate.rate) + ' IDR · ' + (usdIdrRate.date ?? 'tanggal tidak tersedia') : 'Kurs USD/IDR tidak tersedia; nilai Rupiah belum dapat dihitung.'}</small>
                 {usdIdrRate?.error ? <small className="ai-usage-warning">{usdIdrRate.error}</small> : null}
                 {openRouterAccount.error ? <small className="ai-usage-warning">{openRouterAccount.error}</small> : null}
