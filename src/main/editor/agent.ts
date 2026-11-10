@@ -472,7 +472,7 @@ async function readProjectFileForSession(session: LlmSession, root: string, requ
     session.workspaceReadCache.set(resolved.target, cached);
   }
 
-  const lines = cached.content.split(/\\r?\\n/);
+  const lines = cached.content.split(/\r?\n/);
   const totalLines = lines.length;
   const startLine = requestedStartLine === undefined ? 1 : requestedStartLine;
   if (!Number.isSafeInteger(startLine) || startLine < 1 || startLine > Math.max(1, totalLines)) {
@@ -484,11 +484,11 @@ async function readProjectFileForSession(session: LlmSession, root: string, requ
 
   const maxChunkChars = 12_000;
   let endLine = Math.min(totalLines, requestedEndLine ?? totalLines);
-  let chunk = lines.slice(startLine - 1, endLine).join('\\n');
+  let chunk = lines.slice(startLine - 1, endLine).join('\n');
   if (requestedEndLine === undefined || chunk.length > maxChunkChars) {
     while (endLine > startLine && chunk.length > maxChunkChars) {
       endLine = Math.max(startLine, Math.floor((startLine + endLine) / 2));
-      chunk = lines.slice(startLine - 1, endLine).join('\\n');
+      chunk = lines.slice(startLine - 1, endLine).join('\n');
     }
   }
   const rangeKey = resolved.target + '|' + info.size + '|' + info.mtimeMs + '|' + info.ctimeMs + '|' + startLine + '-' + endLine;
@@ -498,7 +498,7 @@ async function readProjectFileForSession(session: LlmSession, root: string, requ
       'File "' + resolved.rel + '" pada baris ' + startLine + '–' + endLine + ' sudah dikirim ke konteks model pada pemanggilan sebelumnya.',
       'Gunakan hasil pembacaan sebelumnya; lanjutkan dari baris berikutnya atau gunakan search_project_files untuk mencari simbol tertentu.',
       'Isi file tidak dikirim ulang sehingga payload file tidak menambah biaya lagi.',
-    ].join('\\n');
+    ].join('\n');
   }
   session.workspaceReadRanges.add(rangeKey);
   const nextLine = endLine < totalLines ? endLine + 1 : null;
@@ -509,7 +509,7 @@ async function readProjectFileForSession(session: LlmSession, root: string, requ
     '--- BEGIN FILE CONTENT ---',
     chunk,
     '--- END FILE CONTENT ---',
-  ].join('\\n');
+  ].join('\n');
 }
 
 function invalidateWorkspaceDiscoveryCaches(session: LlmSession): void {
