@@ -294,3 +294,56 @@ export async function loadAgentSkillInstructions(userDataDir: string, selections
   }
   return sections.join('\n\n');
 }
+
+
+/**
+ * The Skills panel shows the skill needed by the current concrete tool step,
+ * not every instruction kept in the run's system prompt. This makes activity
+ * badges turn off as soon as the relevant step finishes.
+ */
+export function selectSkillsForToolActivity(
+  selections: AgentSkillSelection[],
+  toolName: string,
+  argumentsJson: string,
+): AgentSkillSelection[] {
+  let args: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(argumentsJson || '{}') as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) args = parsed as Record<string, unknown>;
+  } catch { /* tool arguments may be malformed; use conservative defaults */ }
+
+  const path = typeof args.path === 'string' ? args.path.toLowerCase() : '';
+  const command = typeof args.command === 'string' ? args.command.toLowerCase() : '';
+  const active = new Set<string>();
+
+  if (['list_project_files', 'read_project_file', 'search_project_files', 'todo_read', 'todo_write', 'read_session_memory'].includes(toolName)) {
+    active.add('context');
+  }
+  if (toolName === 'write_project_file') {
+    active.add('lazy-dev');
+    active.add('safe-code-changes');
+    if (/\.(tsx?|jsx?|css|scss|html|vue|svelte)$/.test(path)) {
+      active.add('frontend-ui-engineering');
+      active.add('no-ai-slop-ui');
+      active.add('ui-ux-pro-max');
+    }
+    if (/\.(php|sql|prisma|graphql)$/.test(path) || /(^|\/)(api|server|backend|routes?|controllers?|models?)(\/|$)/.test(path)) {
+      active.add('backend-development');
+    }
+    if (/(auth|login|permission|security|credential|secret|token)/.test(path)) active.add('security');
+  }
+  if (toolName === 'run_terminal') {
+    if (/\b(test|spec|build|lint|typecheck|check|verify|verify:|phpunit|vitest|jest|playwright|cargo test|go test|dotnet test)\b/.test(command)) {
+      active.add('tdd');
+    } else {
+      active.add('context');
+    }
+    if (/\b(debug|trace|diagnos|inspect|analy[sz]e)\b/.test(command)) active.add('debugging');
+  }
+  if (toolName.startsWith('mcp_')) {
+    active.add('security');
+    active.add('safe-code-changes');
+  }
+
+  return selections.filter((skill) => active.has(skill.id));
+}

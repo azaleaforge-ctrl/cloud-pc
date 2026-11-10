@@ -27,7 +27,7 @@ import type {
   TerminalSessionInfo,
   VsxSearchResult,
 } from '../shared/editor';
-import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentProviderId, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, InstalledAgentSkill, AgentSkillInstallResult, McpPluginSummary, McpPluginImportResult, McpPluginProbeResult, ChatMessage, AgentEvent, OpenRouterAccountStatus, OpenRouterCreditsStatus, UsdIdrRateStatus } from '../shared/agents';
+import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentProviderId, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, InstalledAgentSkill, AgentSkillInstallResult, McpPluginSummary, McpPluginImportResult, McpPluginProbeResult, ChatMessage, AgentEvent, AgentPermissionDecision, AgentReasoningEffort, AgentReasoningParameter, OpenRouterAccountStatus, OpenRouterCreditsStatus, UsdIdrRateStatus } from '../shared/agents';
 import { APP_VERSION } from '../shared/types';
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -150,10 +150,10 @@ const api: RkApi = {
   agentRemoveMcpPlugin: (id: string) => ipcRenderer.invoke('rk:agent:remove-mcp-plugin', id),
   agentProbeMcpPlugin: (id: string): Promise<McpPluginProbeResult> => ipcRenderer.invoke('rk:agent:probe-mcp-plugin', id),
   agentPickAttachments: (): Promise<{ ok: boolean; attachments?: AgentAttachmentRef[]; error?: string }> => ipcRenderer.invoke('rk:agent:pick-attachments'),
-  agentApproveTool: (sessionId: string, requestId: string, approved: boolean) => ipcRenderer.invoke('rk:agent:approve-tool', sessionId, requestId, approved),
+  agentApproveTool: (sessionId: string, requestId: string, decision: AgentPermissionDecision) => ipcRenderer.invoke('rk:agent:approve-tool', sessionId, requestId, decision),
   agentAnswerQuestion: (sessionId: string, requestId: string, answer: string) => ipcRenderer.invoke('rk:agent:answer-question', sessionId, requestId, answer),
   agentBeginSession: (conversationId: string) => ipcRenderer.invoke('rk:agent:begin-session', conversationId),
-  agentStartChat: (agentId: string, messages?: ChatMessage[], activePath?: string | null, conversationId?: string) => ipcRenderer.invoke('rk:agent:start-chat', agentId, messages ?? [], activePath ?? null, conversationId ?? ''),
+  agentStartChat: (agentId: string, messages?: ChatMessage[], activePath?: string | null, conversationId?: string, reasoningEffort?: AgentReasoningEffort, reasoningParameter?: AgentReasoningParameter | null) => ipcRenderer.invoke('rk:agent:start-chat', agentId, messages ?? [], activePath ?? null, conversationId ?? '', reasoningEffort ?? 'low', reasoningParameter ?? null),
   agentStartCli: (agentId: string, cols: number, rows: number) => ipcRenderer.invoke('rk:agent:start-cli', agentId, cols, rows),
   agentSendInput: (sessionId: string, data: string) => ipcRenderer.invoke('rk:agent:send-input', sessionId, data),
   agentResize: (sessionId: string, cols: number, rows: number) => ipcRenderer.invoke('rk:agent:resize', sessionId, cols, rows),

@@ -2,7 +2,7 @@
 // Semua tipe di file ini adalah satu-satunya sumber kebenaran untuk IPC.
 
 import type { EditorApi } from './editor';
-import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentProviderId, AgentRouterStatus, AgentRouterTestResult, OpenRouterAccountStatus, OpenRouterCreditsStatus, UsdIdrRateStatus, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, AgentSkillInfo, InstalledAgentSkill, AgentSkillInstallResult, McpPluginSummary, McpPluginImportResult, McpPluginProbeResult, ChatMessage, AgentEvent } from './agents';
+import type { AgentAttachmentRef, AgentCheckpointActionResult, AgentCheckpointSummary, AgentEntry, AgentModelCatalogResult, AgentModelCapabilityReport, AgentPermissionDecision, AgentProviderId, AgentReasoningEffort, AgentReasoningParameter, AgentRouterStatus, AgentRouterTestResult, OpenRouterAccountStatus, OpenRouterCreditsStatus, UsdIdrRateStatus, AgentSessionData, AgentSessionSaveInput, AgentSessionSaveResult, AgentSessionSummary, AgentSkillInfo, InstalledAgentSkill, AgentSkillInstallResult, McpPluginSummary, McpPluginImportResult, McpPluginProbeResult, ChatMessage, AgentEvent } from './agents';
 
 export type Role = 'none' | 'host' | 'member';
 
@@ -266,11 +266,11 @@ export interface RkApi {
   agentRemoveMcpPlugin(id: string): Promise<ActionResult>;
   agentProbeMcpPlugin(id: string): Promise<McpPluginProbeResult>;
   agentPickAttachments(): Promise<{ ok: boolean; attachments?: AgentAttachmentRef[]; error?: string }>;
-  agentApproveTool(sessionId: string, requestId: string, approved: boolean): Promise<void>;
+  agentApproveTool(sessionId: string, requestId: string, decision: AgentPermissionDecision): Promise<void>;
   agentAnswerQuestion(sessionId: string, requestId: string, answer: string): Promise<void>;
   /** Create or activate a conversation without erasing other session memory. */
   agentBeginSession(conversationId: string): Promise<ActionResult>;
-  agentStartChat(agentId: string, messages?: ChatMessage[], activePath?: string | null, conversationId?: string): Promise<{ ok: boolean; sessionId?: string; error?: string }>;
+  agentStartChat(agentId: string, messages?: ChatMessage[], activePath?: string | null, conversationId?: string, reasoningEffort?: AgentReasoningEffort, reasoningParameter?: AgentReasoningParameter | null): Promise<{ ok: boolean; sessionId?: string; error?: string }>;
   agentStartCli(agentId: string, cols: number, rows: number): Promise<{ ok: boolean; sessionId?: string; error?: string }>;
   agentSendInput(sessionId: string, data: string): Promise<void>;
   agentResize(sessionId: string, cols: number, rows: number): Promise<void>;

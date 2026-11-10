@@ -4,6 +4,9 @@ import { createAgentReforkPlan, findCheckpointForMessage } from '../../../shared
 import type {
   AgentEntry,
   AgentEvent,
+  AgentPermissionDecision,
+  AgentReasoningEffort,
+  AgentReasoningParameter,
   AgentQuestionOption,
   AgentFileChange,
   AgentProviderId,
@@ -48,6 +51,8 @@ interface PendingPermission {
   requestId: string;
   command: string;
   reason: string;
+  scopeLabel: string;
+  allowAlways: boolean;
 }
 
 interface PendingAgentQuestion {
@@ -70,6 +75,7 @@ interface DiffRow {
 
 const STORAGE_KEY = 'rk.ai.lastAgent';
 const HISTORY_KEY = 'rk.ai.chatHistory';
+const REASONING_EFFORT_STORAGE_KEY = 'rk.ai.reasoningEffort';
 
 type ModelCostFilter = 'all' | 'free' | 'premium' | 'unknown';
 
@@ -869,7 +875,17 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [diagnosingModel, setDiagnosingModel] = useState(false);
   const [providerUsageTotals, setProviderUsageTotals] = useState(loadProviderUsage);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [reasoningEffort, setReasoningEffort] = useState<AgentReasoningEffort>(() => {
+    try {
+      const saved = localStorage.getItem(REASONING_EFFORT_STORAGE_KEY);
+      return saved && ['low', 'medium', 'high', 'maximal'].includes(saved) ? saved as AgentReasoningEffort : 'low';
+    } catch { return 'low'; }
+  });
+  const [reasoningParameter, setReasoningParameter] = useState<AgentReasoningParameter | null>(null);
+  const [reasoningCapabilityKey, setReasoningCapabilityKey] = useState('');
+  const [reasoningCapabilityLoading, setReasoningCapabilityLoading] = useState(false);
   const [permission, setPermission] = useState<PendingPermission | null>(null);
+  const [permissionActionIndex, setPermissionActionIndex] = useState(1);
   const [agentQuestion, setAgentQuestion] = useState<PendingAgentQuestion | null>(null);
   const [selectedQuestionOption, setSelectedQuestionOption] = useState<number | null>(null);
   const [customQuestionAnswer, setCustomQuestionAnswer] = useState('');
@@ -877,6 +893,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [changes, setChanges] = useState<AgentFileChange[]>([]);
   const [selectedChange, setSelectedChange] = useState<AgentFileChange | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const permissionCardRef = useRef<HTMLElement | null>(null);
+  const lastOpenRouterBillingRefreshRef = useRef(0);
   const apiKeyInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const messagesViewportRef = useRef<HTMLDivElement>(null);
@@ -1111,6 +1129,70 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   }, [routerStatus?.provider]);
 
   useEffect(() => {
+    const provider = routerStatus?.provider;
+    const modelId = routerStatus?.model;
+    const capabilityKey = provider && modelId ? provider + ':' + modelId : '';
+    if (!routerStatus?.configured || !provider || !modelId) {
+      setReasoningParameter(null);
+      setReasoningCapabilityKey('');
+      setReasoningCapabilityLoading(false);
+      return;
+    }
+    let alive = true;
+    setReasoningCapabilityKey(capabilityKey);
+    setReasoningParameter(null);
+    setReasoningCapabilityLoading(true);
+    void window.rk.agentListModels(provider).then((catalog) => {
+      if (!alive) return;
+      const model = catalog.models.find((item) => item.id === modelId);
+      const parameters = model?.supportedParameters ?? [];
+      const parameter: AgentReasoningParameter | null = parameters.includes('reasoning')
+        ? 'reasoning'
+        : parameters.includes('reasoning_effort')
+          ? 'reasoning_effort'
+          : null;
+      setReasoningParameter(parameter);
+    }).catch(() => {
+      if (alive) setReasoningParameter(null);
+    }).finally(() => {
+      if (alive) setReasoningCapabilityLoading(false);
+    });
+    return () => { alive = false; };
+  }, [routerStatus?.configured, routerStatus?.provider, routerStatus?.model]);
+
+  useEffect(() => {
+    try { localStorage.setItem(REASONING_EFFORT_STORAGE_KEY, reasoningEffort); } catch { /* preference is best-effort */ }
+  }, [reasoningEffort]);
+
+  useEffect(() => {
+    if (routerStatus?.provider !== 'openrouter' || !openRouterAccount?.connected) return;
+    let alive = true;
+    const refreshBilling = () => {
+      if (!alive || document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      if (now - lastOpenRouterBillingRefreshRef.current < 10_000) return;
+      lastOpenRouterBillingRefreshRef.current = now;
+      void window.rk.agentGetOpenRouterAccount().then((status) => {
+        if (alive) setOpenRouterAccount(status);
+      }).catch(() => undefined);
+      void window.rk.agentGetOpenRouterCredits().then((status) => {
+        if (alive) setOpenRouterCredits(status);
+      }).catch(() => undefined);
+    };
+    const onVisibility = () => { if (document.visibilityState === 'visible') refreshBilling(); };
+    refreshBilling();
+    const interval = window.setInterval(refreshBilling, 30_000);
+    window.addEventListener('focus', refreshBilling);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      alive = false;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshBilling);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [routerStatus?.provider, openRouterAccount?.connected]);
+
+  useEffect(() => {
     let alive = true;
     void window.rk.agentList().then((list) => {
       if (!alive) return;
@@ -1323,6 +1405,11 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
           try { localStorage.setItem(PROVIDER_USAGE_STORAGE_KEY, JSON.stringify(next)); } catch { /* best-effort display persistence */ }
           return next;
         });
+        if (event.usage.provider === 'openrouter' && Date.now() - lastOpenRouterBillingRefreshRef.current >= 10_000) {
+          lastOpenRouterBillingRefreshRef.current = Date.now();
+          void window.rk.agentGetOpenRouterAccount().then(setOpenRouterAccount).catch(() => undefined);
+          void window.rk.agentGetOpenRouterCredits().then(setOpenRouterCredits).catch(() => undefined);
+        }
       } else if (event.type === 'terminal-process') {
         setTerminalHistory((previous) => upsertAgentTerminalProcess(previous, event.process, 100));
       } else if (event.type === 'terminal-output') {
@@ -1387,7 +1474,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       } else if (event.type === 'activity') {
         setActivity(event.message);
       } else if (event.type === 'permission-request') {
-        setPermission({ sessionId, requestId: event.requestId, command: event.command, reason: event.reason });
+        setPermission({ sessionId, requestId: event.requestId, command: event.command, reason: event.reason, scopeLabel: event.scopeLabel, allowAlways: event.allowAlways });
+        setPermissionActionIndex(1);
         setActivity('Menunggu persetujuan command terminal');
       } else if (event.type === 'permission-result') {
         setPermission((current) => current?.requestId === event.requestId ? null : current);
@@ -1549,7 +1637,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         .filter(message => message.role === 'user' || message.role === 'assistant')
         .slice(-12)
         .map(message => message.id === userMessage.id ? message : { ...message, attachments: undefined });
-      const result = await window.rk.agentStartChat(activeAgent.id, compactContext, wb.activePath, conversationId);
+      const result = await window.rk.agentStartChat(activeAgent.id, compactContext, wb.activePath, conversationId, reasoningEffort, reasoningParameter);
       if (!result.ok || !result.sessionId) throw new Error(result.error ?? 'Agent gagal dimulai.');
       activeSessionRef.current = result.sessionId;
       setActiveSessionId(result.sessionId);
@@ -1579,7 +1667,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         index === previous.length - 1 && item.role === 'assistant' ? { ...item, streaming: false } : item,
       ));
     }
-  }, [input, pendingAttachments, loading, sessionReady, activeAgent, messages, routerStatus?.configured, wb.root, wb.activePath, conversationId, sessionProjectPath]);
+  }, [input, pendingAttachments, loading, sessionReady, activeAgent, messages, routerStatus?.configured, wb.root, wb.activePath, conversationId, sessionProjectPath, reasoningEffort, reasoningParameter]);
 
   const stopAgent = useCallback(async () => {
     cancelRequestedRef.current = true;
@@ -1753,13 +1841,44 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     }
   }, []);
 
-  const resolvePermission = useCallback(async (approved: boolean) => {
+  const resolvePermission = useCallback(async (decision: AgentPermissionDecision) => {
     const current = permission;
     if (!current) return;
     setPermission(null);
-    setActivity(approved ? 'Command disetujui; menjalankan terminal…' : 'Command ditolak.');
-    try { await window.rk.agentApproveTool(current.sessionId, current.requestId, approved); }
+    setActivity(decision === 'deny'
+      ? 'Command ditolak.'
+      : decision === 'always'
+        ? 'Izin permanen untuk tindakan yang sama disimpan; menjalankan command…'
+        : 'Command disetujui sekali; menjalankan terminal…');
+    try { await window.rk.agentApproveTool(current.sessionId, current.requestId, decision); }
     catch (err) { setError('Gagal mengirim keputusan terminal: ' + (err as Error).message); }
+  }, [permission]);
+
+  const handlePermissionKeyDown = useCallback((event: React.KeyboardEvent<HTMLElement>) => {
+    if (!permission) return;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp' || event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      const direction = event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1;
+      const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('.ai-permission-actions button:not(:disabled)'));
+      const nextIndex = (permissionActionIndex + direction + buttons.length) % buttons.length;
+      setPermissionActionIndex(nextIndex);
+      buttons[nextIndex]?.focus();
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      void resolvePermission('deny');
+      return;
+    }
+    if (event.key === 'Enter' && event.target === event.currentTarget) {
+      event.preventDefault();
+      void resolvePermission(permissionActionIndex === 0 ? 'deny' : permissionActionIndex === 1 ? 'once' : 'always');
+    }
+  }, [permission, permissionActionIndex, resolvePermission]);
+
+  useEffect(() => {
+    if (!permission) return;
+    permissionCardRef.current?.focus();
   }, [permission]);
 
   const answerAgentQuestion = useCallback(async () => {
@@ -2746,17 +2865,26 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             ) : null}
 
             {permission ? (
-              <section className="ai-permission-card ai-dock-interaction" aria-label="Persetujuan command terminal" aria-live="polite">
+              <section
+                ref={permissionCardRef}
+                className="ai-permission-card ai-dock-interaction"
+                aria-label="Persetujuan command terminal"
+                aria-live="polite"
+                tabIndex={0}
+                onKeyDown={handlePermissionKeyDown}
+              >
                 <div className="ai-permission-heading">
                   <strong>Persetujuan terminal diperlukan</strong><span>Belum dijalankan</span>
                 </div>
                 <p>{permission.reason}</p>
                 <pre>{permission.command}</pre>
-                <small className="ai-interaction-guidance">Periksa command dan alasannya. Command hanya berjalan setelah kamu menyetujuinya.</small>
-                <div className="ai-permission-actions">
-                  <button type="button" className="ai-permission-deny" onClick={() => void resolvePermission(false)}>Tolak command</button>
-                  <button type="button" className="ai-permission-approve" onClick={() => void resolvePermission(true)}>Izinkan sekali</button>
+                <small className="ai-interaction-guidance">Periksa command dan alasannya. {permission.scopeLabel}</small>
+                <div className="ai-permission-actions" role="group" aria-label="Pilihan izin">
+                  <button type="button" className={`ai-permission-deny ${permissionActionIndex === 0 ? 'is-selected' : ''}`} onFocus={() => setPermissionActionIndex(0)} onMouseEnter={() => setPermissionActionIndex(0)} onClick={() => void resolvePermission('deny')}>Tolak command</button>
+                  <button type="button" className={`ai-permission-approve ${permissionActionIndex === 1 ? 'is-selected' : ''}`} onFocus={() => setPermissionActionIndex(1)} onMouseEnter={() => setPermissionActionIndex(1)} onClick={() => void resolvePermission('once')}>Izinkan sekali</button>
+                  <button type="button" className={`ai-permission-approve ai-permission-always ${permissionActionIndex === 2 ? 'is-selected' : ''}`} disabled={!permission.allowAlways} onFocus={() => setPermissionActionIndex(2)} onMouseEnter={() => setPermissionActionIndex(2)} onClick={() => void resolvePermission('always')}>Selalu izinkan</button>
                 </div>
+                <small className="ai-interaction-guidance">Selalu izinkan hanya mengingat command atau panggilan MCP yang identik pada workspace ini. Gunakan ←/→ atau ↑/↓, lalu Enter. Esc untuk menolak.</small>
               </section>
             ) : null}
 
@@ -2883,6 +3011,29 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 <div className="ai-slash-menu-hint"><kbd>↑</kbd><kbd>↓</kbd> pilih <kbd>Enter</kbd> buka <kbd>Esc</kbd> tutup</div>
               </div>
             ) : null}
+            <div className="ai-reasoning-effort" aria-label="Effort reasoning model">
+              <div className="ai-reasoning-effort-label">
+                <strong>Effort AI</strong>
+                <small>{reasoningCapabilityLoading
+                  ? 'Memeriksa dukungan model…'
+                  : reasoningParameter
+                    ? 'Level diteruskan hanya pada parameter reasoning yang diumumkan model.'
+                    : 'Model/provider ini belum mengiklankan dukungan reasoning effort.'}</small>
+              </div>
+              <select
+                aria-label="Effort reasoning AI"
+                value={reasoningEffort}
+                disabled={reasoningCapabilityLoading || !reasoningParameter || !routerStatus?.configured}
+                onChange={(event) => setReasoningEffort(event.target.value as AgentReasoningEffort)}
+                title="Effort lebih tinggi dapat memakai lebih banyak token reasoning dan biaya. Low adalah default hemat."
+              >
+                <option value="low">Low · Hemat</option>
+                <option value="medium">Medium · Seimbang</option>
+                <option value="high">High · Mendalam</option>
+                <option value="maximal">Maximal · XHigh</option>
+              </select>
+              <span className="ai-reasoning-effort-cost">Low paling hemat; High/Maximal dapat menambah biaya.</span>
+            </div>
             <div className="ai-input-row">
               <button type="button" className="ai-attach-btn" aria-label="Lampirkan file"
                 title="Lampirkan gambar, dokumen, audio, video, atau file teks"
@@ -2957,11 +3108,11 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 <small>{openRouterAccount.isFreeTier === true ? 'Akun OpenRouter ditandai Free Tier. Model gratis tetap memiliki batas request dan kapasitas provider.' : openRouterAccount.isFreeTier === false ? 'Akun/key OpenRouter bukan Free Tier.' : 'Status Free/Paid tidak disediakan oleh endpoint key.'}</small>
                 <small>Usage API key hanya menggambarkan key inferensi yang aktif; saldo total akun dibaca terpisah memakai Management API Key.</small>
                 <small>OpenRouter tetap menghitung saldo dan tagihan dalam USD; konversi ini hanya untuk tampilan Ruang Kerja.</small>
+                <small>Billing diperbarui otomatis setelah request OpenRouter selesai, setiap 30 detik, dan saat jendela aplikasi kembali aktif{openRouterCredits?.fetchedAt || openRouterAccount.fetchedAt ? ' · terakhir ' + new Date(openRouterCredits?.fetchedAt ?? openRouterAccount.fetchedAt!).toLocaleTimeString() : ''}.</small>
                 <small>{usdIdrRate?.rate ? 'Kurs referensi: 1 USD = ' + new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(usdIdrRate.rate) + ' IDR · ' + (usdIdrRate.date ?? 'tanggal tidak tersedia') : 'Kurs USD/IDR tidak tersedia; nilai Rupiah belum dapat dihitung.'}</small>
                 {usdIdrRate?.error ? <small className="ai-usage-warning">{usdIdrRate.error}</small> : null}
                 {openRouterAccount.error ? <small className="ai-usage-warning">{openRouterAccount.error}</small> : null}
                 <div className="ai-openrouter-actions">
-                  <button type="button" className="ai-usage-refresh" onClick={() => { void refreshOpenRouterAccount(); void refreshOpenRouterCredits(); }}>Perbarui billing</button>
                   <button type="button" className="ai-usage-refresh" onClick={() => void refreshUsdIdrRate(true)}>Perbarui kurs</button>
                 </div>
               </div>

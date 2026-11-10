@@ -106,9 +106,11 @@ try {
     assert.equal(invocation.file, shell.file);
     assert.equal(invocation.shellName, shell.name);
     if (shell.family === 'powershell') {
-      assert.ok(invocation.args.includes('-Command'));
-      assert.match(invocation.args.at(-1), /FromBase64String/);
-      assert.doesNotMatch(invocation.args.at(-1), /EXIT_CODE:\s*\$\?/i);
+      assert.ok(invocation.args.includes('-EncodedCommand'));
+      const wrapper = Buffer.from(invocation.args.at(-1), 'base64').toString('utf16le');
+      assert.match(wrapper, /FromBase64String/);
+      assert.match(wrapper, /\[scriptblock\]::Create/);
+      assert.doesNotMatch(wrapper, /EXIT_CODE:\s*\$\?/i);
     } else {
       assert.equal(invocation.args.at(-1), terminalCommand('streams', shell));
     }
@@ -120,15 +122,16 @@ try {
       name: 'PowerShell test',
       family: 'powershell',
       interactiveArgs: [],
-      commandArgs: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command'],
+      commandArgs: ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand'],
     };
     const invocation = buildTerminalCommandInvocation('node -e "process.exit(7)"', powershellProfile);
-    assert.match(invocation.args.at(-1), /\$global:LASTEXITCODE = \$null/);
-    assert.match(invocation.args.at(-1), /\$errorCountBefore = \$global:Error\.Count/);
-    assert.match(invocation.args.at(-1), /Invoke-Expression \$scriptText/);
-    assert.match(invocation.args.at(-1), /NativeCommandError/);
-    assert.match(invocation.args.at(-1), /\$nativeExitCode = \$global:LASTEXITCODE/);
-    assert.doesNotMatch(invocation.args.at(-1), /\$global:LASTEXITCODE = 0/);
+    const wrapper = Buffer.from(invocation.args.at(-1), 'base64').toString('utf16le');
+    assert.match(wrapper, /\$global:LASTEXITCODE = \$null/);
+    assert.match(wrapper, /\$ErrorActionPreference = 'Stop'/);
+    assert.match(wrapper, /\$PSNativeCommandUseErrorActionPreference = \$false/);
+    assert.match(wrapper, /\[scriptblock\]::Create\(\$scriptText\)/);
+    assert.match(wrapper, /\$global:LASTEXITCODE/);
+    assert.doesNotMatch(wrapper, /\$global:LASTEXITCODE = 0/);
   });
 
   const outputEvents = [];
@@ -167,10 +170,10 @@ try {
 
   if (shell.family === 'powershell') {
     const cmdletFailedRun = await startTerminalCommand(options(terminalCommand('cmdlet-fail', shell))).promise;
-    test('reports PowerShell non-terminating cmdlet errors as failures even when a later cmdlet succeeds', () => {
+    test('turns PowerShell non-terminating cmdlet errors into a failing exit before later commands run', () => {
       assert.equal(cmdletFailedRun.status, 'failed');
       assert.equal(cmdletFailedRun.exitCode, 1);
-      assert.match(cmdletFailedRun.output, /continued-after-cmdlet-error/);
+      assert.doesNotMatch(cmdletFailedRun.output, /continued-after-cmdlet-error/);
     });
 
     const nativeStderrRun = await startTerminalCommand(options(terminalCommand('native-stderr-success', shell))).promise;

@@ -41,6 +41,10 @@ assert.ok(
   agent.includes('selectAgentSkills(latestUserText + \' \' + attachmentHints, activePath, inventory, priorUserContext)'),
   'runtime must pass prior user context into the skill selector',
 );
+assert.ok(agent.includes('selectSkillsForToolActivity(skillSelections, call.name, call.arguments)'),
+  'runtime must emit only skills relevant to the current tool step');
+assert.ok(agent.includes("emit(session, { type: 'skills', skills: [] })"),
+  'skills must be cleared between model-reasoning phases and when a run finishes');
 const temp = await mkdtemp(join(tmpdir(), 'rk-agent-skills-'));
 try {
   const bundlePath = join(temp, 'skills.cjs');
@@ -53,7 +57,7 @@ try {
     logLevel: 'silent',
   });
   const require = createRequire(import.meta.url);
-  const { selectAgentSkills } = require(bundlePath);
+  const { selectAgentSkills, selectSkillsForToolActivity } = require(bundlePath);
   const selectedIds = (userText, activePath = null, inventory = '', context = '') =>
     selectAgentSkills(userText, activePath, inventory, context).map((skill) => skill.id);
 
@@ -87,6 +91,22 @@ try {
   const activeDocument = selectedIds('Ringkas isi file', 'docs/report.pdf', 'README.md');
   assert.ok(activeDocument.includes('document-analysis'),
     'an actively selected document must still trigger document-analysis');
+
+  const liveSelections = selectAgentSkills(
+    'Ubah UI frontend dan tambahkan test',
+    'src/App.tsx',
+    'src/App.tsx',
+  );
+  const readStep = selectSkillsForToolActivity(liveSelections, 'read_project_file', '{"path":"src/App.tsx"}').map((skill) => skill.id);
+  assert.deepEqual(readStep, ['context'], 'a file-read step should activate only the context skill');
+  const writeStep = selectSkillsForToolActivity(liveSelections, 'write_project_file', '{"path":"src/App.tsx"}').map((skill) => skill.id);
+  assert.ok(writeStep.includes('safe-code-changes') && writeStep.includes('frontend-ui-engineering'),
+    'frontend file writes should activate code-change and frontend skills');
+  assert.ok(!writeStep.includes('context'), 'the context skill should turn off when the runtime moves to a write step');
+  const testStep = selectSkillsForToolActivity(liveSelections, 'run_terminal', '{"command":"npm run test"}').map((skill) => skill.id);
+  assert.deepEqual(testStep, ['tdd'], 'a test command should activate only verification-related skills');
+  const unknownStep = selectSkillsForToolActivity(liveSelections, 'ask_user', '{}');
+  assert.equal(unknownStep.length, 0, 'unrelated interactions should leave all skills inactive');
 
   console.log('Agent skill selection behavior checks passed.');
 } finally {

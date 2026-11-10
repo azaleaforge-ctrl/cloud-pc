@@ -19,7 +19,7 @@ import type {
   ServerState,
   UpdateState,
 } from '../shared/types';
-import type { AgentCheckpointActionResult, AgentEvent, AgentProviderId, AgentRouterStatus, AgentRouterTestResult, OpenRouterAccountStatus, OpenRouterAuthMethod, OpenRouterCreditsStatus, UsdIdrRateStatus, AgentSessionData, AgentSessionSaveInput, ChatMessage } from '../shared/agents';
+import type { AgentCheckpointActionResult, AgentEvent, AgentPermissionDecision, AgentProviderId, AgentReasoningEffort, AgentReasoningParameter, AgentRouterStatus, AgentRouterTestResult, OpenRouterAccountStatus, OpenRouterAuthMethod, OpenRouterCreditsStatus, UsdIdrRateStatus, AgentSessionData, AgentSessionSaveInput, ChatMessage } from '../shared/agents';
 import { diagnoseModelCapabilities, listAvailableModels, normalizeModelId, testProviderConnection } from './editor/modelCapabilities';
 import { APP_VERSION } from '../shared/types';
 import { StateStore } from './store';
@@ -1763,7 +1763,7 @@ function registerIpc(): void {
       return { ok: false, error: (err as Error).message || 'Gagal membuat sesi AI.' };
     }
   });
-  ipcMain.handle('rk:agent:start-chat', async (_e, agentId: string, messages: ChatMessage[] = [], activePath: string | null = null, conversationId: string = '') => {
+  ipcMain.handle('rk:agent:start-chat', async (_e, agentId: string, messages: ChatMessage[] = [], activePath: string | null = null, conversationId: string = '', reasoningEffort: AgentReasoningEffort = 'low', reasoningParameter: AgentReasoningParameter | null = null) => {
     const projectPath = store.get().projectPath;
     try {
       if (!projectPath) return { ok: false, error: 'Belum ada folder project aktif di ruangan.' };
@@ -1772,7 +1772,7 @@ function registerIpc(): void {
       }
       const sessionId = await agentService.startChat(agentId, projectPath, (event, eventSessionId) => {
         emitAgentSessionEvent(event, eventSessionId);
-      }, messages, activePath, conversationId);
+      }, messages, activePath, conversationId, reasoningEffort, reasoningParameter);
       return { ok: true, sessionId };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
@@ -1794,8 +1794,8 @@ function registerIpc(): void {
       return { ok: false, error: (err as Error).message };
     }
   });
-  ipcMain.handle('rk:agent:approve-tool', (_e, sessionId: string, requestId: string, approved: boolean) =>
-    agentService.approveTool(sessionId, requestId, approved));
+  ipcMain.handle('rk:agent:approve-tool', (_e, sessionId: string, requestId: string, decision: AgentPermissionDecision) =>
+    agentService.approveTool(sessionId, requestId, decision));
   ipcMain.handle('rk:agent:answer-question', (_e, sessionId: string, requestId: string, answer: string) =>
     agentService.answerQuestion(sessionId, requestId, answer));
   ipcMain.handle('rk:agent:send-input', (_e, sessionId: string, data: string) => agentService.sendInput(sessionId, data));
