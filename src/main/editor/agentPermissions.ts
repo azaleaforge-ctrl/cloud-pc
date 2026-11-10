@@ -70,6 +70,7 @@ export class RememberedPermissionStore {
     await this.load();
     if (!/^[a-f0-9]{64}$/.test(key)) throw new Error('Kunci izin permanen tidak valid.');
     if (this.grants.has(key)) return;
+    const previousGrants = new Map(this.grants);
     this.grants.set(key, Date.now());
     // Keep the allow-list small and bounded. Oldest grants are removed first.
     while (this.grants.size > 300) {
@@ -93,6 +94,12 @@ export class RememberedPermissionStore {
         if ((error as Error).message) { /* preserve the successful fallback rename */ }
       }
     });
-    await this.writeQueue;
+    try {
+      await this.writeQueue;
+    } catch (error) {
+      // Do not keep an unpersisted grant active in memory after a failed save.
+      this.grants = previousGrants;
+      throw error;
+    }
   }
 }
