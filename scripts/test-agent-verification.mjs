@@ -72,12 +72,12 @@ try {
     assert.equal(hasSuccessfulTerminalVerification(checks, 2), true);
   });
 
-  test('runtime increments code generation for edits and snapshots it when checks start', () => {
+  test('runtime records which code generation a successful terminal check actually verified', () => {
     assert.ok(agent.includes('session.codeChangeVersion += 1;'));
     assert.ok(agent.includes('const codeChangeVersionAtStart = session.codeChangeVersion;'));
     assert.ok(agent.includes('codeChangeVersion: codeChangeVersionAtStart,'));
-    assert.ok(agent.includes('hasSuccessfulTerminalVerification(session.successfulTerminalChecks, session.codeChangeVersion, taskStartedAt)'));
-    assert.ok(agent.includes('hasSuccessfulTerminalVerification(session.successfulTerminalChecks, session.codeChangeVersion);'));
+    assert.ok(agent.includes('successfulTerminalChecks.push({'));
+    assert.doesNotMatch(agent, /needsPostChangeVerification|Agent terblokir:.*verifikasi|Safety budget/);
   });
 
   console.log('\nAgent verification guard tests: ' + passed + ' passed, ' + failed + ' failed.');

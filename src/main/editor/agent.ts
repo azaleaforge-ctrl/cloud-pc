@@ -12,13 +12,12 @@ import * as pty from '@lydell/node-pty';
 import type { IPty } from '@lydell/node-pty';
 import type { AgentAttachmentRef, AgentEntry, AgentEvent, AgentPermissionDecision, AgentProviderId, AgentReasoningEffort, AgentReasoningParameter, AgentFileChange, AgentQuestionOption, AgentRunResult, AgentSkillInfo, AgentSkillSelection, AgentTodo, AgentToolActivity, ChatMessage, McpExposedTool, RouterConfig } from '../../shared/agents';
 import { applyAgentTodoUpdate } from './agentTodo';
-import { requiresTodoPlanForRequest, shouldBlockToolUntilTodoPlan } from './agentTodoPolicy';
 import { installBuiltinSkills, loadAgentSkillInstructions, selectAgentSkills, selectSkillsForToolActivity } from './skills';
 import { loadInstalledSkillInstructions } from './installedSkills';
 import { callMcpPluginTool, disposeMcpPluginRuntimes, listEnabledMcpTools } from './mcpPlugins';
 import { startTerminalCommand } from './terminalRuntime';
 import { getAgentTerminalGuidance, resolveTerminalShell } from './terminalShell';
-import { getRepeatedActionRecoveryHint, getToolRecoveryHint, isToolFailureResult, repeatedFailureSignature, repeatedNoProgressActionSignature } from './agentFailureGuard';
+import { getToolRecoveryHint, isToolFailureResult } from './agentFailureGuard';
 import { listBuiltinAgentSkills } from './skills';
 import { hasSuccessfulTerminalVerification } from './agentVerification';
 import { openGeminiCompletionStream } from './agentProviders';
@@ -78,6 +77,11 @@ interface LlmSession {
   todoStartedAt: Map<string, number>;
   codeChangeVersion: number;
   successfulTerminalChecks: Array<{ command: string; startedAt: number; finishedAt: number; exitCode: 0; codeChangeVersion: number }>;
+  workspaceReadCache: Map<string, { size: number; mtimeMs: number; ctimeMs: number; content: string }>;
+  workspaceListingCache: Map<string, string>;
+  workspaceSearchCache: Map<string, string>;
+  workspaceReadRanges: Set<string>;
+  workspaceReadNextLine: Map<string, number>;
 }
 interface ToolCall { id: string; name: string; arguments: string; geminiThoughtSignature?: string; geminiFunctionCallId?: string }
 interface ToolDefinition {
@@ -103,16 +107,9 @@ function boundedIntegerEnvironment(name: string, fallback: number, min: number, 
   return Number.isSafeInteger(value) && value >= min && value <= max ? value : fallback;
 }
 
-// Safety budgets can be tuned by the app launcher/environment; these are not task-step limits.
-const MAX_AGENT_TOOL_CALLS = boundedIntegerEnvironment('RK_AGENT_MAX_TOOL_CALLS', 100, 1, 1000);
-const MAX_AGENT_RUN_MINUTES = boundedIntegerEnvironment('RK_AGENT_MAX_RUN_MINUTES', 30, 1, 180);
-const MAX_AGENT_RUN_MS = MAX_AGENT_RUN_MINUTES * 60 * 1000;
-const MAX_REPEATED_TOOL_FAILURES = boundedIntegerEnvironment('RK_AGENT_MAX_REPEATED_FAILURES', 3, 2, 10);
-const MAX_NO_PROGRESS_REPLIES = boundedIntegerEnvironment('RK_AGENT_MAX_NO_PROGRESS_REPLIES', 2, 1, 5);
-const MAX_IDENTICAL_NO_PROGRESS_ACTIONS = boundedIntegerEnvironment('RK_AGENT_MAX_IDENTICAL_NO_PROGRESS_ACTIONS', 3, 2, 10);
+// Agent runs have no fixed total tool-call or wall-clock ceiling. Users can stop a run at any time.
 const DEFAULT_COMMAND_TIMEOUT_SECONDS = boundedIntegerEnvironment('RK_AGENT_DEFAULT_COMMAND_TIMEOUT_SECONDS', 600, 10, 3600);
 const MAX_COMMAND_TIMEOUT_SECONDS = 3600;
-const MAX_READ_BYTES = 1024 * 1024;
 const MAX_TOOL_OUTPUT = 18_000;
 const MAX_SESSION_MEMORY_CHARS = 8_000;
 const SESSION_MEMORY_START = '# AI Session Memory\n\nThis file contains short-lived notes for the current chat only. Never store credentials or secrets here.\n';
@@ -135,8 +132,17 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'read_project_file',
-      description: 'Baca isi file teks dalam workspace. File sensitif seperti .env dan private key tidak bisa dibaca.',
-      parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'], additionalProperties: false },
+      description: 'Baca file teks workspace secara bertahap. Untuk file panjang, gunakan start_line dan end_line untuk mengambil bagian berikutnya. Pembacaan file yang sama disimpan dalam cache selama file tidak berubah; rentang identik tidak dikirim ulang. File sensitif seperti .env dan private key tetap dilindungi.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          start_line: { type: 'integer', minimum: 1, description: 'Baris awal, default 1.' },
+          end_line: { type: 'integer', minimum: 1, description: 'Baris akhir inklusif. Jika kosong, runtime mengambil bagian berikutnya maksimal sekitar 12.000 karakter.' },
+        },
+        required: ['path'],
+        additionalProperties: false,
+      },
     },
   },
   {
@@ -184,7 +190,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'todo_write',
-      description: 'Buat atau perbarui seluruh Todo List untuk permintaan multi-langkah. Sertakan SEMUA task yang sudah ada dengan ID yang sama; jangan hilangkan task lama. Pada rencana awal, mulai satu task sebagai in_progress dan sisanya pending dengan blockedBy. Pada pembaruan berikutnya, kamu boleh menandai task aktif completed dengan completionEvidence spesifik sekaligus mengaktifkan task dependen berikutnya, jika semua prasyaratnya completed dalam pembaruan yang sama atau sebelumnya. Prasyarat yang masih pending, blocked, atau in_progress harus tetap menghalangi task dependen. Jika tak bisa melanjutkan, gunakan blocked dan berikan blockedReason.',
+      description: 'Todo List adalah panel progres opsional. Buat atau perbarui task bila membantu merangkum pekerjaan, tetapi status pending, blocked, dependency, atau kegagalan todo_write tidak pernah menjadi syarat untuk memakai tool workspace atau terminal. Pertahankan ID jika memungkinkan; jangan gunakan Todo untuk menghentikan agent.',
       parameters: {
         type: 'object',
         properties: {
@@ -440,12 +446,76 @@ async function listProjectFiles(root: string, requestedPath: string): Promise<st
   return output.length > 0 ? output.join('\n') : '(folder kosong)';
 }
 
-async function readProjectFile(root: string, requestedPath: string): Promise<string> {
+
+/**
+ * Read a workspace file at most once per agent run while its filesystem metadata
+ * remains unchanged. A duplicate call returns a compact pointer to the original
+ * tool result already present in this run's model context instead of charging
+ * the provider for the full file contents again.
+ */
+async function readProjectFileForSession(session: LlmSession, root: string, requestedPath: string, requestedStartLine?: number, requestedEndLine?: number): Promise<string> {
   const resolved = await resolveWorkspacePath(root, requestedPath);
   const info = await stat(resolved.target);
   if (!info.isFile()) throw new Error('Path bukan file.');
-  if (info.size > MAX_READ_BYTES) throw new Error('File terlalu besar untuk dibaca langsung (maksimum 1 MB).');
-  return (await readFile(resolved.target, 'utf8')).slice(0, MAX_READ_BYTES);
+
+  let cached = session.workspaceReadCache.get(resolved.target);
+  if (!cached || cached.size !== info.size || cached.mtimeMs !== info.mtimeMs || cached.ctimeMs !== info.ctimeMs) {
+    const content = await readFile(resolved.target, 'utf8');
+    cached = { size: info.size, mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs, content };
+    session.workspaceReadCache.set(resolved.target, cached);
+  }
+
+  const lines = cached.content.split(/\r?\n/);
+  const totalLines = lines.length;
+  const fileVersionKey = resolved.target + '|' + info.size + '|' + info.mtimeMs + '|' + info.ctimeMs;
+  const nextSequentialLine = session.workspaceReadNextLine.get(fileVersionKey) ?? 1;
+  const startLine = requestedStartLine === undefined ? nextSequentialLine : requestedStartLine;
+  if (startLine > totalLines && requestedStartLine === undefined) {
+    return '[FILE SUDAH DIBACA SELURUHNYA] ' + resolved.rel + ' memiliki ' + totalLines + ' baris dan seluruh rentang sudah tersedia dalam konteks percakapan. Tidak perlu membaca file ini lagi.';
+  }
+  if (!Number.isSafeInteger(startLine) || startLine < 1 || startLine > Math.max(1, totalLines)) {
+    throw new Error('start_line harus berada dalam rentang 1 sampai ' + totalLines + '.');
+  }
+  if (requestedEndLine !== undefined && (!Number.isSafeInteger(requestedEndLine) || requestedEndLine < startLine)) {
+    throw new Error('end_line harus berupa bilangan bulat yang sama atau lebih besar dari start_line.');
+  }
+
+  const maxChunkChars = 12_000;
+  let endLine = Math.min(totalLines, requestedEndLine ?? totalLines);
+  let chunk = lines.slice(startLine - 1, endLine).join('\n');
+  if (requestedEndLine === undefined || chunk.length > maxChunkChars) {
+    while (endLine > startLine && chunk.length > maxChunkChars) {
+      endLine = Math.max(startLine, Math.floor((startLine + endLine) / 2));
+      chunk = lines.slice(startLine - 1, endLine).join('\n');
+    }
+  }
+  const rangeKey = resolved.target + '|' + info.size + '|' + info.mtimeMs + '|' + info.ctimeMs + '|' + startLine + '-' + endLine;
+  if (session.workspaceReadRanges.has(rangeKey)) {
+    return [
+      '[CACHE HIT — RENTANG SUDAH DIKIRIM]',
+      'File "' + resolved.rel + '" pada baris ' + startLine + '–' + endLine + ' sudah dikirim ke konteks model pada pemanggilan sebelumnya.',
+      'Gunakan hasil pembacaan sebelumnya; lanjutkan dari baris berikutnya atau gunakan search_project_files untuk mencari simbol tertentu.',
+      'Isi file tidak dikirim ulang sehingga payload file tidak menambah biaya lagi.',
+    ].join('\n');
+  }
+  session.workspaceReadRanges.add(rangeKey);
+  const nextLine = endLine < totalLines ? endLine + 1 : null;
+  if (requestedStartLine === undefined || startLine === nextSequentialLine) {
+    session.workspaceReadNextLine.set(fileVersionKey, nextLine ?? totalLines + 1);
+  }
+  return [
+    '[FILE: ' + resolved.rel + ']',
+    'Baris ' + startLine + '–' + endLine + ' dari ' + totalLines + '.',
+    nextLine ? 'Masih ada isi file. Lanjutkan dengan read_project_file path="' + resolved.rel + '", start_line=' + nextLine + ' (end_line boleh dikosongkan).' : 'Akhir file tercapai.',
+    '--- BEGIN FILE CONTENT ---',
+    chunk,
+    '--- END FILE CONTENT ---',
+  ].join('\n');
+}
+
+function invalidateWorkspaceDiscoveryCaches(session: LlmSession): void {
+  session.workspaceListingCache.clear();
+  session.workspaceSearchCache.clear();
 }
 
 function lineChangeCounts(oldContent: string, newContent: string): { addedLines: number; removedLines: number } {
@@ -636,9 +706,8 @@ async function executeTerminalCommand(
   timeoutSeconds: number,
 ): Promise<string> {
   const commandId = randomUUID();
-  const remainingRunMs = MAX_AGENT_RUN_MS - (Date.now() - session.runStartedAt);
-  if (remainingRunMs <= 0) return 'Tool gagal: batas waktu keseluruhan run agent sudah tercapai sebelum command dimulai.';
-  const timeoutMs = Math.max(100, Math.min(timeoutSeconds * 1000, remainingRunMs));
+  // Only this individual process has a timeout; it never consumes a global agent-run budget.
+  const timeoutMs = Math.max(100, timeoutSeconds * 1000);
   const effectiveTimeoutSeconds = Math.ceil(timeoutMs / 1000);
   // A check only validates the exact code generation present when the command started.
   const codeChangeVersionAtStart = session.codeChangeVersion;
@@ -701,30 +770,6 @@ function toolActivityLabel(call: ToolCall): string {
   }
 }
 
-function isWorkspaceTool(name: string): boolean {
-  return name === 'list_project_files' || name === 'read_project_file' ||
-    name === 'write_project_file' || name === 'search_project_files' || name === 'run_terminal';
-}
-
-function agentProgressFingerprint(session: LlmSession): string {
-  // Exclude updatedAt/createdAt: repeating todo_write with identical status is not progress.
-  const todos = session.todos.map((todo) => ({
-    id: todo.id,
-    title: todo.title,
-    status: todo.status,
-    priority: todo.priority,
-    blockedBy: todo.blockedBy,
-    verification: todo.verification,
-    blockedReason: todo.blockedReason ?? '',
-    completionEvidence: todo.completionEvidence ?? '',
-  }));
-  return JSON.stringify({
-    lastCodeChangeAt: session.lastCodeChangeAt ?? 0,
-    lastWorkspaceChangeAt: session.lastWorkspaceChangeAt ?? 0,
-    codeChangeVersion: session.codeChangeVersion,
-    todos,
-  });
-}
 
 async function executeTool(
   session: LlmSession,
@@ -745,13 +790,23 @@ async function executeTool(
   switch (call.name) {
     case 'list_project_files': {
       const path = stringArg('path', '.');
+      const resolved = await resolveWorkspacePath(root, path);
+      const cached = session.workspaceListingCache.get(resolved.target);
+      if (cached !== undefined) {
+        emit(session, { type: 'activity', message: 'Memakai cache struktur folder: ' + path });
+        return '[CACHE HIT — STRUKTUR FOLDER] Folder "' + resolved.rel + '" sudah diinventarisasi sebelumnya pada run ini. Gunakan daftar file dari hasil list_project_files sebelumnya; jangan scan ulang folder yang sama.';
+      }
       emit(session, { type: 'activity', message: 'Memindai file: ' + path });
-      return await listProjectFiles(root, path);
+      const listing = await listProjectFiles(root, path);
+      session.workspaceListingCache.set(resolved.target, listing);
+      return listing;
     }
     case 'read_project_file': {
       const path = stringArg('path');
-      emit(session, { type: 'activity', message: 'Membaca file: ' + path });
-      return await readProjectFile(root, path);
+      const startLine = args.start_line === undefined ? undefined : Number(args.start_line);
+      const endLine = args.end_line === undefined ? undefined : Number(args.end_line);
+      emit(session, { type: 'activity', message: 'Membaca file: ' + path + (startLine ? ' · baris ' + startLine : '') });
+      return await readProjectFileForSession(session, root, path, startLine, endLine);
     }
     case 'write_project_file': {
       const path = stringArg('path');
@@ -759,6 +814,13 @@ async function executeTool(
       emit(session, { type: 'activity', message: 'Menulis perubahan ke workspace: ' + path });
       const result = await writeProjectFile(root, path, args.content);
       if (result.change) {
+        invalidateWorkspaceDiscoveryCaches(session);
+        try {
+          const changedPath = await resolveWorkspacePath(root, result.change.path);
+          session.workspaceReadCache.delete(changedPath.target);
+          session.workspaceReadRanges.clear();
+          session.workspaceReadNextLine.clear();
+        } catch { /* a successful write should still be reported even if cache invalidation cannot resolve the path */ }
         session.lastWorkspaceChangeAt = Date.now();
         if (isSourceCodeOrBuildConfigPath(result.change.path)) {
           session.lastCodeChangeAt = Date.now();
@@ -786,8 +848,17 @@ async function executeTool(
     }
     case 'search_project_files': {
       const query = stringArg('query');
+      const searchPath = stringArg('path', '.');
+      const caseSensitive = args.case_sensitive === true;
+      const cacheKey = JSON.stringify([query, searchPath, caseSensitive]);
+      if (session.workspaceSearchCache.has(cacheKey)) {
+        emit(session, { type: 'activity', message: 'Memakai cache hasil pencarian project' });
+        return '[CACHE HIT — HASIL PENCARIAN] Query "' + query + '" pada "' + searchPath + '" sudah dijalankan pada run ini. Gunakan hasil search_project_files sebelumnya di konteks; jangan ulangi pencarian identik.';
+      }
       emit(session, { type: 'activity', message: 'Mencari: ' + query });
-      return await searchProjectFiles(root, query, stringArg('path', '.'), args.case_sensitive === true);
+      const searchResult = await searchProjectFiles(root, query, searchPath, caseSensitive);
+      session.workspaceSearchCache.set(cacheKey, searchResult);
+      return searchResult;
     }
     case 'todo_read': {
       return JSON.stringify(session.todos, null, 2);
@@ -936,7 +1007,10 @@ async function executeTool(
       }
       if (session.killed) return 'Command dibatalkan karena agent dihentikan sebelum eksekusi.';
       emit(session, { type: 'activity', message: 'Menjalankan command terminal…' });
-      return await executeTerminalCommand(session, root, command, timeoutSeconds);
+      const terminalResult = await executeTerminalCommand(session, root, command, timeoutSeconds);
+      // A terminal command may create, remove, or regenerate project files.
+      invalidateWorkspaceDiscoveryCaches(session);
+      return terminalResult;
     }
     default: {
       const mcpTool = mcpTools.find(item => item.exposedName === call.name);
@@ -1294,6 +1368,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       const root = await realpath(projectPath);
       await rememberedPermissions.load();
       const inventory = await listProjectFiles(root, '.');
+      session.workspaceListingCache.set(root, inventory);
       let mcpTools: McpExposedTool[] = [];
       try {
         const mcpRegistry = await listEnabledMcpTools(userDataDir);
@@ -1334,19 +1409,11 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       // Skills stay in the model's instructions for the run, while the right panel
       // shows only the skill currently relevant to an executing tool step.
       emit(session, { type: 'skills', skills: [] });
-      let activeFileContext = '';
-      if (activePath) {
-        try {
-          const active = await resolveWorkspacePath(root, activePath);
-          if (!isSensitive(active.rel)) {
-            const text = await readProjectFile(root, activePath);
-            activeFileContext = '\n\nFile yang sedang dipilih di editor (' + active.rel + '):\n' +
-              '```\n' + text.slice(0, 8_000) + (text.length > 8_000 ? '\n[isi dipotong pada 8 KB; baca bagian lain dengan tool bila diperlukan]' : '') + '\n```';
-          }
-        } catch (error) {
-          activeFileContext = '\n\nCatatan: file yang sedang dipilih tidak dapat dibaca langsung: ' + ((error as Error).message || 'unknown error');
-        }
-      }
+      // Avoid injecting an automatic partial copy of the editor file into every prompt.
+      // The model receives the path and reads only the needed chunks through the cached file tool.
+      const activeFileContext = activePath
+        ? '\n\nFile yang sedang dipilih di editor: ' + activePath + '. Baca dengan read_project_file hanya bila isi file dibutuhkan.'
+        : '';
       const systemPrompt = [
         session.agent.systemPrompt,
         'Workspace aktif: ' + root,
@@ -1364,15 +1431,15 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         'Jika ada keputusan, batasan, progres lintas-turn, atau perubahan bermakna yang perlu diingat untuk turn berikutnya, perbarui dengan write_session_memory. Ringkas, tulis ulang bukan append, maksimal sekitar 3 KB bila memungkinkan. Jangan simpan secret/credential. Chat Baru menghapus memory ini.',
         'WAJIB untuk permintaan membaca, memperbaiki, membuat, mengubah, menghapus, refactor, implementasi, atau debugging kode: gunakan tools. Jangan hanya memberikan potongan contoh atau menyuruh pengguna mengedit manual.',
         'Jika keputusan pengguna benar-benar diperlukan, gunakan tool ask_user untuk menampilkan 3 opsi yang berbeda, konteks/dampak, dan alasan rekomendasi. Rekomendasi tidak berarti otomatis dipilih; tunggu jawaban pengguna. Untuk hal yang dapat diputuskan dengan aman dari kode, test, atau dokumentasi, jangan mengganggu pengguna dengan pertanyaan.',
-        'Untuk tugas multi-langkah atau perubahan kode yang substantif, buat Todo List menggunakan todo_write sebelum tindakan yang mengubah workspace atau menjalankan command: write_project_file, run_terminal, penulisan memory, dan tool/plugin yang dapat mengubah keadaan. Discovery/read-only (list_project_files, read_project_file, search_project_files, todo_read, read_session_memory, serta riset web/registry) BOLEH dilakukan lebih dahulu tanpa Todo agar kamu dapat memahami proyek dan menyusun rencana berdasarkan fakta. Setelah discovery, buat Todo sebelum tindakan mutatif. Pada rencana awal, mulai satu task sebagai in_progress dan sisanya pending dengan blockedBy bila berurutan. JANGAN menandai task pending sebagai completed pada pembaruan yang sama saat task itu baru diaktifkan. Sebelum mengerjakan task, pastikan status task sudah in_progress melalui pembaruan todo_write yang berhasil diterima. Setelah pekerjaan dan kriteria verification benar-benar diperiksa, tandai completed pada panggilan todo_write berikutnya dengan completionEvidence spesifik. Jika todo_write gagal, jangan ulangi payload yang sama: panggil todo_read, ikuti validator, perbaiki status yang benar-benar tersimpan, lalu lanjutkan. Jangan mulai task dependen sebelum prasyarat completed. Jangan mengubah ID, judul, atau dependensi task selesai.',
-        'Jangan tandai task completed hanya agar bisa maju. Setelah pekerjaan task dilakukan, verifikasi sesuai field verification dan berikan completionEvidence spesifik pada todo_write. Jika terhambat, tandai blocked dengan blockedReason dan jelaskan hambatan; jangan mengarang keberhasilan. Todo List adalah kontrak eksekusi, bukan dekorasi.',
-        'Lanjutkan agent loop selama pekerjaan masih dapat dilanjutkan. Setelah tool gagal atau tindakan identik tidak menghasilkan kemajuan, analisis hasilnya dan pilih pendekatan berbeda; jangan mengulang baca file/folder yang sama, command yang sama, atau payload yang sama. Untuk error todo_write, wajib todo_read sebelum pembaruan berikutnya. Untuk error terminal, perbaiki sintaks sesuai shell aktif; jangan mengubah source code yang tidak terkait untuk menutupi error shell. Saat pola berulang terdeteksi, runtime melewati pemanggilan identik berikutnya dan memberi instruksi pemulihan agar kamu memakai hasil sebelumnya, mempersempit pencarian, membaca sumber lain yang relevan, atau memilih command/tool alternatif. Run hanya berhenti karena pengguna membatalkan, error fatal, atau safety budget keseluruhan tercapai; pengulangan tiga kali bukan alasan untuk menghentikan run.',
+        'Todo List hanya panel progres opsional. Kamu boleh membuat atau memperbaruinya bila membantu, tetapi jangan pernah menunggu Todo sebelum membaca/menulis file, menjalankan command, atau memakai tool lain. Status pending/blocked, dependensi, atau kegagalan todo_write tidak boleh menghentikan pekerjaan. Jika pembaruan Todo gagal, abaikan untuk sementara dan lanjutkan tugas utama.',
+        'Todo hanya catatan progres. Build/test/lint sangat dianjurkan setelah perubahan dan hasilnya perlu dilaporkan apa adanya, tetapi kegagalan atau ketidaktersediaan pemeriksaan tidak boleh mengakhiri run atau menghalangi perbaikan selanjutnya. Jangan mengklaim verifikasi berhasil bila belum ada bukti.',
+        'Teruskan pekerjaan selama model masih memiliki langkah berikutnya. Tidak ada batas jumlah tool atau durasi run dari aplikasi. Tool yang gagal, Todo yang gagal, verifikasi yang gagal, atau tidak adanya kemajuan tidak boleh membuat run dihentikan. Periksa hasil error, pilih pendekatan lain, dan lanjutkan. Jangan membaca ulang file/rentang yang sama: gunakan hasil pada riwayat atau cache. File panjang dibaca bertahap memakai start_line dan end_line sampai seluruh bagian yang diminta tercakup. Run hanya berakhir ketika model mengirim jawaban akhir, pengguna membatalkan, atau provider/koneksi tidak dapat melanjutkan request.',
         'Mulai dengan inventory workspace yang disediakan, lalu gunakan read_project_file untuk membaca file relevan sebelum menulisnya. Gunakan search_project_files untuk mencari simbol/bug.',
         'write_project_file benar-benar membuat file atau menulis file ke disk pada folder project aktif. Setelah memakai tool, hasilnya akan muncul sebagai daftar perubahan dengan diff lama/baru.',
         'Path tool harus relatif ke root proyek atau absolute path di dalam root tersebut. Jangan menulis di luar root workspace.',
         'Jangan mengakses file secret seperti .env, API token, credentials, atau private key. Folder dependency/build diabaikan dari inventory.',
         'Gunakan run_terminal untuk instalasi dependency dan pemeriksaan project. ' + getAgentTerminalGuidance() + ' Output stdout/stderr muncul secara streaming dan tool mengembalikan exit code proses tanpa wrapper shell tambahan. Timeout default 600 detik; tentukan timeout_seconds lebih tinggi bila instalasi/build besar memang memerlukannya. Command harus meminta persetujuan pengguna; jika ditolak/timeout, laporkan secara jujur dan jangan mengulang command yang sama tanpa persetujuan baru.',
-        'Setelah menulis atau mengubah source code/konfigurasi, wajib pilih pemeriksaan yang tersedia dari project (misalnya script build, test, lint, atau typecheck pada package.json, Composer/PHP, Python, Rust, Go, .NET, Java). Jalankan melalui run_terminal dan tunggu exit code 0. Jika gagal, baca output, perbaiki masalah yang relevan, lalu jalankan pemeriksaan ulang. Instalasi dependency yang sukses saja bukan bukti bahwa build/test lulus. Jangan tandai task verifikasi completed tanpa hasil command nyata yang sukses.',
+        'Setelah menulis atau mengubah source code/konfigurasi, usahakan memilih pemeriksaan yang tersedia dari project (misalnya build, test, lint, atau typecheck). Jika gagal, perbaiki masalah yang relevan dan coba lagi bila masuk akal. Jika tidak dapat dijalankan, lanjutkan pekerjaan lain dan laporkan bahwa hasil verifikasi belum tersedia. Jangan mengarang hasil tes.',
         'Lakukan pekerjaan sampai benar-benar ada perubahan pada file jika perubahan kode diminta, lalu rangkum file yang diubah, alasan, dan hasil tes.',
         'Skills aktif untuk tugas ini:\n' + (skillInstructions || '(tidak ada skill khusus selain aturan inti agent)'),
       ].join('\n\n');
@@ -1442,111 +1509,27 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       emit(session, { type: 'activity', message: 'Workspace siap: inventory file berhasil dibaca.' });
       emit(session, { type: 'todo-update', todos: session.todos });
       emit(session, { type: 'state', state: { status: 'running', agentId: session.agent.id } });
-      const codingIntent = /\b(buat|bikin|ubah|edit|perbaiki|perbaikan|fix|implement|implementasi|refactor|tambah|tambahkan|hapus|delete|create|write|modify|change|update|code|kode|coding|debug|bug|file|folder|fungsi|function|komponen|component|script|program|aplikasi|project|proyek|read|baca|cari|search|test|lint|build)\b/i.test(latestUserText);
-      const requiresTodoPlan = requiresTodoPlanForRequest(latestUserText);
+      // There is deliberately no application-level tool-call or elapsed-run budget.
+      // The user can stop a run at any time; a completed model turn is the only normal exit.
       let finished = false;
-      let hasUsedWorkspaceTools = false;
-      let forcedToolRetryUsed = false;
-      let noProgressReplies = 0;
-      let blockedReason: string | null = null;
-      const repeatedFailures = new Map<string, number>();
-      const repeatedNoProgressActions = new Map<string, number>();
-      const suppressedNoProgressActions = new Set<string>();
-      const recoveryInstructionsSent = new Set<string>();
-
       while (!session.killed) {
-        if (Date.now() - runStartedAt >= MAX_AGENT_RUN_MS) {
-          blockedReason = 'Safety budget waktu agent tercapai setelah ' + MAX_AGENT_RUN_MINUTES + ' menit. Task yang belum selesai tetap belum dinyatakan completed.';
-          break;
-        }
-        if (totalToolCalls >= MAX_AGENT_TOOL_CALLS) {
-          blockedReason = 'Safety budget mencapai ' + MAX_AGENT_TOOL_CALLS + ' pemanggilan tool. Periksa Todo List dan hasil parsial sebelum melanjutkan.';
-          break;
-        }
-
         emit(session, { type: 'skills', skills: [] });
         emit(session, { type: 'activity', message: 'Agent sedang bekerja · ' + totalToolCalls + ' pemanggilan tool selesai' });
-        const toolChoice = codingIntent && !hasUsedWorkspaceTools ? 'required' : 'auto';
-        let response: Response;
-        try {
-          response = await openCompletionStream(config, session, conversation, toolChoice, toolDefinitions);
-        } catch (error) {
-          const message = (error as Error).message || '';
-          if (toolChoice === 'required' && /HTTP 400|tool_choice|tool choice|unsupported.*tool/i.test(message)) {
-            emit(session, { type: 'activity', message: 'Mencoba mode tool kompatibel dengan router…' });
-            response = await openCompletionStream(config, session, conversation, 'auto', toolDefinitions);
-          } else {
-            throw error;
-          }
-        }
 
+        // Use auto tool choice for every provider. Requiring tools on the first turn
+        // causes unsupported tool_choice errors on some OpenAI-compatible routers.
+        const response = await openCompletionStream(config, session, conversation, 'auto', toolDefinitions);
         const completion = await readCompletion(response, session, config.provider ?? 'legacy', config.models[0] || session.agent.model || DEFAULT_MODEL);
         if (session.killed) break;
 
         if (completion.toolCalls.length === 0) {
-          const needsPostChangeVerification = session.lastCodeChangeAt !== undefined &&
-            !hasSuccessfulTerminalVerification(session.successfulTerminalChecks, session.codeChangeVersion);
-          if (needsPostChangeVerification) {
-            if (noProgressReplies < MAX_NO_PROGRESS_REPLIES) {
-              noProgressReplies += 1;
-              conversation.push({
-                role: 'user',
-                content: 'Kode atau konfigurasi project telah berubah, tetapi belum ada build/test/lint/typecheck yang sukses setelah perubahan terakhir. Periksa package.json, lockfile, atau konfigurasi framework untuk memilih command verifikasi yang memang tersedia. Jalankan melalui run_terminal, baca stdout/stderr dan exit code, lalu perbaiki kode jika gagal. Jangan menyatakan selesai tanpa hasil verifikasi; jika tidak ada pemeriksaan yang bisa dijalankan, jelaskan hambatan secara spesifik.',
-              });
-              continue;
-            }
-            blockedReason = 'Kode atau konfigurasi project berubah, tetapi belum ada build/test/lint/typecheck yang sukses setelah perubahan terakhir. Implementasi belum diverifikasi.';
-            break;
-          }
-          if (codingIntent && !hasUsedWorkspaceTools && !forcedToolRetryUsed) {
-            forcedToolRetryUsed = true;
-            conversation.push({
-              role: 'user',
-              content: requiresTodoPlan
-                ? 'Tugas ini perlu dikerjakan nyata. Buat Todo List menggunakan todo_write terlebih dahulu, lalu gunakan tools workspace untuk menyelesaikan task secara berurutan. Jangan hanya menjelaskan rencana.'
-                : 'Instruksi agent: permintaan terakhir memerlukan akses file nyata. Gunakan list_project_files/read_project_file/search_project_files terlebih dahulu, lalu write_project_file jika perubahan diminta. Panggil tool sekarang, jangan jawab dengan penjelasan tanpa bertindak.',
-            });
-            continue;
-          }
-
-          if (requiresTodoPlan) {
-            const blockedTodo = session.todos.find((todo) => todo.status === 'blocked');
-            if (blockedTodo) {
-              blockedReason = 'Task "' + blockedTodo.title + '" terblokir: ' + (blockedTodo.blockedReason || 'alasan belum dijelaskan.');
-              break;
-            }
-            const unfinishedTodos = session.todos.filter((todo) => todo.status !== 'completed');
-            if (session.todos.length === 0 || unfinishedTodos.length > 0) {
-              if (noProgressReplies < MAX_NO_PROGRESS_REPLIES) {
-                noProgressReplies += 1;
-                const unfinishedSummary = unfinishedTodos.map((todo) => todo.title + ' [' + todo.status + ']').join('; ');
-                conversation.push({
-                  role: 'user',
-                  content: session.todos.length === 0
-                    ? 'Agent belum membuat Todo List untuk tugas multi-langkah ini. Gunakan todo_write untuk membuat rencana eksekusi sekarang, kemudian teruskan implementasi.'
-                    : 'Todo List belum selesai (' + unfinishedSummary + '). Jangan berhenti dengan jawaban teks. Lanjutkan task in_progress, gunakan tools untuk mengerjakannya, dan hanya tandai completed dengan bukti verifikasi yang spesifik.',
-                });
-                continue;
-              }
-              blockedReason = session.todos.length === 0
-                ? 'Agent tidak membuat Todo List setelah instruksi koreksi; implementasi belum dapat diverifikasi.'
-                : 'Agent mengembalikan jawaban teks sementara Todo List masih memiliki task yang belum completed: ' + unfinishedTodos.map((todo) => todo.title).join(', ') + '.';
-              break;
-            }
-          }
-
-          if (codingIntent && !hasUsedWorkspaceTools) {
-            blockedReason = 'Model tidak menggunakan tool workspace, jadi tidak ada pekerjaan file yang bisa diverifikasi. Periksa dukungan tool-calling pada endpoint/model atau gunakan endpoint cadangan.';
-            break;
-          }
           finished = true;
           break;
         }
 
-        // Keep the assistant tool-call declaration and tool results in identical order.
-        // Process todo_write first so a plan and the first task can be returned in one model response.
+        // Keep assistant tool-call declarations and tool results in identical order.
+        // Todo updates remain a progress display only; they never gate file/terminal tools.
         const orderedToolCalls = config.provider === 'gemini'
-          // Gemini 3 signatures bind to their exact functionCall part. Never reorder them.
           ? [...completion.toolCalls]
           : [...completion.toolCalls].sort((a, b) => {
               const rank = (name: string): number => name === 'todo_write' ? 0 : name === 'todo_read' ? 1 : 2;
@@ -1564,53 +1547,29 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
           })),
         });
 
-        let recoveryDirective: string | null = null;
         for (const call of orderedToolCalls) {
           if (session.killed) break;
-          if (Date.now() - runStartedAt >= MAX_AGENT_RUN_MS) {
-            blockedReason = 'Safety budget waktu agent tercapai saat menjalankan tools.';
-            break;
-          }
-          if (totalToolCalls >= MAX_AGENT_TOOL_CALLS) {
-            blockedReason = 'Safety budget mencapai ' + MAX_AGENT_TOOL_CALLS + ' pemanggilan tool.';
-            break;
-          }
           totalToolCalls += 1;
           session.totalToolCalls = totalToolCalls;
 
           const activityId = call.id || ('tool_' + randomUUID());
           const activityLabel = toolActivityLabel(call);
-          const progressBefore = agentProgressFingerprint(session);
-          const actionSignature = repeatedNoProgressActionSignature(call.name, call.arguments);
-          const noProgressKey = actionSignature ? actionSignature + ':' + progressBefore : null;
           const startedActivity: AgentToolActivity = { id: activityId, name: call.name, status: 'running', detail: activityLabel, ts: Date.now() };
           emit(session, { type: 'skills', skills: selectSkillsForToolActivity(skillSelections, call.name, call.arguments) });
           emit(session, { type: 'tool-status', activity: startedActivity });
 
-          const repeatedActionSuppressed = Boolean(noProgressKey && suppressedNoProgressActions.has(noProgressKey));
           let result: string;
-          if (repeatedActionSuppressed) {
-            result = 'Tool dilewati: tindakan identik ini sudah dicoba tanpa perubahan state dan tidak dijalankan ulang agar tidak menghabiskan waktu/biaya. Gunakan hasil tool sebelumnya dan pilih pendekatan berbeda.';
-          } else {
-            try {
-              if (shouldBlockToolUntilTodoPlan(requiresTodoPlan, session.todos.some((todo) => todo.status === 'in_progress'), call.name)) {
-                result = session.todos.length === 0
-                  ? 'Tool ditahan: buat Todo List dengan todo_write terlebih dahulu untuk tugas multi-langkah, lalu ulangi tool ini.'
-                  : 'Tool ditahan: tidak ada task Todo berstatus in_progress. Perbarui Todo List dengan todo_write dan aktifkan satu task yang siap dikerjakan; pertahankan ID task lama dan jangan mengubah task completed.';
-              } else {
-                result = await executeTool(session, userDataDir, root, call, pendingApprovals, pendingQuestions, mcpTools, rememberedPermissions);
-              }
-            } catch (error) {
-              result = 'Tool gagal: ' + ((error as Error).message || 'kesalahan tidak diketahui');
-            }
+          try {
+            // No Todo prerequisite, repeat counter, or failure-count guard is allowed
+            // to suppress a tool call. File read caching prevents duplicate file payloads.
+            result = await executeTool(session, userDataDir, root, call, pendingApprovals, pendingQuestions, mcpTools, rememberedPermissions);
+          } catch (error) {
+            result = 'Tool gagal: ' + ((error as Error).message || 'kesalahan tidak diketahui');
           }
 
-          const rawResult = result;
-          const failed = !repeatedActionSuppressed && isToolFailureResult(rawResult);
-          const failureKey = repeatedActionSuppressed ? null : repeatedFailureSignature(call.name, rawResult);
-
+          const failed = isToolFailureResult(result);
           if (failed) {
-            result = rawResult + '\n\n' + getToolRecoveryHint(call.name, rawResult);
+            result += '\n\n' + getToolRecoveryHint(call.name, result);
           }
 
           emit(session, { type: 'skills', skills: [] });
@@ -1618,53 +1577,11 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
             type: 'tool-status',
             activity: {
               ...startedActivity,
-              status: failed || repeatedActionSuppressed ? 'failed' : 'completed',
-              detail: repeatedActionSuppressed
-                ? activityLabel + ' · dilewati; gunakan hasil sebelumnya'
-                : failed ? activityLabel + ' · ' + rawResult.replace(/\s+/g, ' ').slice(0, 180) : activityLabel + ' · selesai',
+              status: failed ? 'failed' : 'completed',
+              detail: failed ? activityLabel + ' · ' + result.replace(/\s+/g, ' ').slice(0, 180) : activityLabel + ' · selesai',
               ts: Date.now(),
             },
           });
-          if (isWorkspaceTool(call.name) && !failed && !repeatedActionSuppressed) hasUsedWorkspaceTools = true;
-          if (!failed && !repeatedActionSuppressed) {
-            noProgressReplies = 0;
-            // A successful call to this tool proves that the same tool-level
-            // failure was recovered; unrelated reads must not reset the counter.
-            for (const key of repeatedFailures.keys()) {
-              if (key.startsWith(call.name + ':')) repeatedFailures.delete(key);
-            }
-          }
-
-          if (noProgressKey && !repeatedActionSuppressed) {
-            // Count identical actions that leave workspace/Todo state unchanged.
-            // Once the threshold is reached, skip future identical calls instead
-            // of terminating the whole run or repeatedly executing an expensive read.
-            const progressAfter = agentProgressFingerprint(session);
-            if (progressAfter === progressBefore) {
-              const repeatCount = (repeatedNoProgressActions.get(noProgressKey) ?? 0) + 1;
-              repeatedNoProgressActions.set(noProgressKey, repeatCount);
-              if (repeatCount >= MAX_IDENTICAL_NO_PROGRESS_ACTIONS) {
-                suppressedNoProgressActions.add(noProgressKey);
-                const recoveryKey = 'no-progress:' + noProgressKey;
-                if (!recoveryInstructionsSent.has(recoveryKey)) {
-                  recoveryInstructionsSent.add(recoveryKey);
-                  recoveryDirective = 'GANTI PENDEKATAN — jangan menghentikan task. Tindakan "' + call.name + '" tidak menghasilkan perubahan state setelah ' + repeatCount + ' percobaan. Jangan mengulang tindakan identik ini; gunakan output yang sudah tersedia lalu lanjutkan dengan cara lain. ' + getRepeatedActionRecoveryHint(call.name);
-                }
-              }
-            }
-          }
-
-          if (failureKey) {
-            const failureCount = (repeatedFailures.get(failureKey) ?? 0) + 1;
-            repeatedFailures.set(failureKey, failureCount);
-            if (failureCount === MAX_REPEATED_TOOL_FAILURES) {
-              const recoveryKey = 'failure:' + failureKey;
-              if (!recoveryInstructionsSent.has(recoveryKey)) {
-                recoveryInstructionsSent.add(recoveryKey);
-                recoveryDirective = 'GANTI PENDEKATAN — jangan mengakhiri run hanya karena error berulang. Tool "' + call.name + '" menunjukkan akar kegagalan yang sama meskipun argumen berubah. Periksa error terakhir dan pilih jalur implementasi, tool, sumber, atau command alternatif. Jangan mengulang penyebab yang sama. Error terakhir: ' + rawResult.replace(/\s+/g, ' ').slice(0, 220) + ' ' + getRepeatedActionRecoveryHint(call.name);
-              }
-            }
-          }
 
           conversation.push({
             role: 'tool',
@@ -1673,30 +1590,21 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
             content: result.slice(0, MAX_TOOL_OUTPUT),
             ...(call.geminiFunctionCallId ? { geminiFunctionCallId: call.geminiFunctionCallId } : {}),
           });
-          if (blockedReason) break;
         }
-
-        if (recoveryDirective && !session.killed) {
-          conversation.push({ role: 'user', content: recoveryDirective });
-        }
-        if (blockedReason) break;
       }
 
       let resultOutcome: AgentRunResult['outcome'];
       let resultMessage: string;
-      let finalState: 'completed' | 'cancelled' | 'blocked';
+      let finalState: 'completed' | 'cancelled';
       if (session.killed) {
         resultOutcome = 'cancelled';
-        resultMessage = 'Run dibatalkan.';
+        resultMessage = 'Run dibatalkan oleh pengguna.';
         finalState = 'cancelled';
-      } else if (blockedReason || !finished) {
-        resultOutcome = 'blocked';
-        resultMessage = blockedReason || 'Agent berhenti tanpa menyelesaikan kriteria tugas.';
-        finalState = 'blocked';
-        emit(session, { type: 'output', data: '\n\nAgent terblokir: ' + resultMessage });
       } else {
         resultOutcome = 'completed';
-        resultMessage = 'Agent menyelesaikan gilirannya.';
+        resultMessage = finished
+          ? 'Agent menyelesaikan giliran model.'
+          : 'Agent menghentikan giliran setelah semua tool selesai.';
         finalState = 'completed';
       }
       const runResult: AgentRunResult = {
@@ -1706,7 +1614,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         durationMs: Date.now() - runStartedAt,
       };
       emit(session, { type: 'run-result', result: runResult });
-      emit(session, { type: 'state', state: { status: finalState, agentId: session.agent.id, ...(finalState === 'blocked' ? { error: resultMessage } : {}) } });
+      emit(session, { type: 'state', state: { status: finalState, agentId: session.agent.id } });
     } catch (error) {
       if (session.killed || session.controller.signal.aborted) {
         const message = 'Run dibatalkan oleh pengguna.';
@@ -1779,6 +1687,11 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         successfulTerminalChecks: [],
         runStartedAt: Date.now(),
         totalToolCalls: 0,
+        workspaceReadCache: new Map(),
+        workspaceListingCache: new Map(),
+        workspaceSearchCache: new Map(),
+        workspaceReadRanges: new Set(),
+        workspaceReadNextLine: new Map(),
       };
       llmSessions.set(session.id, session);
       emit(session, { type: 'state', state: { status: 'starting', agentId: agent.id } });

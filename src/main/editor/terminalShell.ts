@@ -87,20 +87,21 @@ export function resolveTerminalShell(): TerminalShellProfile {
 }
 
 function wrapPowerShellCommand(command: string): string {
-  // Encode both the user command and the outer script. Passing the wrapper
-  // through -EncodedCommand avoids Windows command-line quoting differences.
+  // EncodedCommand avoids Windows command-line quoting differences. Invoke-Expression
+  // executes in the wrapper's current scope so native LASTEXITCODE is captured directly.
   const encodedCommand = Buffer.from(command, 'utf16le').toString('base64');
   const wrapper = [
     "$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)",
     "$ErrorActionPreference = 'Stop'",
-    // Native stderr is ordinary output unless the native process returns a
-    // failing exit code. This variable is ignored by older Windows PowerShell.
     '$PSNativeCommandUseErrorActionPreference = $false',
-    '$global:LASTEXITCODE = $null',
+    '$LASTEXITCODE = $null',
     "$scriptText = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromBase64String('" + encodedCommand + "'))",
     'try {',
-    '  & ([scriptblock]::Create($scriptText))',
-    '  if ($null -ne $global:LASTEXITCODE) { exit [int]$global:LASTEXITCODE }',
+    '  Invoke-Expression $scriptText',
+    '  $commandSucceeded = $?',
+    '  $nativeExitCode = $LASTEXITCODE',
+    '  if ($null -ne $nativeExitCode) { exit [int]$nativeExitCode }',
+    '  if (-not $commandSucceeded) { exit 1 }',
     '  exit 0',
     '} catch {',
     '  [Console]::Error.WriteLine($_.ToString())',

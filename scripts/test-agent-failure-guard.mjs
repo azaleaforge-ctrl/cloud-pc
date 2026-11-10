@@ -1,4 +1,4 @@
-// Regression tests for agent-tool failure classification and recovery prompts.
+// Regression tests for non-blocking agent tool error handling.
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { createRequire } from 'node:module';
@@ -10,20 +10,6 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const temp = await mkdtemp(join(tmpdir(), 'rk-agent-failure-'));
 const require = createRequire(import.meta.url);
-let passed = 0;
-let failed = 0;
-
-function test(name, fn) {
-  try {
-    fn();
-    passed += 1;
-    console.log('PASS ' + name);
-  } catch (error) {
-    failed += 1;
-    console.error('FAIL ' + name + ' — ' + (error instanceof Error ? error.message : String(error)));
-  }
-}
-
 try {
   const bundlePath = join(temp, 'agentFailureGuard.cjs');
   await build({
@@ -36,138 +22,33 @@ try {
   });
   const guard = require(bundlePath);
 
-  test('recognizes Todo validation failures as tool errors', () => {
-    assert.equal(guard.isToolFailureResult('Tool gagal: Task hanya bisa menjadi completed setelah berstatus in_progress: Update package.json.'), true);
-  });
+  assert.equal(guard.isToolFailureResult('Tool gagal: file tidak ditemukan.'), true);
+  assert.equal(guard.isToolFailureResult('Status: failed\nExit code: 1\nmissing script'), true);
+  assert.equal(guard.isToolFailureResult('Status: completed\nExit code: 0'), false);
+  console.log('PASS tool failure classification preserves real command results');
 
-  test('groups the same Todo state-transition failure despite a different task title', () => {
-    const first = guard.repeatedFailureSignature('todo_write', 'Tool gagal: Task hanya bisa menjadi completed setelah berstatus in_progress: Update package.json.');
-    const second = guard.repeatedFailureSignature('todo_write', 'Tool gagal: Task hanya bisa menjadi completed setelah berstatus in_progress: Pastikan indexedDB masih kompatibel.');
-    assert.equal(first, second);
-  });
+  const todoHint = guard.getToolRecoveryHint('todo_write', 'Tool gagal: Todo payload tidak valid.');
+  assert.match(todoHint, /Todo List hanya panel progres opsional/i);
+  assert.match(todoHint, /lanjutkan pekerjaan file\/terminal utama/i);
+  assert.doesNotMatch(todoHint, /hentikan run|jangan lanjut/i);
+  console.log('PASS Todo failures are advisory and do not gate workspace actions');
 
-  test('groups the same Windows shell command-not-found failure across different commands', () => {
-    const first = guard.repeatedFailureSignature('run_terminal', "Status: failed\nExit code: 1\n'pwd' is not recognized as an internal or external command");
-    const second = guard.repeatedFailureSignature('run_terminal', "Status: failed\nExit code: 1\n'npm' is not recognized as an internal or external command");
-    assert.equal(first, second);
-  });
+  const terminalHint = guard.getToolRecoveryHint(
+    'run_terminal',
+    'Status: failed\nExit code: 1\nThe filename, directory name, or volume label syntax is incorrect.',
+  );
+  assert.match(terminalHint, /Shell terminal aktif/);
+  assert.match(terminalHint, /Timeout satu command tidak menghentikan agent/);
+  console.log('PASS terminal errors provide a recovery path without ending the agent run');
 
-  test('keeps distinct failure categories separate', () => {
-    const shell = guard.repeatedFailureSignature('run_terminal', 'Status: failed\nExit code: 1\nThe filename, directory name, or volume label syntax is incorrect.');
-    const missing = guard.repeatedFailureSignature('run_terminal', "'npm' is not recognized as an internal or external command");
-    assert.notEqual(shell, missing);
-  });
+  const genericHint = guard.getToolRecoveryHint('read_project_file', 'Tool gagal: read error.');
+  assert.match(genericHint, /bukan alasan untuk menghentikan seluruh run/i);
+  console.log('PASS generic tool errors remain recoverable');
 
-  test('groups the same TypeScript build diagnostic across changed file paths and line numbers', () => {
-    const first = [
-      'Status: failed',
-      'Exit code: 1',
-      "src/components/ui/button.tsx(18,7): error TS2322: Type 'DragHandler' is not assignable to type 'MouseHandler'.",
-    ].join('\n');
-    const second = [
-      'Status: failed',
-      'Exit code: 1',
-      "src/components/ui/card.tsx(91,22): error TS2322: Type 'DragHandler' is not assignable to type 'MouseHandler'.",
-    ].join('\n');
-    assert.equal(
-      guard.repeatedFailureSignature('run_terminal', first),
-      guard.repeatedFailureSignature('run_terminal', second),
-    );
-  });
-
-  test('keeps different TypeScript build diagnostics in different failure groups', () => {
-    const first = 'Status: failed\nExit code: 1\nsrc/button.tsx(18,7): error TS2322: Type A is not assignable to type B.';
-    const second = 'Status: failed\nExit code: 1\nsrc/button.tsx(18,7): error TS2304: Cannot find name X.';
-    assert.notEqual(
-      guard.repeatedFailureSignature('run_terminal', first),
-      guard.repeatedFailureSignature('run_terminal', second),
-    );
-  });
-
-  test('groups repeated lint diagnostics when only file locations change', () => {
-    const first = [
-      'Status: failed',
-      'Exit code: 1',
-      "src/app/profile/page.tsx:232:18 - Error: ' character must be escaped (react/no-unescaped-entities)",
-    ].join('\n');
-    const second = [
-      'Status: failed',
-      'Exit code: 1',
-      "src/app/posts/page.tsx:87:3 - Error: ' character must be escaped (react/no-unescaped-entities)",
-    ].join('\n');
-    assert.equal(
-      guard.repeatedFailureSignature('run_terminal', first),
-      guard.repeatedFailureSignature('run_terminal', second),
-    );
-  });
-
-  test('classifies recurring npm network failures consistently', () => {
-    const first = 'Status: failed\nExit code: 1\nnpm ERR! code ECONNRESET\nrequest reset';
-    const second = 'Status: failed\nExit code: 1\nnpm ERR! code ECONNRESET\nconnection lost';
-    assert.equal(
-      guard.repeatedFailureSignature('run_terminal', first),
-      guard.repeatedFailureSignature('run_terminal', second),
-    );
-  });
-
-  test('recovery prompt requires reading Todo state and not repeating the same payload', () => {
-    const hint = guard.getToolRecoveryHint('todo_write', 'Tool gagal: Task hanya bisa menjadi completed setelah berstatus in_progress.');
-    assert.match(hint, /todo_read/);
-    assert.match(hint, /jangan kirim ulang/i);
-    assert.match(hint, /pending/i);
-    assert.match(hint, /pembaruan berikutnya/i);
-  });
-
-  test('terminal recovery prompt describes the selected shell and forbids exit-code wrappers', () => {
-    const hint = guard.getToolRecoveryHint('run_terminal', 'Status: failed\nExit code: 1\nThe filename, directory name, or volume label syntax is incorrect.');
-    assert.match(hint, /Shell terminal aktif/);
-    assert.match(hint, /exit code/i);
-    assert.match(hint, /jangan mengubah source code/i);
-  });
-
-  test('creates a stable signature for semantically identical tool arguments', () => {
-    assert.equal(
-      guard.repeatedNoProgressActionSignature('write_project_file', '{"path":"src/a.ts","content":"x"}'),
-      guard.repeatedNoProgressActionSignature('write_project_file', '{"content":"x","path":"src/a.ts"}'),
-    );
-  });
-
-  test('keeps different tool arguments in separate no-progress groups', () => {
-    assert.notEqual(
-      guard.repeatedNoProgressActionSignature('run_terminal', '{"command":"npm run build"}'),
-      guard.repeatedNoProgressActionSignature('run_terminal', '{"command":"npm test"}'),
-    );
-  });
-
-  test('does not treat interactive user questions as repeatable no-progress actions', () => {
-    assert.equal(guard.repeatedNoProgressActionSignature('ask_user', '{"question":"Choose"}'), null);
-  });
-
-  test('repeated reads instruct the agent to use existing context and a narrower alternative', () => {
-    const hint = guard.getRepeatedActionRecoveryHint('read_project_file');
-    assert.match(hint, /jangan membaca ulang file yang sama/i);
-    assert.match(hint, /search_project_files/);
-    assert.match(hint, /rentang lebih sempit/i);
-  });
-
-  test('repeated folder listing instructs the agent not to rescan the same folder', () => {
-    const hint = guard.getRepeatedActionRecoveryHint('list_project_files');
-    assert.match(hint, /jangan menginventarisasi folder yang sama/i);
-    assert.match(hint, /subfolder spesifik/i);
-  });
-
-  test('repeated terminal action instructs the agent to change command strategy', () => {
-    const hint = guard.getRepeatedActionRecoveryHint('run_terminal');
-    assert.match(hint, /jangan menjalankan ulang command yang sama/i);
-    assert.match(hint, /stdout, stderr, exit code/i);
-  });
-
-  test('does not assign a repeated-failure signature to a successful result', () => {
-    assert.equal(guard.repeatedFailureSignature('todo_write', 'Todo List diperbarui: 2/2 task completed.'), null);
-  });
-
-  console.log('\nAgent Failure Guard tests: ' + passed + ' passed, ' + failed + ' failed.');
-  if (failed > 0) process.exitCode = 1;
+  assert.equal(typeof guard.repeatedFailureSignature, 'undefined');
+  assert.equal(typeof guard.repeatedNoProgressActionSignature, 'undefined');
+  assert.equal(typeof guard.getRepeatedActionRecoveryHint, 'undefined');
+  console.log('PASS repeated-failure and no-progress stop helpers have been removed');
 } finally {
   await rm(temp, { recursive: true, force: true });
 }

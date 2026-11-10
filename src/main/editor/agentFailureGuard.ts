@@ -1,7 +1,10 @@
-import { createHash } from 'node:crypto';
 import { getAgentTerminalGuidance } from './terminalShell';
 
-// Runtime guard helpers classify failures before the model is asked to recover.
+/**
+ * Classify tool errors so the model can diagnose them and continue.
+ * This module deliberately contains no repeat counter, signature, suppression,
+ * or run-stopping policy.
+ */
 export function isToolFailureResult(result: string): boolean {
   if (/^(?:Tool gagal:|Tool ditahan:|Tool tidak dikenal:|Akses ditolak|Path ditolak|Memory ditolak|Pengguna menolak)/i.test(result.trim())) return true;
   if (/^Status:\s*(?:failed|timed_out|cancelled)/im.test(result)) return true;
@@ -11,185 +14,25 @@ export function isToolFailureResult(result: string): boolean {
 }
 
 /**
- * Return a privacy-preserving and stable signature for failures that have the
- * same probable root cause. Tool arguments are intentionally excluded so tiny
- * model-generated changes don't bypass the loop guard.
+ * Return a diagnostic hint alongside the real tool output. A hint never
+ * suppresses the next tool call or ends the agent run.
  */
-export function repeatedFailureSignature(toolName: string, result: string): string | null {
-  if (!isToolFailureResult(result)) return null;
-
-  let category = '';
-  if (toolName === 'todo_write') {
-    if (/Task hanya bisa menjadi completed setelah berstatus in_progress/i.test(result)) {
-      category = 'todo-completed-before-active';
-    } else if (/bukti (?:verifikasi|penyelesaian)|completionEvidence/i.test(result)) {
-      category = 'todo-completion-evidence';
-    } else if (/Task belum bisa completed|membutuhkan build\/test\/lint\/typecheck/i.test(result)) {
-      category = 'todo-terminal-verification-required';
-    } else if (/prasyarat|dependensi|blockedBy/i.test(result)) {
-      category = 'todo-dependency-transition';
-    } else if (/task baru tidak boleh langsung completed/i.test(result)) {
-      category = 'todo-new-task-completed';
-    } else if (/Todo List tidak boleh menghapus task/i.test(result)) {
-      category = 'todo-task-removed';
-    } else if (/siklus/i.test(result)) {
-      category = 'todo-dependency-cycle';
-    }
-  }
-
-  if (!category && toolName === 'run_terminal') {
-    if (/is not recognized as an internal or external command|is not recognized as the name of a cmdlet|The term .+ is not recognized/i.test(result)) {
-      category = 'terminal-executable-not-found';
-    } else if (/The filename, directory name, or volume label syntax is incorrect/i.test(result)) {
-      category = 'terminal-shell-syntax';
-    } else if (/ParserError|Unexpected token|Missing expression|The string is missing the terminator/i.test(result)) {
-      category = 'terminal-parser-error';
-    } else if (/npm ERR!.*ERESOLVE|ERESOLVE unable to resolve dependency tree|\bcode ERESOLVE\b/i.test(result)) {
-      category = 'terminal-npm-dependency-conflict';
-    } else if (/ENOENT.*(?:package\.json|package-lock\.json)|Could not read package\.json/i.test(result)) {
-      category = 'terminal-missing-package-manifest';
-    } else if (/\b(?:ECONNRESET|ETIMEDOUT|ENETUNREACH|EAI_AGAIN)\b/i.test(result)) {
-      category = 'terminal-network-failure';
-    } else if (/\b(?:MODULE_NOT_FOUND|Cannot find module)\b/i.test(result)) {
-      category = 'terminal-missing-module';
-    } else {
-      const plain = result.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
-      const compilerDiagnostics = [...plain.matchAll(/\b(TS\d{3,5})\s*:\s*([^\r\n]+)/g)]
-        .map((match) => match[1] + ': ' + match[2].replace(/\s+/g, ' ').trim())
-        .sort()
-        .slice(0, 30);
-      const diagnosticLines = plain.split(/\r?\n/)
-        .filter((line) => /\b(?:error|warning|failed|Failed to compile|Build failed|Cannot find|not assignable|no-unescaped-entities|set-state-in-effect|eslint|vite|rollup|webpack)\b/i.test(line))
-        .map((line) => line
-          .replace(/\b[A-Za-z0-9_@./\\-]+\.(?:tsx?|jsx?|mjs|cjs|vue|svelte|astro|css|json)\b/gi, '<file>')
-          .replace(/\(\d+(?:,\s*\d+)?\)/g, '(<loc>)')
-          .replace(/:\d+:\d+/g, ':<loc>')
-          .replace(/\b\d+:\d+\b/g, '<loc>')
-          .replace(/\s+/g, ' ')
-          .trim())
-        .filter(Boolean)
-        .sort()
-        .slice(0, 30);
-      const diagnostics = compilerDiagnostics.length ? compilerDiagnostics : diagnosticLines;
-      if (diagnostics.length) {
-        // Paths and line/column numbers may shift after attempted edits; group the
-        // same underlying diagnostic so iterative writes cannot evade the loop guard.
-        category = 'terminal-diagnostics:' + createHash('sha256').update(diagnostics.join('\n')).digest('hex');
-      }
-    }
-  }
-
-  if (!category) {
-    // Drop transient duration, timestamps, and leading shell-profile information.
-    const normalized = result
-      .replace(/^Shell:.*\r?\n/m, '')
-      .replace(/^Durasi:\s*\d+(?:\.\d+)? detik\s*$/gim, 'Durasi: <elapsed>')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 2400);
-    category = createHash('sha256').update(normalized).digest('hex');
-  }
-
-  return toolName + ':' + category;
-}
-
-/**
- * Produce a stable key for repeated tool calls. Object keys are sorted so the
- * same JSON arguments do not evade loop protection merely by changing key order.
- * Read-only repetition is tracked too: reading the same file forever is not
- * progress, and successful tool status alone must not reset the agent loop.
- */
-export function repeatedNoProgressActionSignature(toolName: string, argumentsJson: string): string | null {
-  const trackedTools = new Set([
-    'todo_read', 'todo_write', 'list_project_files', 'read_project_file',
-    'write_project_file', 'search_project_files', 'run_terminal',
-    'search_web', 'read_web_page', 'check_package_version',
-  ]);
-  if (!trackedTools.has(toolName)) return null;
-
-  let args: unknown;
-  try {
-    args = JSON.parse(argumentsJson || '{}');
-  } catch {
-    return toolName + ':invalid-json';
-  }
-
-  const normalize = (value: unknown): unknown => {
-    if (Array.isArray(value)) return value.map(normalize);
-    if (!value || typeof value !== 'object') return value;
-    const record = value as Record<string, unknown>;
-    return Object.fromEntries(Object.keys(record).sort().map((key) => [key, normalize(record[key])]));
-  };
-  const canonical = JSON.stringify(normalize(args));
-  return toolName + ':' + createHash('sha256').update(canonical).digest('hex');
-}
-
 export function getToolRecoveryHint(toolName: string, result: string): string {
   if (toolName === 'todo_write') {
     return [
-      'Panduan pemulihan Todo (wajib diikuti): jangan kirim ulang pembaruan yang sama.',
-      'Panggil todo_read untuk melihat status yang benar-benar tersimpan. Pertahankan semua ID task dan dependensinya.',
-      'Task hanya boleh menjadi completed jika pada pembaruan todo_write yang sudah diterima sebelumnya statusnya in_progress, lalu pekerjaan dan kriteria verification telah benar-benar diperiksa, serta completionEvidence menjelaskan bukti nyata minimal 8 karakter.',
-      'Jika task masih pending, ubah task itu menjadi in_progress dalam todo_write tersendiri yang berhasil diterima. Baru setelah itu lakukan/verifikasi pekerjaan dan tandai completed pada pembaruan berikutnya. Jangan menandai task selesai dan aktif pada pembaruan yang sama.',
-      'Jangan membuat ulang seluruh rencana untuk menghindari validator. Jika prasyarat belum selesai, kerjakan prasyarat terlebih dahulu atau tandai blocked dengan alasan yang spesifik.',
+      'Todo List hanya panel progres opsional dan bukan prasyarat pekerjaan.',
+      'Jika pembaruan Todo gagal, lewati sementara dan lanjutkan pekerjaan file/terminal utama.',
+      'Jangan menghabiskan giliran hanya untuk memperbaiki status Todo.',
     ].join(' ');
   }
 
   if (toolName === 'run_terminal') {
     const shellGuidance = getAgentTerminalGuidance();
     const syntaxHint = /is not recognized as an internal or external command|is not recognized as the name of a cmdlet|The term .+ is not recognized|filename, directory name, or volume label syntax is incorrect|ParserError|Unexpected token|Missing expression/i.test(result)
-      ? 'Error tampak terkait executable atau sintaks shell. Perbaiki sintaks/command sesuai shell aktif, jangan mengubah source code project untuk menutupi kesalahan shell.'
-      : 'Baca stdout, stderr, dan exit code sebelum menentukan langkah berikutnya.';
-    return 'Panduan pemulihan terminal: ' + shellGuidance + ' ' + syntaxHint + ' Jangan mengulangi command yang sama tanpa mengubah penyebab kegagalannya. Runner sudah mengembalikan exit code; jangan menambahkan wrapper untuk mencetak $? atau exit code.';
+      ? 'Error tampak terkait executable atau sintaks shell. Perbaiki sintaks/command sesuai shell aktif; jangan mengubah source code project untuk menutupi kesalahan shell.'
+      : 'Gunakan stdout, stderr, exit code, dan pesan error untuk memilih langkah berikutnya.';
+    return 'Panduan pemulihan terminal: ' + shellGuidance + ' ' + syntaxHint + ' Jika command gagal, perbaiki penyebabnya atau pilih pendekatan lain. Timeout satu command tidak menghentikan agent; agent dapat melanjutkan dengan tool lain.';
   }
 
-  return 'Panduan pemulihan tool: baca error lengkap, periksa prasyarat dan konteksnya, lalu ubah pendekatan sebelum mencoba lagi. Jangan mengulangi pemanggilan dengan argumen yang sama tanpa alasan teknis baru, dan jangan mengklaim operasi berhasil ketika hasil tool menyatakan gagal.';
-}
-
-
-/**
- * Give the model a concrete alternative after an identical no-progress action
- * has already been attempted repeatedly. The run itself remains alive.
- */
-export function getRepeatedActionRecoveryHint(toolName: string): string {
-  if (toolName === 'read_project_file') {
-    return [
-      'Jangan membaca ulang file yang sama dengan rentang dan state yang sama.',
-      'Gunakan isi file yang sudah ada di riwayat tool sebagai sumber konteks.',
-      'Identifikasi fakta yang masih kurang, lalu cari simbol atau referensi terkait dengan search_project_files.',
-      'Bila perlu, baca hanya file lain yang relevan atau rentang lebih sempit; jangan mengulang inventory atau membaca seluruh folder.',
-    ].join(' ');
-  }
-  if (toolName === 'list_project_files') {
-    return [
-      'Jangan menginventarisasi folder yang sama lagi.',
-      'Gunakan hasil daftar file yang sudah tersedia; persempit ke subfolder spesifik atau gunakan search_project_files untuk menemukan simbol terkait.',
-      'Lanjutkan ke file yang relevan berdasarkan hasil sebelumnya.',
-    ].join(' ');
-  }
-  if (toolName === 'search_project_files') {
-    return [
-      'Jangan mengulang pencarian yang identik.',
-      'Persempit kata kunci, gunakan nama simbol atau pola yang lebih spesifik, atau baca file kandidat yang sudah ditemukan.',
-      'Manfaatkan hasil pencarian sebelumnya dan hindari memindai folder/proyek secara keseluruhan.',
-    ].join(' ');
-  }
-  if (toolName === 'run_terminal') {
-    return [
-      'Jangan menjalankan ulang command yang sama tanpa perubahan.',
-      'Gunakan stdout, stderr, exit code, dan shell aktif untuk menentukan penyebabnya.',
-      'Pilih command, executable, argumen, atau cara verifikasi berbeda yang benar-benar sesuai; jangan mengubah source code untuk menutupi kesalahan shell.',
-    ].join(' ');
-  }
-  if (toolName === 'todo_write') {
-    return [
-      'Panggil todo_read untuk memeriksa state tersimpan.',
-      'Perbaiki hanya transisi yang tidak valid dengan mempertahankan ID dan dependensi task; jangan kirim ulang payload yang sama.',
-    ].join(' ');
-  }
-  return [
-    'Jangan ulangi tindakan yang sama.',
-    'Gunakan hasil tool sebelumnya, identifikasi prasyarat yang belum terpenuhi, lalu pilih tool atau pendekatan lain yang dapat menghasilkan kemajuan nyata.',
-    'Jangan mengklaim berhasil tanpa bukti.',
-  ].join(' ');
+  return 'Panduan pemulihan tool: baca error lengkap, periksa prasyarat dan konteksnya, lalu lanjutkan dengan tool atau pendekatan yang sesuai. Kegagalan tool bukan alasan untuk menghentikan seluruh run. Jangan mengklaim operasi berhasil ketika hasil tool menyatakan gagal.';
 }

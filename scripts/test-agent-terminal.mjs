@@ -109,7 +109,7 @@ try {
       assert.ok(invocation.args.includes('-EncodedCommand'));
       const wrapper = Buffer.from(invocation.args.at(-1), 'base64').toString('utf16le');
       assert.match(wrapper, /FromBase64String/);
-      assert.match(wrapper, /\[scriptblock\]::Create/);
+      assert.match(wrapper, /Invoke-Expression \$scriptText/);
       assert.doesNotMatch(wrapper, /EXIT_CODE:\s*\$\?/i);
     } else {
       assert.equal(invocation.args.at(-1), terminalCommand('streams', shell));
@@ -126,11 +126,13 @@ try {
     };
     const invocation = buildTerminalCommandInvocation('node -e "process.exit(7)"', powershellProfile);
     const wrapper = Buffer.from(invocation.args.at(-1), 'base64').toString('utf16le');
-    assert.match(wrapper, /\$global:LASTEXITCODE = \$null/);
+    assert.match(wrapper, /\$LASTEXITCODE = \$null/);
     assert.match(wrapper, /\$ErrorActionPreference = 'Stop'/);
     assert.match(wrapper, /\$PSNativeCommandUseErrorActionPreference = \$false/);
-    assert.match(wrapper, /\[scriptblock\]::Create\(\$scriptText\)/);
-    assert.match(wrapper, /\$global:LASTEXITCODE/);
+    assert.match(wrapper, /Invoke-Expression \$scriptText/);
+    assert.match(wrapper, /\$nativeExitCode = \$LASTEXITCODE/);
+    assert.doesNotMatch(wrapper, /\[scriptblock\]::Create/);
+    assert.match(wrapper, /\$nativeExitCode = \$LASTEXITCODE/);
     assert.doesNotMatch(wrapper, /\$global:LASTEXITCODE = 0/);
   });
 
