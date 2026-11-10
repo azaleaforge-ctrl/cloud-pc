@@ -65,9 +65,30 @@ export async function resolveWorkspacePath(
   requestedPath: string,
   options: WorkspacePathOptions = {},
 ): Promise<ResolvedWorkspacePath> {
-  const root = await realpath(rootPath);
+  const inputRoot = resolve(rootPath);
+  const root = await realpath(inputRoot);
   const raw = (typeof requestedPath === 'string' ? requestedPath : '.').trim() || '.';
-  const target = resolve(root, raw);
+
+  let target: string;
+  if (isAbsolute(raw)) {
+    const absoluteRequested = resolve(raw);
+    // Renderer paths can retain a Windows 8.3 alias while realpath() returns
+    // the long canonical name. Map paths relative to either representation.
+    const inputRelative = relative(inputRoot, absoluteRequested);
+    const canonicalRelative = relative(root, absoluteRequested);
+    const isInsideRelative = (value: string): boolean =>
+      value === '' || value === '.' || (value !== '..' && !value.startsWith('..' + sep) && !isAbsolute(value));
+
+    if (isInsideRelative(inputRelative)) {
+      target = resolve(root, inputRelative);
+    } else if (isInsideRelative(canonicalRelative)) {
+      target = resolve(root, canonicalRelative);
+    } else {
+      throw new Error('Path ditolak: tool hanya boleh bekerja di dalam folder proyek.');
+    }
+  } else {
+    target = resolve(root, raw);
+  }
   assertWithinRoot(root, target);
 
   const requestedRel = toRelativePath(root, target);
