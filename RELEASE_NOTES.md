@@ -27,7 +27,7 @@
 
 ### Detail Version di dalam aplikasi
 
-Buka nomor versi pada bilah status bawah untuk melihat deskripsi perubahan/fitur/perbaikan v1.2.5. Riwayat tetap menampilkan maksimal tiga rilis terbaru beserta deskripsinya.
+Buka nomor versi pada bilah status bawah untuk melihat deskripsi perubahan/fitur/perbaikan v1.2.5. Gunakan tombol “Muat Ulang Versi” untuk mengambil ulang detail versi dari GitHub bila informasi belum diperbarui. Riwayat tetap menampilkan maksimal tiga rilis terbaru beserta deskripsinya.
 
 ---
 
