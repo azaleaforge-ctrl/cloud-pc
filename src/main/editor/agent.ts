@@ -445,6 +445,43 @@ async function readProjectFile(root: string, requestedPath: string): Promise<str
   return (await readFile(resolved.target, 'utf8')).slice(0, MAX_READ_BYTES);
 }
 
+/**
+ * Read a workspace file at most once per agent run while its filesystem metadata
+ * remains unchanged. A duplicate call returns a compact pointer to the original
+ * tool result already present in this run's model context instead of charging
+ * the provider for the full file contents again.
+ */
+async function readProjectFileForSession(session: LlmSession, root: string, requestedPath: string): Promise<string> {
+  const resolved = await resolveWorkspacePath(root, requestedPath);
+  const info = await stat(resolved.target);
+  if (!info.isFile()) throw new Error('Path bukan file.');
+  if (info.size > MAX_READ_BYTES) throw new Error('File terlalu besar untuk dibaca langsung (maksimum 1 MB).');
+
+  const cached = session.workspaceReadCache.get(resolved.target);
+  if (cached && cached.size === info.size && cached.mtimeMs === info.mtimeMs && cached.ctimeMs === info.ctimeMs) {
+    return [
+      '[CACHE HIT — FILE SUDAH DIBACA]',
+      'File "' + resolved.rel + '" sudah dibaca dan isi lengkapnya tersedia pada hasil read_project_file sebelumnya di konteks run ini.',
+      'Jangan panggil read_project_file lagi untuk file yang sama. Gunakan isi sebelumnya. Jika masih membutuhkan fakta spesifik, gunakan search_project_files dengan simbol/query yang tepat atau baca file lain yang relevan.',
+      'Tidak ada pembacaan ulang atau pengiriman ulang isi file pada cache hit ini.',
+    ].join('\n');
+  }
+
+  const content = (await readFile(resolved.target, 'utf8')).slice(0, MAX_READ_BYTES);
+  session.workspaceReadCache.set(resolved.target, {
+    size: info.size,
+    mtimeMs: info.mtimeMs,
+    ctimeMs: info.ctimeMs,
+    content,
+  });
+  return content;
+}
+
+function invalidateWorkspaceDiscoveryCaches(session: LlmSession): void {
+  session.workspaceListingCache.clear();
+  session.workspaceSearchCache.clear();
+}
+
 function lineChangeCounts(oldContent: string, newContent: string): { addedLines: number; removedLines: number } {
   const oldLines = oldContent.replace(/\r\n/g, '\n').split('\n');
   const newLines = newContent.replace(/\r\n/g, '\n').split('\n');
