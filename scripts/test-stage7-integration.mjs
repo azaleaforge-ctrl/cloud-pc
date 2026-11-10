@@ -71,15 +71,11 @@ try {
 
   const todoPolicy = await readFile(join(root, 'src/main/editor/agentTodoPolicy.ts'), 'utf8');
 
-  test('agent orchestration permits read-only discovery before Todo and gates mutations on an active task', () => {
-    assert.match(agent, /requiresTodoPlanForRequest, shouldBlockToolUntilTodoPlan/);
-    assert.match(agent, /shouldBlockToolUntilTodoPlan\(requiresTodoPlan, session\.todos\.some\(\(todo\) => todo\.status === 'in_progress'\), call\.name\)/);
-    assert.match(todoPolicy, /'read_project_file'/);
-    assert.match(todoPolicy, /'list_project_files'/);
-    assert.match(todoPolicy, /'search_project_files'/);
-    assert.match(todoPolicy, /if \(toolName === 'todo_write' \|\| READ_ONLY_DISCOVERY_TOOLS\.has\(toolName\)\) return false/);
-    assert.match(todoPolicy, /requiresTodoPlanForRequest/);
-    assert.doesNotMatch(agent, /const requiresTodoPlan = .*website\|aplikasi\|project\|proyek/);
+  test('agent orchestration never gates mutations on Todo state', () => {
+    assert.match(agent, /await executeTool\(session, userDataDir, root, call/);
+    assert.doesNotMatch(agent, /shouldBlockToolUntilTodoPlan|requiresTodoPlanForRequest|Tool ditahan: buat Todo List/);
+    assert.match(todoPolicy, /return false;/);
+    assert.match(todoPolicy, /never gate workspace or terminal tools on Todo state/);
   });
 
   test('provider/model selection is resolved per provider and runtime requests use the selected model', () => {
