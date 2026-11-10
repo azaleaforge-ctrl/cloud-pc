@@ -81,6 +81,7 @@ interface LlmSession {
   workspaceListingCache: Map<string, string>;
   workspaceSearchCache: Map<string, string>;
   workspaceReadRanges: Set<string>;
+  workspaceReadNextLine: Map<string, number>;
 }
 interface ToolCall { id: string; name: string; arguments: string; geminiThoughtSignature?: string; geminiFunctionCallId?: string }
 interface ToolDefinition {
@@ -109,7 +110,6 @@ function boundedIntegerEnvironment(name: string, fallback: number, min: number, 
 // Agent runs have no fixed total tool-call or wall-clock ceiling. Users can stop a run at any time.
 const DEFAULT_COMMAND_TIMEOUT_SECONDS = boundedIntegerEnvironment('RK_AGENT_DEFAULT_COMMAND_TIMEOUT_SECONDS', 600, 10, 3600);
 const MAX_COMMAND_TIMEOUT_SECONDS = 3600;
-const MAX_READ_BYTES = 1024 * 1024;
 const MAX_TOOL_OUTPUT = 18_000;
 const MAX_SESSION_MEMORY_CHARS = 8_000;
 const SESSION_MEMORY_START = '# AI Session Memory\n\nThis file contains short-lived notes for the current chat only. Never store credentials or secrets here.\n';
@@ -446,13 +446,6 @@ async function listProjectFiles(root: string, requestedPath: string): Promise<st
   return output.length > 0 ? output.join('\n') : '(folder kosong)';
 }
 
-async function readProjectFile(root: string, requestedPath: string): Promise<string> {
-  const resolved = await resolveWorkspacePath(root, requestedPath);
-  const info = await stat(resolved.target);
-  if (!info.isFile()) throw new Error('Path bukan file.');
-  if (info.size > MAX_READ_BYTES) throw new Error('File terlalu besar untuk dibaca langsung (maksimum 1 MB).');
-  return (await readFile(resolved.target, 'utf8')).slice(0, MAX_READ_BYTES);
-}
 
 /**
  * Read a workspace file at most once per agent run while its filesystem metadata
@@ -474,7 +467,12 @@ async function readProjectFileForSession(session: LlmSession, root: string, requ
 
   const lines = cached.content.split(/\r?\n/);
   const totalLines = lines.length;
-  const startLine = requestedStartLine === undefined ? 1 : requestedStartLine;
+  const fileVersionKey = resolved.target + '|' + info.size + '|' + info.mtimeMs + '|' + info.ctimeMs;
+  const nextSequentialLine = session.workspaceReadNextLine.get(fileVersionKey) ?? 1;
+  const startLine = requestedStartLine === undefined ? nextSequentialLine : requestedStartLine;
+  if (startLine > totalLines && requestedStartLine === undefined) {
+    return '[FILE SUDAH DIBACA SELURUHNYA] ' + resolved.rel + ' memiliki ' + totalLines + ' baris dan seluruh rentang sudah tersedia dalam konteks percakapan. Tidak perlu membaca file ini lagi.';
+  }
   if (!Number.isSafeInteger(startLine) || startLine < 1 || startLine > Math.max(1, totalLines)) {
     throw new Error('start_line harus berada dalam rentang 1 sampai ' + totalLines + '.');
   }
@@ -502,6 +500,9 @@ async function readProjectFileForSession(session: LlmSession, root: string, requ
   }
   session.workspaceReadRanges.add(rangeKey);
   const nextLine = endLine < totalLines ? endLine + 1 : null;
+  if (requestedStartLine === undefined || startLine === nextSequentialLine) {
+    session.workspaceReadNextLine.set(fileVersionKey, nextLine ?? totalLines + 1);
+  }
   return [
     '[FILE: ' + resolved.rel + ']',
     'Baris ' + startLine + '–' + endLine + ' dari ' + totalLines + '.',
