@@ -1390,6 +1390,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       const root = await realpath(projectPath);
       await rememberedPermissions.load();
       const inventory = await listProjectFiles(root, '.');
+      session.workspaceListingCache.set(root, inventory);
       let mcpTools: McpExposedTool[] = [];
       try {
         const mcpRegistry = await listEnabledMcpTools(userDataDir);
@@ -1430,19 +1431,11 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       // Skills stay in the model's instructions for the run, while the right panel
       // shows only the skill currently relevant to an executing tool step.
       emit(session, { type: 'skills', skills: [] });
-      let activeFileContext = '';
-      if (activePath) {
-        try {
-          const active = await resolveWorkspacePath(root, activePath);
-          if (!isSensitive(active.rel)) {
-            const text = await readProjectFile(root, activePath);
-            activeFileContext = '\n\nFile yang sedang dipilih di editor (' + active.rel + '):\n' +
-              '```\n' + text.slice(0, 8_000) + (text.length > 8_000 ? '\n[isi dipotong pada 8 KB; baca bagian lain dengan tool bila diperlukan]' : '') + '\n```';
-          }
-        } catch (error) {
-          activeFileContext = '\n\nCatatan: file yang sedang dipilih tidak dapat dibaca langsung: ' + ((error as Error).message || 'unknown error');
-        }
-      }
+      // Avoid injecting an automatic partial copy of the editor file into every prompt.
+      // The model receives the path and reads only the needed chunks through the cached file tool.
+      const activeFileContext = activePath
+        ? '\n\nFile yang sedang dipilih di editor: ' + activePath + '. Baca dengan read_project_file hanya bila isi file dibutuhkan.'
+        : '';
       const systemPrompt = [
         session.agent.systemPrompt,
         'Workspace aktif: ' + root,
@@ -1875,6 +1868,10 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         successfulTerminalChecks: [],
         runStartedAt: Date.now(),
         totalToolCalls: 0,
+        workspaceReadCache: new Map(),
+        workspaceListingCache: new Map(),
+        workspaceSearchCache: new Map(),
+        workspaceReadRanges: new Set(),
       };
       llmSessions.set(session.id, session);
       emit(session, { type: 'state', state: { status: 'starting', agentId: agent.id } });
