@@ -1,3 +1,34 @@
+# Ruang Kerja v1.2.4
+
+## Agentic Coding security hardening: canonical workspace paths and truthful terminal results
+
+### 1. Sensitive-file protection after canonical path resolution
+- Agent workspace paths are now checked both before and after symbolic-link resolution. An ordinary-looking alias can no longer bypass the .env, private-key, token, or credential filename rules.
+- Agent file mutations reject symbolic links in every existing path component, including the final file and parent directories. This prevents write operations from changing a protected file through an internal alias.
+- Missing target paths are permitted only after every existing ancestor has been validated and confirmed to remain inside the canonical project root.
+
+### 2. IDE workspace operations stay inside the selected project
+- Directory listing validates each resolved entry and omits symbolic links that point outside the active project.
+- File reads resolve the canonical target and reject paths that escape the project root, including paths that traverse an external directory link.
+- File writes, creation, rename, and delete operations reject symbolic-link traversal in their path components. Search does not descend through symbolic links.
+- Internal symbolic links may still be read when their canonical targets remain inside the project; mutation through a link is deliberately rejected.
+
+### 3. PowerShell exit-code accuracy
+- The terminal wrapper now uses a null sentinel for LASTEXITCODE, so a PowerShell-only command is no longer mistaken for a native process that exited successfully with code 0.
+- Newly emitted PowerShell cmdlet errors are detected even when a later cmdlet succeeds. Such a command returns a non-zero result rather than a false success.
+- Native executable exit codes remain authoritative. Native stderr records are distinguished from PowerShell cmdlet errors so tools such as npm, node, and git can report stderr without being incorrectly marked as failed.
+- Terminating PowerShell errors are converted into a clear failed command result with exit code 1.
+
+### 4. Regression coverage
+- Added workspace-security regression tests for direct sensitive paths, canonical symlink aliases, path traversal, outside-root links, and write attempts through symbolic links.
+- Extended the Windows terminal regression tests for non-terminating cmdlet failures, a successful cmdlet following an error, native exit code 7, and native stderr with exit code 0.
+- The new workspace-security suite is part of npm run test:agent-runtime, so CI and Release must pass it before publication.
+
+### Detail Version di dalam aplikasi
+Buka nomor versi pada bilah status bawah untuk melihat deskripsi perubahan/fitur/perbaikan v1.2.4. Riwayat menampilkan maksimal tiga rilis terbaru beserta deskripsi masing-masing versi. Gunakan tombol Muat Ulang Versi untuk memperbarui daftar dan deskripsi dari GitHub.
+
+---
+
 # Ruang Kerja v1.2.3
 
 ## Billing OpenRouter dalam Rupiah — saldo akun, penggunaan, dan kurs USD/IDR
