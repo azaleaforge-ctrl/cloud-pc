@@ -1859,7 +1859,10 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     if (event.key === 'ArrowLeft' || event.key === 'ArrowUp' || event.key === 'ArrowRight' || event.key === 'ArrowDown') {
       event.preventDefault();
       const direction = event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1;
-      setPermissionActionIndex((current) => (current + direction + 3) % 3);
+      const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('.ai-permission-actions button:not(:disabled)'));
+      const nextIndex = (permissionActionIndex + direction + buttons.length) % buttons.length;
+      setPermissionActionIndex(nextIndex);
+      buttons[nextIndex]?.focus();
       return;
     }
     if (event.key === 'Escape') {
