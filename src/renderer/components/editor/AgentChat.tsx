@@ -4,6 +4,9 @@ import { createAgentReforkPlan, findCheckpointForMessage } from '../../../shared
 import type {
   AgentEntry,
   AgentEvent,
+  AgentPermissionDecision,
+  AgentReasoningEffort,
+  AgentReasoningParameter,
   AgentQuestionOption,
   AgentFileChange,
   AgentProviderId,
@@ -48,6 +51,8 @@ interface PendingPermission {
   requestId: string;
   command: string;
   reason: string;
+  scopeLabel: string;
+  allowAlways: boolean;
 }
 
 interface PendingAgentQuestion {
@@ -70,6 +75,7 @@ interface DiffRow {
 
 const STORAGE_KEY = 'rk.ai.lastAgent';
 const HISTORY_KEY = 'rk.ai.chatHistory';
+const REASONING_EFFORT_STORAGE_KEY = 'rk.ai.reasoningEffort';
 
 type ModelCostFilter = 'all' | 'free' | 'premium' | 'unknown';
 
@@ -869,7 +875,17 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [diagnosingModel, setDiagnosingModel] = useState(false);
   const [providerUsageTotals, setProviderUsageTotals] = useState(loadProviderUsage);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [reasoningEffort, setReasoningEffort] = useState<AgentReasoningEffort>(() => {
+    try {
+      const saved = localStorage.getItem(REASONING_EFFORT_STORAGE_KEY);
+      return saved && ['low', 'medium', 'high', 'maximal'].includes(saved) ? saved as AgentReasoningEffort : 'low';
+    } catch { return 'low'; }
+  });
+  const [reasoningParameter, setReasoningParameter] = useState<AgentReasoningParameter | null>(null);
+  const [reasoningCapabilityKey, setReasoningCapabilityKey] = useState('');
+  const [reasoningCapabilityLoading, setReasoningCapabilityLoading] = useState(false);
   const [permission, setPermission] = useState<PendingPermission | null>(null);
+  const [permissionActionIndex, setPermissionActionIndex] = useState(1);
   const [agentQuestion, setAgentQuestion] = useState<PendingAgentQuestion | null>(null);
   const [selectedQuestionOption, setSelectedQuestionOption] = useState<number | null>(null);
   const [customQuestionAnswer, setCustomQuestionAnswer] = useState('');
@@ -877,6 +893,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const [changes, setChanges] = useState<AgentFileChange[]>([]);
   const [selectedChange, setSelectedChange] = useState<AgentFileChange | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const permissionCardRef = useRef<HTMLElement | null>(null);
+  const lastOpenRouterBillingRefreshRef = useRef(0);
   const apiKeyInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const messagesViewportRef = useRef<HTMLDivElement>(null);
