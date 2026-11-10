@@ -1,3 +1,36 @@
+# Ruang Kerja v1.2.5
+
+## Agentic Coding — recovery tanpa penghentian setelah tiga pengulangan
+
+- Menghapus penghentian run yang sebelumnya dipicu oleh tiga pemanggilan tool identik tanpa kemajuan.
+- Menghapus penghentian run yang dipicu oleh tiga kegagalan dengan akar masalah yang sama, meskipun argumen tool berubah.
+- Setelah pola pengulangan terdeteksi, agent menerima instruksi pemulihan yang meminta perubahan pendekatan, bukan memulai ulang task atau membaca ulang folder yang sama.
+- Pemanggilan identik berikutnya dilewati oleh runtime agar operasi file/terminal yang sama tidak terus dijalankan dan tidak menambah pemborosan waktu maupun biaya.
+- Untuk pembacaan file, agent diarahkan menggunakan hasil baca sebelumnya, mencari simbol dengan kata kunci lebih spesifik, atau membaca file/rentang lain yang benar-benar relevan.
+- Untuk terminal dan Todo, agent diarahkan memeriksa output dan memperbaiki penyebab, bukan mengirim ulang command atau payload yang sama.
+- Batas keselamatan global untuk pembatalan pengguna, durasi run, dan jumlah total tool tetap dipertahankan. Hanya penghentian otomatis akibat tiga pengulangan yang dihapus.
+
+## Skills — tampilkan seluruh skill dengan urutan status aktif
+
+- Panel kanan kini menampilkan semua skill bawaan, bukan hanya skill yang sedang dipilih untuk task.
+- Skill aktif berada di urutan paling atas dengan penanda dan warna teal yang jelas.
+- Skill tidak aktif tetap terlihat dalam warna abu-abu dan otomatis berada di bawah seluruh skill aktif.
+- Urutan diperbarui ketika daftar skill aktif berubah pada task berikutnya.
+
+## OpenRouter — alur penghubungan saldo akun diperjelas
+
+- Menambahkan tombol langsung ke halaman resmi Management API Keys OpenRouter dari pengaturan provider.
+- Menambahkan instruksi pembuatan, penyalinan, dan verifikasi Management API Key agar saldo total akun dapat ditampilkan pada panel billing.
+- Tombol pada panel billing membuka pengaturan OpenRouter saat Management API Key belum terhubung.
+- Management API Key tetap disimpan terenkripsi dan hanya digunakan untuk membaca endpoint credits; API key inference biasa tetap digunakan untuk request model.
+- OpenRouter tidak menyediakan saldo total akun melalui inference API key standar. Pengguna perlu membuat Management API Key satu kali di dashboard OpenRouter, lalu menyimpannya di Ruang Kerja.
+
+### Detail Version di dalam aplikasi
+
+Buka nomor versi pada bilah status bawah untuk melihat deskripsi perubahan/fitur/perbaikan v1.2.5. Riwayat tetap menampilkan maksimal tiga rilis terbaru beserta deskripsinya.
+
+---
+
 # Ruang Kerja v1.2.4
 
 ## Agentic Coding security hardening: canonical workspace paths and truthful terminal results
