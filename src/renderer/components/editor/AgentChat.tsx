@@ -1129,6 +1129,70 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   }, [routerStatus?.provider]);
 
   useEffect(() => {
+    const provider = routerStatus?.provider;
+    const modelId = routerStatus?.model;
+    const capabilityKey = provider && modelId ? provider + ':' + modelId : '';
+    if (!routerStatus?.configured || !provider || !modelId) {
+      setReasoningParameter(null);
+      setReasoningCapabilityKey('');
+      setReasoningCapabilityLoading(false);
+      return;
+    }
+    let alive = true;
+    setReasoningCapabilityKey(capabilityKey);
+    setReasoningParameter(null);
+    setReasoningCapabilityLoading(true);
+    void window.rk.agentListModels(provider).then((catalog) => {
+      if (!alive) return;
+      const model = catalog.models.find((item) => item.id === modelId);
+      const parameters = model?.supportedParameters ?? [];
+      const parameter: AgentReasoningParameter | null = parameters.includes('reasoning')
+        ? 'reasoning'
+        : parameters.includes('reasoning_effort')
+          ? 'reasoning_effort'
+          : null;
+      setReasoningParameter(parameter);
+    }).catch(() => {
+      if (alive) setReasoningParameter(null);
+    }).finally(() => {
+      if (alive) setReasoningCapabilityLoading(false);
+    });
+    return () => { alive = false; };
+  }, [routerStatus?.configured, routerStatus?.provider, routerStatus?.model]);
+
+  useEffect(() => {
+    try { localStorage.setItem(REASONING_EFFORT_STORAGE_KEY, reasoningEffort); } catch { /* preference is best-effort */ }
+  }, [reasoningEffort]);
+
+  useEffect(() => {
+    if (routerStatus?.provider !== 'openrouter' || !openRouterAccount?.connected) return;
+    let alive = true;
+    const refreshBilling = () => {
+      if (!alive || document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      if (now - lastOpenRouterBillingRefreshRef.current < 10_000) return;
+      lastOpenRouterBillingRefreshRef.current = now;
+      void window.rk.agentGetOpenRouterAccount().then((status) => {
+        if (alive) setOpenRouterAccount(status);
+      }).catch(() => undefined);
+      void window.rk.agentGetOpenRouterCredits().then((status) => {
+        if (alive) setOpenRouterCredits(status);
+      }).catch(() => undefined);
+    };
+    const onVisibility = () => { if (document.visibilityState === 'visible') refreshBilling(); };
+    refreshBilling();
+    const interval = window.setInterval(refreshBilling, 30_000);
+    window.addEventListener('focus', refreshBilling);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      alive = false;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshBilling);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [routerStatus?.provider, openRouterAccount?.connected]);
+
+  useEffect(() => {
     let alive = true;
     void window.rk.agentList().then((list) => {
       if (!alive) return;
