@@ -1,3 +1,49 @@
+# Ruang Kerja v1.2.6
+
+## Agentic Coding — real-time skills, automatic billing, safer approvals, model-aware reasoning, and Windows terminal reliability
+
+### 1. Skill activity follows the current work step
+- The Skills panel continues to list every built-in skill, but only highlights skills relevant to the tool currently being executed.
+- Skill badges return to inactive while the model is reasoning between tool steps and immediately after the related tool step completes.
+- Read/search/Todo, file-write, frontend/backend, verification, and MCP actions map to their relevant skill categories instead of leaving every task-selected skill active for the entire run.
+- Active skills remain sorted above inactive skills; inactive skills stay visible in a muted state.
+
+### 2. OpenRouter billing refreshes automatically
+- The billing panel refreshes account usage and Management API credits after a completed OpenRouter request.
+- While the application window is visible and the OpenRouter account is connected, the panel refreshes every 30 seconds and when the window regains focus.
+- Manual “Perbarui billing” clicking is no longer required. The interface shows the most recent refresh time.
+- Management API Key remains required for total account credits and balance; the inference API key continues to be used for model requests.
+
+### 3. PowerShell and Command Prompt execution hardening
+- PowerShell commands now use a UTF-16LE encoded wrapper passed through `-EncodedCommand` to avoid Windows command-line quoting and escaping problems.
+- The wrapper applies terminating error handling to PowerShell cmdlets, captures native-process exit codes, and does not misclassify normal native stderr output as a failure.
+- Command Prompt invocation no longer uses the extra `/s` quote-stripping mode; it uses the selected CMD profile with `/d /c`.
+- Windows terminal regression tests cover stdout/stderr, native exit code propagation, cmdlet failure, location probes, timeout, cancellation, and output limits.
+
+### 4. Permission approval — deny, once, or always
+- Tool approval now presents three choices: **Tolak**, **Izinkan sekali**, and **Selalu izinkan**.
+- The approval card supports keyboard navigation using arrow keys and Enter; Escape rejects the pending action.
+- “Selalu izinkan” remembers only the exact same terminal command or exact same MCP tool and arguments within the same project workspace. A changed command, changed arguments, or different workspace asks again.
+- Remembered grants are stored as SHA-256 fingerprints in the local application data folder; raw commands and MCP argument text are not written into the allow-list.
+- A remembered permission is persisted before the action is executed. If persistence fails, the action is not run.
+- The allow-list is bounded to 300 entries. Denied and one-time approvals are never remembered.
+
+### 5. Model-aware reasoning effort
+- Adds Low, Medium, High, and Maximal effort choices directly above the chat composer.
+- Low is the default to keep pay-as-you-go usage conservative; the preference is saved locally.
+- The selector is enabled only when the active model catalogue advertises a compatible `reasoning` or `reasoning_effort` parameter. Unsupported models keep their provider default and do not receive an unsupported parameter.
+- Maximal maps to the OpenRouter `xhigh` effort value. Higher effort may consume more reasoning tokens and increase request cost; the application does not switch to a more expensive model automatically.
+
+### Regression tests
+- Added tests for exact-workspace permission grants, persistence, reasoning effort mapping, provider capability gating, and real-time skill selection.
+- All tests, TypeScript typecheck, and Windows installer build must pass before release publication.
+
+### Detail Version di dalam aplikasi
+
+Buka nomor versi pada bilah status bawah untuk melihat deskripsi perubahan/fitur/perbaikan v1.2.6. Gunakan tombol “Muat Ulang Versi” untuk mengambil ulang detail versi dari GitHub. Riwayat tetap menampilkan maksimal tiga rilis terbaru beserta deskripsinya.
+
+---
+
 # Ruang Kerja v1.2.5
 
 ## Agentic Coding — recovery tanpa penghentian setelah tiga pengulangan
