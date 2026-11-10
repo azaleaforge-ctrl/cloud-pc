@@ -1586,8 +1586,8 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
               ts: Date.now(),
             },
           });
-          if (isWorkspaceTool(call.name) && !failed) hasUsedWorkspaceTools = true;
-          if (!failed) {
+          if (isWorkspaceTool(call.name) && !failed && !repeatedActionSuppressed) hasUsedWorkspaceTools = true;
+          if (!failed && !repeatedActionSuppressed) {
             noProgressReplies = 0;
             // A successful call to this tool proves that the same tool-level
             // failure was recovered; unrelated reads must not reset the counter.
