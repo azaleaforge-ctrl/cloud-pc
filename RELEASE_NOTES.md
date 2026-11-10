@@ -1,3 +1,51 @@
+# Ruang Kerja v1.2.7
+
+## Agentic Coding — continuous execution without artificial run blockers
+
+### 1. Remove global agent execution budgets
+- Removed the fixed 100-tool-call run ceiling.
+- Removed the fixed 30-minute overall run ceiling.
+- Removed the three-identical-action suppression rule and repeated-failure counter logic that could skip a tool call.
+- Removed Todo prerequisites that held file writes, terminal commands, or other tools until a Todo task entered `in_progress`.
+- Removed the forced stop when Todo was incomplete, post-change verification was unavailable/unsuccessful, or the model did not use a workspace tool.
+- Tool errors are returned to the model with their output so it can diagnose, choose a different approach, and continue the same run.
+- The user can still stop a running agent explicitly. Provider/network failures can still prevent a new model response; the application cannot bypass an unavailable provider.
+
+### 2. Prevent repeated file reads from burning credits
+- Added a per-run cache for file contents, keyed by canonical workspace path and filesystem metadata.
+- The same file is loaded from disk once while unchanged; repeated identical line ranges return a short cache-hit note instead of sending the same file content to the model again.
+- Changed files are automatically re-read only when their size/modified metadata changes or after an application write invalidates the cache.
+- Directory inventory and exact search queries are also cached during a run. A file write or terminal command invalidates discovery caches so later searches can see newly created/changed files.
+
+### 3. Read long files in sequential chunks
+- Removed the previous 1 MB read ceiling for text files.
+- `read_project_file` now accepts optional `start_line` and `end_line` parameters.
+- A default read returns the next unread section, capped at approximately 12,000 characters per section, and reports the total line count and next starting line.
+- The agent can continue through long Markdown, text, and source files without sending the entire document or repeating prior ranges.
+- Sensitive-file and workspace path protections remain in force.
+
+### 4. Todo and verification are advisory, not gates
+- Todo remains available as a progress panel, but its state no longer decides whether the agent may call workspace or terminal tools.
+- Build/test/lint/typecheck are recommended and their actual results must be reported truthfully; a failed or unavailable check no longer terminates the run.
+- A failed Todo update no longer prevents the agent from continuing the requested work.
+
+### 5. Controls that remain intentionally in place
+- Explicit user cancellation remains available.
+- Terminal/MCP permission prompts remain available; the v1.2.6 exact-action “Selalu izinkan” choice continues to remember approved actions within the same workspace.
+- Per-command terminal timeout remains to stop a single hung process; timing out one command returns control to the agent instead of ending the whole run.
+- Workspace path validation, sensitive-file protection, and secret redaction remain enabled.
+
+### Regression tests
+- Added `test:agent-unbounded-run` to verify no global call/time budget, Todo gating, or repeated-action suppression remains in the runtime.
+- Updated Todo policy tests to verify every workspace/terminal tool remains available without an active Todo task.
+- Agent Runtime, typecheck, and installer build must pass before release publication.
+
+### Detail Version di dalam aplikasi
+
+Buka nomor versi pada bilah status bawah untuk melihat deskripsi perubahan/perbaikan v1.2.7. Gunakan tombol “Muat Ulang Versi” untuk mengambil ulang detail versi dari GitHub. Riwayat tetap menampilkan maksimal tiga rilis terbaru beserta deskripsinya.
+
+---
+
 # Ruang Kerja v1.2.6
 
 ## Agentic Coding — real-time skills, automatic billing, safer approvals, model-aware reasoning, and Windows terminal reliability
