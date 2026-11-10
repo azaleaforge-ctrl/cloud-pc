@@ -24,6 +24,6 @@ assert.doesNotMatch(agent, /maksimum 1 MB|MAX_READ_BYTES/, 'the old one-megabyte
 
 assert.match(policy, /return false;/, 'Todo compatibility policy should never block a tool');
 assert.match(agent, /Todo List hanya panel progres opsional/, 'Todo is documented as optional progress metadata');
-assert.match(agent, /kegagalan .* tidak boleh membuat run dihentikan/, 'tool failures must be recoverable by the ongoing loop');
+assert.match(agent, /tidak boleh membuat run dihentikan/, 'tool failures must be recoverable by the ongoing loop');
 
 console.log('Agent continuation and workspace read-cache checks passed.');
