@@ -270,7 +270,7 @@ export interface RkApi {
   agentAnswerQuestion(sessionId: string, requestId: string, answer: string): Promise<void>;
   /** Create or activate a conversation without erasing other session memory. */
   agentBeginSession(conversationId: string): Promise<ActionResult>;
-  agentStartChat(agentId: string, messages?: ChatMessage[], activePath?: string | null, conversationId?: string): Promise<{ ok: boolean; sessionId?: string; error?: string }>;
+  agentStartChat(agentId: string, messages?: ChatMessage[], activePath?: string | null, conversationId?: string, reasoningEffort?: AgentReasoningEffort, reasoningParameter?: AgentReasoningParameter | null): Promise<{ ok: boolean; sessionId?: string; error?: string }>;
   agentStartCli(agentId: string, cols: number, rows: number): Promise<{ ok: boolean; sessionId?: string; error?: string }>;
   agentSendInput(sessionId: string, data: string): Promise<void>;
   agentResize(sessionId: string, cols: number, rows: number): Promise<void>;
