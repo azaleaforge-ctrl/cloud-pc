@@ -1614,7 +1614,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         durationMs: Date.now() - runStartedAt,
       };
       emit(session, { type: 'run-result', result: runResult });
-      emit(session, { type: 'state', state: { status: finalState, agentId: session.agent.id, ...(finalState === 'blocked' ? { error: resultMessage } : {}) } });
+      emit(session, { type: 'state', state: { status: finalState, agentId: session.agent.id } });
     } catch (error) {
       if (session.killed || session.controller.signal.aborted) {
         const message = 'Run dibatalkan oleh pengguna.';
