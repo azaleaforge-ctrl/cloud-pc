@@ -87,20 +87,35 @@ export function resolveTerminalShell(): TerminalShellProfile {
 }
 
 function wrapPowerShellCommand(command: string): string {
-  // Encode both the user command and the outer script. Passing the wrapper
-  // through -EncodedCommand avoids Windows command-line quoting differences.
+  // Encode the command and wrapper to avoid Windows command-line quoting differences.
+  // Invoke-Expression executes in the wrapper's current scope, so the automatic
+  // $LASTEXITCODE set by native processes can be captured reliably afterward.
   const encodedCommand = Buffer.from(command, 'utf16le').toString('base64');
   const wrapper = [
     "$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)",
-    "$ErrorActionPreference = 'Stop'",
-    // Native stderr is ordinary output unless the native process returns a
-    // failing exit code. This variable is ignored by older Windows PowerShell.
+    "$ErrorActionPreference = 'Continue'",
     '$PSNativeCommandUseErrorActionPreference = $false',
+    '$global:Error.Clear()',
     '$global:LASTEXITCODE = $null',
     "$scriptText = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromBase64String('" + encodedCommand + "'))",
+    '$errorCountBefore = $global:Error.Count',
     'try {',
-    '  & ([scriptblock]::Create($scriptText))',
-    '  if ($null -ne $global:LASTEXITCODE) { exit [int]$global:LASTEXITCODE }',
+    '  Invoke-Expression $scriptText',
+    '  $commandSucceeded = $?',
+    '  $nativeExitCode = $LASTEXITCODE',
+    '  $newErrorCount = [Math]::Max(0, $global:Error.Count - $errorCountBefore)',
+    '  $hasCommandError = $false',
+    '  for ($i = 0; $i -lt $newErrorCount; $i++) {',
+    '    $errorRecord = $global:Error[$i]',
+    "    if ($errorRecord.FullyQualifiedErrorId -notmatch 'NativeCommandError') {",
+    '      $hasCommandError = $true',
+    '      [Console]::Error.WriteLine($errorRecord.ToString())',
+    '      break',
+    '    }',
+    '  }',
+    '  if ($hasCommandError) { exit 1 }',
+    '  if ($null -ne $nativeExitCode) { exit [int]$nativeExitCode }',
+    '  if (-not $commandSucceeded) { exit 1 }',
     '  exit 0',
     '} catch {',
     '  [Console]::Error.WriteLine($_.ToString())',
