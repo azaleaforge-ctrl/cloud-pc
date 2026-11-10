@@ -1474,7 +1474,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
       } else if (event.type === 'activity') {
         setActivity(event.message);
       } else if (event.type === 'permission-request') {
-        setPermission({ sessionId, requestId: event.requestId, command: event.command, reason: event.reason });
+        setPermission({ sessionId, requestId: event.requestId, command: event.command, reason: event.reason, scopeLabel: event.scopeLabel, allowAlways: event.allowAlways });
+        setPermissionActionIndex(1);
         setActivity('Menunggu persetujuan command terminal');
       } else if (event.type === 'permission-result') {
         setPermission((current) => current?.requestId === event.requestId ? null : current);
@@ -1840,13 +1841,41 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
     }
   }, []);
 
-  const resolvePermission = useCallback(async (approved: boolean) => {
+  const resolvePermission = useCallback(async (decision: AgentPermissionDecision) => {
     const current = permission;
     if (!current) return;
     setPermission(null);
-    setActivity(approved ? 'Command disetujui; menjalankan terminal…' : 'Command ditolak.');
-    try { await window.rk.agentApproveTool(current.sessionId, current.requestId, approved); }
+    setActivity(decision === 'deny'
+      ? 'Command ditolak.'
+      : decision === 'always'
+        ? 'Izin permanen untuk tindakan yang sama disimpan; menjalankan command…'
+        : 'Command disetujui sekali; menjalankan terminal…');
+    try { await window.rk.agentApproveTool(current.sessionId, current.requestId, decision); }
     catch (err) { setError('Gagal mengirim keputusan terminal: ' + (err as Error).message); }
+  }, [permission]);
+
+  const handlePermissionKeyDown = useCallback((event: React.KeyboardEvent<HTMLElement>) => {
+    if (!permission) return;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp' || event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      const direction = event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1;
+      setPermissionActionIndex((current) => (current + direction + 3) % 3);
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      void resolvePermission('deny');
+      return;
+    }
+    if (event.key === 'Enter' && event.target === event.currentTarget) {
+      event.preventDefault();
+      void resolvePermission(permissionActionIndex === 0 ? 'deny' : permissionActionIndex === 1 ? 'once' : 'always');
+    }
+  }, [permission, permissionActionIndex, resolvePermission]);
+
+  useEffect(() => {
+    if (!permission) return;
+    permissionCardRef.current?.focus();
   }, [permission]);
 
   const answerAgentQuestion = useCallback(async () => {
@@ -2833,17 +2862,26 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             ) : null}
 
             {permission ? (
-              <section className="ai-permission-card ai-dock-interaction" aria-label="Persetujuan command terminal" aria-live="polite">
+              <section
+                ref={permissionCardRef}
+                className="ai-permission-card ai-dock-interaction"
+                aria-label="Persetujuan command terminal"
+                aria-live="polite"
+                tabIndex={0}
+                onKeyDown={handlePermissionKeyDown}
+              >
                 <div className="ai-permission-heading">
                   <strong>Persetujuan terminal diperlukan</strong><span>Belum dijalankan</span>
                 </div>
                 <p>{permission.reason}</p>
                 <pre>{permission.command}</pre>
-                <small className="ai-interaction-guidance">Periksa command dan alasannya. Command hanya berjalan setelah kamu menyetujuinya.</small>
-                <div className="ai-permission-actions">
-                  <button type="button" className="ai-permission-deny" onClick={() => void resolvePermission(false)}>Tolak command</button>
-                  <button type="button" className="ai-permission-approve" onClick={() => void resolvePermission(true)}>Izinkan sekali</button>
+                <small className="ai-interaction-guidance">Periksa command dan alasannya. {permission.scopeLabel}</small>
+                <div className="ai-permission-actions" role="group" aria-label="Pilihan izin">
+                  <button type="button" className={`ai-permission-deny ${permissionActionIndex === 0 ? 'is-selected' : ''}`} onFocus={() => setPermissionActionIndex(0)} onMouseEnter={() => setPermissionActionIndex(0)} onClick={() => void resolvePermission('deny')}>Tolak command</button>
+                  <button type="button" className={`ai-permission-approve ${permissionActionIndex === 1 ? 'is-selected' : ''}`} onFocus={() => setPermissionActionIndex(1)} onMouseEnter={() => setPermissionActionIndex(1)} onClick={() => void resolvePermission('once')}>Izinkan sekali</button>
+                  <button type="button" className={`ai-permission-approve ai-permission-always ${permissionActionIndex === 2 ? 'is-selected' : ''}`} disabled={!permission.allowAlways} onFocus={() => setPermissionActionIndex(2)} onMouseEnter={() => setPermissionActionIndex(2)} onClick={() => void resolvePermission('always')}>Selalu izinkan</button>
                 </div>
+                <small className="ai-interaction-guidance">Selalu izinkan hanya mengingat command atau panggilan MCP yang identik pada workspace ini. Gunakan ←/→ atau ↑/↓, lalu Enter. Esc untuk menolak.</small>
               </section>
             ) : null}
 
