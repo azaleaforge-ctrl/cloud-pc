@@ -3105,11 +3105,11 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 <small>{openRouterAccount.isFreeTier === true ? 'Akun OpenRouter ditandai Free Tier. Model gratis tetap memiliki batas request dan kapasitas provider.' : openRouterAccount.isFreeTier === false ? 'Akun/key OpenRouter bukan Free Tier.' : 'Status Free/Paid tidak disediakan oleh endpoint key.'}</small>
                 <small>Usage API key hanya menggambarkan key inferensi yang aktif; saldo total akun dibaca terpisah memakai Management API Key.</small>
                 <small>OpenRouter tetap menghitung saldo dan tagihan dalam USD; konversi ini hanya untuk tampilan Ruang Kerja.</small>
+                <small>Billing diperbarui otomatis setelah request OpenRouter selesai, setiap 30 detik, dan saat jendela aplikasi kembali aktif{openRouterCredits?.fetchedAt || openRouterAccount.fetchedAt ? ' · terakhir ' + new Date(openRouterCredits?.fetchedAt ?? openRouterAccount.fetchedAt!).toLocaleTimeString() : ''}.</small>
                 <small>{usdIdrRate?.rate ? 'Kurs referensi: 1 USD = ' + new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(usdIdrRate.rate) + ' IDR · ' + (usdIdrRate.date ?? 'tanggal tidak tersedia') : 'Kurs USD/IDR tidak tersedia; nilai Rupiah belum dapat dihitung.'}</small>
                 {usdIdrRate?.error ? <small className="ai-usage-warning">{usdIdrRate.error}</small> : null}
                 {openRouterAccount.error ? <small className="ai-usage-warning">{openRouterAccount.error}</small> : null}
                 <div className="ai-openrouter-actions">
-                  <button type="button" className="ai-usage-refresh" onClick={() => { void refreshOpenRouterAccount(); void refreshOpenRouterCredits(); }}>Perbarui billing</button>
                   <button type="button" className="ai-usage-refresh" onClick={() => void refreshUsdIdrRate(true)}>Perbarui kurs</button>
                 </div>
               </div>
