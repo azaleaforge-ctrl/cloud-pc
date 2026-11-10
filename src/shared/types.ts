@@ -266,7 +266,7 @@ export interface RkApi {
   agentRemoveMcpPlugin(id: string): Promise<ActionResult>;
   agentProbeMcpPlugin(id: string): Promise<McpPluginProbeResult>;
   agentPickAttachments(): Promise<{ ok: boolean; attachments?: AgentAttachmentRef[]; error?: string }>;
-  agentApproveTool(sessionId: string, requestId: string, approved: boolean): Promise<void>;
+  agentApproveTool(sessionId: string, requestId: string, decision: AgentPermissionDecision): Promise<void>;
   agentAnswerQuestion(sessionId: string, requestId: string, answer: string): Promise<void>;
   /** Create or activate a conversation without erasing other session memory. */
   agentBeginSession(conversationId: string): Promise<ActionResult>;
