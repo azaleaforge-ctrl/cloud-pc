@@ -12,13 +12,12 @@ import * as pty from '@lydell/node-pty';
 import type { IPty } from '@lydell/node-pty';
 import type { AgentAttachmentRef, AgentEntry, AgentEvent, AgentPermissionDecision, AgentProviderId, AgentReasoningEffort, AgentReasoningParameter, AgentFileChange, AgentQuestionOption, AgentRunResult, AgentSkillInfo, AgentSkillSelection, AgentTodo, AgentToolActivity, ChatMessage, McpExposedTool, RouterConfig } from '../../shared/agents';
 import { applyAgentTodoUpdate } from './agentTodo';
-import { requiresTodoPlanForRequest, shouldBlockToolUntilTodoPlan } from './agentTodoPolicy';
 import { installBuiltinSkills, loadAgentSkillInstructions, selectAgentSkills, selectSkillsForToolActivity } from './skills';
 import { loadInstalledSkillInstructions } from './installedSkills';
 import { callMcpPluginTool, disposeMcpPluginRuntimes, listEnabledMcpTools } from './mcpPlugins';
 import { startTerminalCommand } from './terminalRuntime';
 import { getAgentTerminalGuidance, resolveTerminalShell } from './terminalShell';
-import { getRepeatedActionRecoveryHint, getToolRecoveryHint, isToolFailureResult, repeatedFailureSignature, repeatedNoProgressActionSignature } from './agentFailureGuard';
+import { getToolRecoveryHint, isToolFailureResult, repeatedFailureSignature } from './agentFailureGuard';
 import { listBuiltinAgentSkills } from './skills';
 import { hasSuccessfulTerminalVerification } from './agentVerification';
 import { openGeminiCompletionStream } from './agentProviders';
@@ -78,6 +77,9 @@ interface LlmSession {
   todoStartedAt: Map<string, number>;
   codeChangeVersion: number;
   successfulTerminalChecks: Array<{ command: string; startedAt: number; finishedAt: number; exitCode: 0; codeChangeVersion: number }>;
+  workspaceReadCache: Map<string, { size: number; mtimeMs: number; ctimeMs: number; content: string }>;
+  workspaceListingCache: Map<string, string>;
+  workspaceSearchCache: Map<string, string>;
 }
 interface ToolCall { id: string; name: string; arguments: string; geminiThoughtSignature?: string; geminiFunctionCallId?: string }
 interface ToolDefinition {
@@ -103,13 +105,8 @@ function boundedIntegerEnvironment(name: string, fallback: number, min: number, 
   return Number.isSafeInteger(value) && value >= min && value <= max ? value : fallback;
 }
 
-// Safety budgets can be tuned by the app launcher/environment; these are not task-step limits.
-const MAX_AGENT_TOOL_CALLS = boundedIntegerEnvironment('RK_AGENT_MAX_TOOL_CALLS', 100, 1, 1000);
-const MAX_AGENT_RUN_MINUTES = boundedIntegerEnvironment('RK_AGENT_MAX_RUN_MINUTES', 30, 1, 180);
-const MAX_AGENT_RUN_MS = MAX_AGENT_RUN_MINUTES * 60 * 1000;
+// Agent runs have no fixed total tool-call or wall-clock ceiling. Users can stop a run at any time.
 const MAX_REPEATED_TOOL_FAILURES = boundedIntegerEnvironment('RK_AGENT_MAX_REPEATED_FAILURES', 3, 2, 10);
-const MAX_NO_PROGRESS_REPLIES = boundedIntegerEnvironment('RK_AGENT_MAX_NO_PROGRESS_REPLIES', 2, 1, 5);
-const MAX_IDENTICAL_NO_PROGRESS_ACTIONS = boundedIntegerEnvironment('RK_AGENT_MAX_IDENTICAL_NO_PROGRESS_ACTIONS', 3, 2, 10);
 const DEFAULT_COMMAND_TIMEOUT_SECONDS = boundedIntegerEnvironment('RK_AGENT_DEFAULT_COMMAND_TIMEOUT_SECONDS', 600, 10, 3600);
 const MAX_COMMAND_TIMEOUT_SECONDS = 3600;
 const MAX_READ_BYTES = 1024 * 1024;
@@ -636,9 +633,8 @@ async function executeTerminalCommand(
   timeoutSeconds: number,
 ): Promise<string> {
   const commandId = randomUUID();
-  const remainingRunMs = MAX_AGENT_RUN_MS - (Date.now() - session.runStartedAt);
-  if (remainingRunMs <= 0) return 'Tool gagal: batas waktu keseluruhan run agent sudah tercapai sebelum command dimulai.';
-  const timeoutMs = Math.max(100, Math.min(timeoutSeconds * 1000, remainingRunMs));
+  // Only this individual process has a timeout; it never consumes a global agent-run budget.
+  const timeoutMs = Math.max(100, timeoutSeconds * 1000);
   const effectiveTimeoutSeconds = Math.ceil(timeoutMs / 1000);
   // A check only validates the exact code generation present when the command started.
   const codeChangeVersionAtStart = session.codeChangeVersion;
