@@ -1405,6 +1405,11 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
           try { localStorage.setItem(PROVIDER_USAGE_STORAGE_KEY, JSON.stringify(next)); } catch { /* best-effort display persistence */ }
           return next;
         });
+        if (event.usage.provider === 'openrouter' && Date.now() - lastOpenRouterBillingRefreshRef.current >= 10_000) {
+          lastOpenRouterBillingRefreshRef.current = Date.now();
+          void window.rk.agentGetOpenRouterAccount().then(setOpenRouterAccount).catch(() => undefined);
+          void window.rk.agentGetOpenRouterCredits().then(setOpenRouterCredits).catch(() => undefined);
+        }
       } else if (event.type === 'terminal-process') {
         setTerminalHistory((previous) => upsertAgentTerminalProcess(previous, event.process, 100));
       } else if (event.type === 'terminal-output') {
