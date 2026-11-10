@@ -1531,111 +1531,27 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       emit(session, { type: 'activity', message: 'Workspace siap: inventory file berhasil dibaca.' });
       emit(session, { type: 'todo-update', todos: session.todos });
       emit(session, { type: 'state', state: { status: 'running', agentId: session.agent.id } });
-      const codingIntent = /\b(buat|bikin|ubah|edit|perbaiki|perbaikan|fix|implement|implementasi|refactor|tambah|tambahkan|hapus|delete|create|write|modify|change|update|code|kode|coding|debug|bug|file|folder|fungsi|function|komponen|component|script|program|aplikasi|project|proyek|read|baca|cari|search|test|lint|build)\b/i.test(latestUserText);
-      const requiresTodoPlan = requiresTodoPlanForRequest(latestUserText);
+      // There is deliberately no application-level tool-call or elapsed-run budget.
+      // The user can stop a run at any time; a completed model turn is the only normal exit.
       let finished = false;
-      let hasUsedWorkspaceTools = false;
-      let forcedToolRetryUsed = false;
-      let noProgressReplies = 0;
-      let blockedReason: string | null = null;
-      const repeatedFailures = new Map<string, number>();
-      const repeatedNoProgressActions = new Map<string, number>();
-      const suppressedNoProgressActions = new Set<string>();
-      const recoveryInstructionsSent = new Set<string>();
-
       while (!session.killed) {
-        if (Date.now() - runStartedAt >= MAX_AGENT_RUN_MS) {
-          blockedReason = 'Safety budget waktu agent tercapai setelah ' + MAX_AGENT_RUN_MINUTES + ' menit. Task yang belum selesai tetap belum dinyatakan completed.';
-          break;
-        }
-        if (totalToolCalls >= MAX_AGENT_TOOL_CALLS) {
-          blockedReason = 'Safety budget mencapai ' + MAX_AGENT_TOOL_CALLS + ' pemanggilan tool. Periksa Todo List dan hasil parsial sebelum melanjutkan.';
-          break;
-        }
-
         emit(session, { type: 'skills', skills: [] });
         emit(session, { type: 'activity', message: 'Agent sedang bekerja · ' + totalToolCalls + ' pemanggilan tool selesai' });
-        const toolChoice = codingIntent && !hasUsedWorkspaceTools ? 'required' : 'auto';
-        let response: Response;
-        try {
-          response = await openCompletionStream(config, session, conversation, toolChoice, toolDefinitions);
-        } catch (error) {
-          const message = (error as Error).message || '';
-          if (toolChoice === 'required' && /HTTP 400|tool_choice|tool choice|unsupported.*tool/i.test(message)) {
-            emit(session, { type: 'activity', message: 'Mencoba mode tool kompatibel dengan router…' });
-            response = await openCompletionStream(config, session, conversation, 'auto', toolDefinitions);
-          } else {
-            throw error;
-          }
-        }
 
+        // Use auto tool choice for every provider. Requiring tools on the first turn
+        // causes unsupported tool_choice errors on some OpenAI-compatible routers.
+        const response = await openCompletionStream(config, session, conversation, 'auto', toolDefinitions);
         const completion = await readCompletion(response, session, config.provider ?? 'legacy', config.models[0] || session.agent.model || DEFAULT_MODEL);
         if (session.killed) break;
 
         if (completion.toolCalls.length === 0) {
-          const needsPostChangeVerification = session.lastCodeChangeAt !== undefined &&
-            !hasSuccessfulTerminalVerification(session.successfulTerminalChecks, session.codeChangeVersion);
-          if (needsPostChangeVerification) {
-            if (noProgressReplies < MAX_NO_PROGRESS_REPLIES) {
-              noProgressReplies += 1;
-              conversation.push({
-                role: 'user',
-                content: 'Kode atau konfigurasi project telah berubah, tetapi belum ada build/test/lint/typecheck yang sukses setelah perubahan terakhir. Periksa package.json, lockfile, atau konfigurasi framework untuk memilih command verifikasi yang memang tersedia. Jalankan melalui run_terminal, baca stdout/stderr dan exit code, lalu perbaiki kode jika gagal. Jangan menyatakan selesai tanpa hasil verifikasi; jika tidak ada pemeriksaan yang bisa dijalankan, jelaskan hambatan secara spesifik.',
-              });
-              continue;
-            }
-            blockedReason = 'Kode atau konfigurasi project berubah, tetapi belum ada build/test/lint/typecheck yang sukses setelah perubahan terakhir. Implementasi belum diverifikasi.';
-            break;
-          }
-          if (codingIntent && !hasUsedWorkspaceTools && !forcedToolRetryUsed) {
-            forcedToolRetryUsed = true;
-            conversation.push({
-              role: 'user',
-              content: requiresTodoPlan
-                ? 'Tugas ini perlu dikerjakan nyata. Buat Todo List menggunakan todo_write terlebih dahulu, lalu gunakan tools workspace untuk menyelesaikan task secara berurutan. Jangan hanya menjelaskan rencana.'
-                : 'Instruksi agent: permintaan terakhir memerlukan akses file nyata. Gunakan list_project_files/read_project_file/search_project_files terlebih dahulu, lalu write_project_file jika perubahan diminta. Panggil tool sekarang, jangan jawab dengan penjelasan tanpa bertindak.',
-            });
-            continue;
-          }
-
-          if (requiresTodoPlan) {
-            const blockedTodo = session.todos.find((todo) => todo.status === 'blocked');
-            if (blockedTodo) {
-              blockedReason = 'Task "' + blockedTodo.title + '" terblokir: ' + (blockedTodo.blockedReason || 'alasan belum dijelaskan.');
-              break;
-            }
-            const unfinishedTodos = session.todos.filter((todo) => todo.status !== 'completed');
-            if (session.todos.length === 0 || unfinishedTodos.length > 0) {
-              if (noProgressReplies < MAX_NO_PROGRESS_REPLIES) {
-                noProgressReplies += 1;
-                const unfinishedSummary = unfinishedTodos.map((todo) => todo.title + ' [' + todo.status + ']').join('; ');
-                conversation.push({
-                  role: 'user',
-                  content: session.todos.length === 0
-                    ? 'Agent belum membuat Todo List untuk tugas multi-langkah ini. Gunakan todo_write untuk membuat rencana eksekusi sekarang, kemudian teruskan implementasi.'
-                    : 'Todo List belum selesai (' + unfinishedSummary + '). Jangan berhenti dengan jawaban teks. Lanjutkan task in_progress, gunakan tools untuk mengerjakannya, dan hanya tandai completed dengan bukti verifikasi yang spesifik.',
-                });
-                continue;
-              }
-              blockedReason = session.todos.length === 0
-                ? 'Agent tidak membuat Todo List setelah instruksi koreksi; implementasi belum dapat diverifikasi.'
-                : 'Agent mengembalikan jawaban teks sementara Todo List masih memiliki task yang belum completed: ' + unfinishedTodos.map((todo) => todo.title).join(', ') + '.';
-              break;
-            }
-          }
-
-          if (codingIntent && !hasUsedWorkspaceTools) {
-            blockedReason = 'Model tidak menggunakan tool workspace, jadi tidak ada pekerjaan file yang bisa diverifikasi. Periksa dukungan tool-calling pada endpoint/model atau gunakan endpoint cadangan.';
-            break;
-          }
           finished = true;
           break;
         }
 
-        // Keep the assistant tool-call declaration and tool results in identical order.
-        // Process todo_write first so a plan and the first task can be returned in one model response.
+        // Keep assistant tool-call declarations and tool results in identical order.
+        // Todo updates remain a progress display only; they never gate file/terminal tools.
         const orderedToolCalls = config.provider === 'gemini'
-          // Gemini 3 signatures bind to their exact functionCall part. Never reorder them.
           ? [...completion.toolCalls]
           : [...completion.toolCalls].sort((a, b) => {
               const rank = (name: string): number => name === 'todo_write' ? 0 : name === 'todo_read' ? 1 : 2;
@@ -1653,53 +1569,29 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
           })),
         });
 
-        let recoveryDirective: string | null = null;
         for (const call of orderedToolCalls) {
           if (session.killed) break;
-          if (Date.now() - runStartedAt >= MAX_AGENT_RUN_MS) {
-            blockedReason = 'Safety budget waktu agent tercapai saat menjalankan tools.';
-            break;
-          }
-          if (totalToolCalls >= MAX_AGENT_TOOL_CALLS) {
-            blockedReason = 'Safety budget mencapai ' + MAX_AGENT_TOOL_CALLS + ' pemanggilan tool.';
-            break;
-          }
           totalToolCalls += 1;
           session.totalToolCalls = totalToolCalls;
 
           const activityId = call.id || ('tool_' + randomUUID());
           const activityLabel = toolActivityLabel(call);
-          const progressBefore = agentProgressFingerprint(session);
-          const actionSignature = repeatedNoProgressActionSignature(call.name, call.arguments);
-          const noProgressKey = actionSignature ? actionSignature + ':' + progressBefore : null;
           const startedActivity: AgentToolActivity = { id: activityId, name: call.name, status: 'running', detail: activityLabel, ts: Date.now() };
           emit(session, { type: 'skills', skills: selectSkillsForToolActivity(skillSelections, call.name, call.arguments) });
           emit(session, { type: 'tool-status', activity: startedActivity });
 
-          const repeatedActionSuppressed = Boolean(noProgressKey && suppressedNoProgressActions.has(noProgressKey));
           let result: string;
-          if (repeatedActionSuppressed) {
-            result = 'Tool dilewati: tindakan identik ini sudah dicoba tanpa perubahan state dan tidak dijalankan ulang agar tidak menghabiskan waktu/biaya. Gunakan hasil tool sebelumnya dan pilih pendekatan berbeda.';
-          } else {
-            try {
-              if (shouldBlockToolUntilTodoPlan(requiresTodoPlan, session.todos.some((todo) => todo.status === 'in_progress'), call.name)) {
-                result = session.todos.length === 0
-                  ? 'Tool ditahan: buat Todo List dengan todo_write terlebih dahulu untuk tugas multi-langkah, lalu ulangi tool ini.'
-                  : 'Tool ditahan: tidak ada task Todo berstatus in_progress. Perbarui Todo List dengan todo_write dan aktifkan satu task yang siap dikerjakan; pertahankan ID task lama dan jangan mengubah task completed.';
-              } else {
-                result = await executeTool(session, userDataDir, root, call, pendingApprovals, pendingQuestions, mcpTools, rememberedPermissions);
-              }
-            } catch (error) {
-              result = 'Tool gagal: ' + ((error as Error).message || 'kesalahan tidak diketahui');
-            }
+          try {
+            // No Todo prerequisite, repeat counter, or failure-count guard is allowed
+            // to suppress a tool call. File read caching prevents duplicate file payloads.
+            result = await executeTool(session, userDataDir, root, call, pendingApprovals, pendingQuestions, mcpTools, rememberedPermissions);
+          } catch (error) {
+            result = 'Tool gagal: ' + ((error as Error).message || 'kesalahan tidak diketahui');
           }
 
-          const rawResult = result;
-          const failed = !repeatedActionSuppressed && isToolFailureResult(rawResult);
-          const failureKey = repeatedActionSuppressed ? null : repeatedFailureSignature(call.name, rawResult);
-
+          const failed = isToolFailureResult(result);
           if (failed) {
-            result = rawResult + '\n\n' + getToolRecoveryHint(call.name, rawResult);
+            result += '\n\n' + getToolRecoveryHint(call.name, result);
           }
 
           emit(session, { type: 'skills', skills: [] });
@@ -1707,53 +1599,11 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
             type: 'tool-status',
             activity: {
               ...startedActivity,
-              status: failed || repeatedActionSuppressed ? 'failed' : 'completed',
-              detail: repeatedActionSuppressed
-                ? activityLabel + ' · dilewati; gunakan hasil sebelumnya'
-                : failed ? activityLabel + ' · ' + rawResult.replace(/\s+/g, ' ').slice(0, 180) : activityLabel + ' · selesai',
+              status: failed ? 'failed' : 'completed',
+              detail: failed ? activityLabel + ' · ' + result.replace(/\s+/g, ' ').slice(0, 180) : activityLabel + ' · selesai',
               ts: Date.now(),
             },
           });
-          if (isWorkspaceTool(call.name) && !failed && !repeatedActionSuppressed) hasUsedWorkspaceTools = true;
-          if (!failed && !repeatedActionSuppressed) {
-            noProgressReplies = 0;
-            // A successful call to this tool proves that the same tool-level
-            // failure was recovered; unrelated reads must not reset the counter.
-            for (const key of repeatedFailures.keys()) {
-              if (key.startsWith(call.name + ':')) repeatedFailures.delete(key);
-            }
-          }
-
-          if (noProgressKey && !repeatedActionSuppressed) {
-            // Count identical actions that leave workspace/Todo state unchanged.
-            // Once the threshold is reached, skip future identical calls instead
-            // of terminating the whole run or repeatedly executing an expensive read.
-            const progressAfter = agentProgressFingerprint(session);
-            if (progressAfter === progressBefore) {
-              const repeatCount = (repeatedNoProgressActions.get(noProgressKey) ?? 0) + 1;
-              repeatedNoProgressActions.set(noProgressKey, repeatCount);
-              if (repeatCount >= MAX_IDENTICAL_NO_PROGRESS_ACTIONS) {
-                suppressedNoProgressActions.add(noProgressKey);
-                const recoveryKey = 'no-progress:' + noProgressKey;
-                if (!recoveryInstructionsSent.has(recoveryKey)) {
-                  recoveryInstructionsSent.add(recoveryKey);
-                  recoveryDirective = 'GANTI PENDEKATAN — jangan menghentikan task. Tindakan "' + call.name + '" tidak menghasilkan perubahan state setelah ' + repeatCount + ' percobaan. Jangan mengulang tindakan identik ini; gunakan output yang sudah tersedia lalu lanjutkan dengan cara lain. ' + getRepeatedActionRecoveryHint(call.name);
-                }
-              }
-            }
-          }
-
-          if (failureKey) {
-            const failureCount = (repeatedFailures.get(failureKey) ?? 0) + 1;
-            repeatedFailures.set(failureKey, failureCount);
-            if (failureCount === MAX_REPEATED_TOOL_FAILURES) {
-              const recoveryKey = 'failure:' + failureKey;
-              if (!recoveryInstructionsSent.has(recoveryKey)) {
-                recoveryInstructionsSent.add(recoveryKey);
-                recoveryDirective = 'GANTI PENDEKATAN — jangan mengakhiri run hanya karena error berulang. Tool "' + call.name + '" menunjukkan akar kegagalan yang sama meskipun argumen berubah. Periksa error terakhir dan pilih jalur implementasi, tool, sumber, atau command alternatif. Jangan mengulang penyebab yang sama. Error terakhir: ' + rawResult.replace(/\s+/g, ' ').slice(0, 220) + ' ' + getRepeatedActionRecoveryHint(call.name);
-              }
-            }
-          }
 
           conversation.push({
             role: 'tool',
@@ -1762,30 +1612,21 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
             content: result.slice(0, MAX_TOOL_OUTPUT),
             ...(call.geminiFunctionCallId ? { geminiFunctionCallId: call.geminiFunctionCallId } : {}),
           });
-          if (blockedReason) break;
         }
-
-        if (recoveryDirective && !session.killed) {
-          conversation.push({ role: 'user', content: recoveryDirective });
-        }
-        if (blockedReason) break;
       }
 
       let resultOutcome: AgentRunResult['outcome'];
       let resultMessage: string;
-      let finalState: 'completed' | 'cancelled' | 'blocked';
+      let finalState: 'completed' | 'cancelled';
       if (session.killed) {
         resultOutcome = 'cancelled';
-        resultMessage = 'Run dibatalkan.';
+        resultMessage = 'Run dibatalkan oleh pengguna.';
         finalState = 'cancelled';
-      } else if (blockedReason || !finished) {
-        resultOutcome = 'blocked';
-        resultMessage = blockedReason || 'Agent berhenti tanpa menyelesaikan kriteria tugas.';
-        finalState = 'blocked';
-        emit(session, { type: 'output', data: '\n\nAgent terblokir: ' + resultMessage });
       } else {
         resultOutcome = 'completed';
-        resultMessage = 'Agent menyelesaikan gilirannya.';
+        resultMessage = finished
+          ? 'Agent menyelesaikan giliran model.'
+          : 'Agent menghentikan giliran setelah semua tool selesai.';
         finalState = 'completed';
       }
       const runResult: AgentRunResult = {
