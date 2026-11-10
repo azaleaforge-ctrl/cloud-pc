@@ -32,13 +32,15 @@ async function createDirectoryLink(target, linkPath) {
 try {
   await mkdir(join(project, 'src'), { recursive: true });
   await mkdir(join(project, '.private-data'), { recursive: true });
+  await mkdir(join(project, 'private-key'), { recursive: true });
   await mkdir(join(project, 'docs'), { recursive: true });
   await mkdir(outside, { recursive: true });
   await writeFile(join(project, '.private-data', '.env'), 'SECRET=must-not-leak', 'utf8');
+  await writeFile(join(project, 'private-key', 'payload.txt'), 'PRIVATE_KEY_MATERIAL', 'utf8');
   await writeFile(join(project, 'docs', 'safe.txt'), 'safe workspace content', 'utf8');
   await writeFile(join(outside, 'outside.txt'), 'outside-root-secret-marker', 'utf8');
 
-  await createDirectoryLink(join(project, '.private-data'), join(project, 'src', 'config-alias'));
+  await createDirectoryLink(join(project, 'private-key'), join(project, 'src', 'config-alias'));
   await createDirectoryLink(join(project, 'docs'), join(project, 'src', 'docs-alias'));
   await createDirectoryLink(outside, join(project, 'escape'));
 
@@ -60,9 +62,9 @@ try {
     );
   });
 
-  await test('blocks an ordinary-looking symlink alias whose canonical target is .env', async () => {
+  await test('blocks an ordinary-looking symlink alias whose canonical directory is sensitive', async () => {
     await assert.rejects(
-      () => resolveWorkspacePath(project, 'src/config-alias/.env', { blockSensitive: true }),
+      () => resolveWorkspacePath(project, 'src/config-alias/payload.txt', { blockSensitive: true }),
       /secret atau kredensial/i,
     );
   });
