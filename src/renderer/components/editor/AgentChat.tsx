@@ -1637,7 +1637,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         .filter(message => message.role === 'user' || message.role === 'assistant')
         .slice(-12)
         .map(message => message.id === userMessage.id ? message : { ...message, attachments: undefined });
-      const result = await window.rk.agentStartChat(activeAgent.id, compactContext, wb.activePath, conversationId);
+      const result = await window.rk.agentStartChat(activeAgent.id, compactContext, wb.activePath, conversationId, reasoningEffort, reasoningParameter);
       if (!result.ok || !result.sessionId) throw new Error(result.error ?? 'Agent gagal dimulai.');
       activeSessionRef.current = result.sessionId;
       setActiveSessionId(result.sessionId);
@@ -1667,7 +1667,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
         index === previous.length - 1 && item.role === 'assistant' ? { ...item, streaming: false } : item,
       ));
     }
-  }, [input, pendingAttachments, loading, sessionReady, activeAgent, messages, routerStatus?.configured, wb.root, wb.activePath, conversationId, sessionProjectPath]);
+  }, [input, pendingAttachments, loading, sessionReady, activeAgent, messages, routerStatus?.configured, wb.root, wb.activePath, conversationId, sessionProjectPath, reasoningEffort, reasoningParameter]);
 
   const stopAgent = useCallback(async () => {
     cancelRequestedRef.current = true;
@@ -3008,6 +3008,29 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 <div className="ai-slash-menu-hint"><kbd>↑</kbd><kbd>↓</kbd> pilih <kbd>Enter</kbd> buka <kbd>Esc</kbd> tutup</div>
               </div>
             ) : null}
+            <div className="ai-reasoning-effort" aria-label="Effort reasoning model">
+              <div className="ai-reasoning-effort-label">
+                <strong>Effort AI</strong>
+                <small>{reasoningCapabilityLoading
+                  ? 'Memeriksa dukungan model…'
+                  : reasoningParameter
+                    ? 'Level diteruskan hanya pada parameter reasoning yang diumumkan model.'
+                    : 'Model/provider ini belum mengiklankan dukungan reasoning effort.'}</small>
+              </div>
+              <select
+                aria-label="Effort reasoning AI"
+                value={reasoningEffort}
+                disabled={reasoningCapabilityLoading || !reasoningParameter || !routerStatus?.configured}
+                onChange={(event) => setReasoningEffort(event.target.value as AgentReasoningEffort)}
+                title="Effort lebih tinggi dapat memakai lebih banyak token reasoning dan biaya. Low adalah default hemat."
+              >
+                <option value="low">Low · Hemat</option>
+                <option value="medium">Medium · Seimbang</option>
+                <option value="high">High · Mendalam</option>
+                <option value="maximal">Maximal · XHigh</option>
+              </select>
+              <span className="ai-reasoning-effort-cost">Low paling hemat; High/Maximal dapat menambah biaya.</span>
+            </div>
             <div className="ai-input-row">
               <button type="button" className="ai-attach-btn" aria-label="Lampirkan file"
                 title="Lampirkan gambar, dokumen, audio, video, atau file teks"
