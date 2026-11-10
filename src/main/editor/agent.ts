@@ -778,13 +778,21 @@ async function executeTool(
   switch (call.name) {
     case 'list_project_files': {
       const path = stringArg('path', '.');
+      const resolved = await resolveWorkspacePath(root, path);
+      const cached = session.workspaceListingCache.get(resolved.target);
+      if (cached !== undefined) {
+        emit(session, { type: 'activity', message: 'Memakai cache struktur folder: ' + path });
+        return '[CACHE HIT — STRUKTUR FOLDER] Folder "' + resolved.rel + '" sudah diinventarisasi sebelumnya pada run ini. Gunakan daftar file dari hasil list_project_files sebelumnya; jangan scan ulang folder yang sama.';
+      }
       emit(session, { type: 'activity', message: 'Memindai file: ' + path });
-      return await listProjectFiles(root, path);
+      const listing = await listProjectFiles(root, path);
+      session.workspaceListingCache.set(resolved.target, listing);
+      return listing;
     }
     case 'read_project_file': {
       const path = stringArg('path');
       emit(session, { type: 'activity', message: 'Membaca file: ' + path });
-      return await readProjectFile(root, path);
+      return await readProjectFileForSession(session, root, path);
     }
     case 'write_project_file': {
       const path = stringArg('path');
@@ -792,6 +800,11 @@ async function executeTool(
       emit(session, { type: 'activity', message: 'Menulis perubahan ke workspace: ' + path });
       const result = await writeProjectFile(root, path, args.content);
       if (result.change) {
+        invalidateWorkspaceDiscoveryCaches(session);
+        try {
+          const changedPath = await resolveWorkspacePath(root, result.change.path);
+          session.workspaceReadCache.delete(changedPath.target);
+        } catch { /* a successful write should still be reported even if cache invalidation cannot resolve the path */ }
         session.lastWorkspaceChangeAt = Date.now();
         if (isSourceCodeOrBuildConfigPath(result.change.path)) {
           session.lastCodeChangeAt = Date.now();
@@ -819,8 +832,17 @@ async function executeTool(
     }
     case 'search_project_files': {
       const query = stringArg('query');
+      const searchPath = stringArg('path', '.');
+      const caseSensitive = args.case_sensitive === true;
+      const cacheKey = JSON.stringify([query, searchPath, caseSensitive]);
+      if (session.workspaceSearchCache.has(cacheKey)) {
+        emit(session, { type: 'activity', message: 'Memakai cache hasil pencarian project' });
+        return '[CACHE HIT — HASIL PENCARIAN] Query "' + query + '" pada "' + searchPath + '" sudah dijalankan pada run ini. Gunakan hasil search_project_files sebelumnya di konteks; jangan ulangi pencarian identik.';
+      }
       emit(session, { type: 'activity', message: 'Mencari: ' + query });
-      return await searchProjectFiles(root, query, stringArg('path', '.'), args.case_sensitive === true);
+      const searchResult = await searchProjectFiles(root, query, searchPath, caseSensitive);
+      session.workspaceSearchCache.set(cacheKey, searchResult);
+      return searchResult;
     }
     case 'todo_read': {
       return JSON.stringify(session.todos, null, 2);
@@ -969,7 +991,10 @@ async function executeTool(
       }
       if (session.killed) return 'Command dibatalkan karena agent dihentikan sebelum eksekusi.';
       emit(session, { type: 'activity', message: 'Menjalankan command terminal…' });
-      return await executeTerminalCommand(session, root, command, timeoutSeconds);
+      const terminalResult = await executeTerminalCommand(session, root, command, timeoutSeconds);
+      // A terminal command may create, remove, or regenerate project files.
+      invalidateWorkspaceDiscoveryCaches(session);
+      return terminalResult;
     }
     default: {
       const mcpTool = mcpTools.find(item => item.exposedName === call.name);
