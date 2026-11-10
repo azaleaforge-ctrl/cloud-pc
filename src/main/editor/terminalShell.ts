@@ -52,7 +52,7 @@ export function resolveTerminalShell(): TerminalShellProfile {
         name: 'PowerShell 7 (pwsh.exe)',
         family: 'powershell',
         interactiveArgs: ['-NoLogo', '-NoProfile'],
-        commandArgs: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command'],
+        commandArgs: ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand'],
       };
     } else if (isOnPath('powershell.exe')) {
       cachedProfile = {
@@ -60,7 +60,7 @@ export function resolveTerminalShell(): TerminalShellProfile {
         name: 'Windows PowerShell (powershell.exe)',
         family: 'powershell',
         interactiveArgs: ['-NoLogo', '-NoProfile'],
-        commandArgs: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command'],
+        commandArgs: ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand'],
       };
     } else {
       const file = process.env.ComSpec?.trim() || 'cmd.exe';
@@ -69,7 +69,7 @@ export function resolveTerminalShell(): TerminalShellProfile {
         name: 'Command Prompt (cmd.exe)',
         family: 'cmd',
         interactiveArgs: [],
-        commandArgs: ['/d', '/s', '/c'],
+        commandArgs: ['/d', '/c'],
       };
     }
   } else {
@@ -87,32 +87,27 @@ export function resolveTerminalShell(): TerminalShellProfile {
 }
 
 function wrapPowerShellCommand(command: string): string {
-  // Base64 avoids quoting/injection problems when the user's command is passed
-  // as one PowerShell argument. The command itself is still executed as code,
-  // exactly as approved by the user.
+  // Encode both the user command and the outer script. Passing the wrapper
+  // through -EncodedCommand avoids Windows command-line quoting differences.
   const encodedCommand = Buffer.from(command, 'utf16le').toString('base64');
-  return [
+  const wrapper = [
     "$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)",
-    "$scriptText = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromBase64String('" + encodedCommand + "'))",
-    '$errorCountBefore = $global:Error.Count',
+    "$ErrorActionPreference = 'Stop'",
+    // Native stderr is ordinary output unless the native process returns a
+    // failing exit code. This variable is ignored by older Windows PowerShell.
+    '$PSNativeCommandUseErrorActionPreference = $false',
     '$global:LASTEXITCODE = $null',
-    'try { Invoke-Expression $scriptText; $commandSucceeded = $? } catch { [Console]::Error.WriteLine($_.ToString()); exit 1 }',
-    '$nativeExitCode = $global:LASTEXITCODE',
-    '$newErrorCount = [Math]::Max(0, $global:Error.Count - $errorCountBefore)',
-    '$hasCommandError = $false',
-    'for ($i = 0; $i -lt $newErrorCount; $i++) {',
-    '  $errorRecord = $global:Error[$i]',
-    "  if ($errorRecord.FullyQualifiedErrorId -notmatch 'NativeCommandError') {",
-    '    $hasCommandError = $true',
-    '    [Console]::Error.WriteLine($errorRecord.ToString())',
-    '    break',
-    '  }',
+    "$scriptText = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromBase64String('" + encodedCommand + "'))",
+    'try {',
+    '  & ([scriptblock]::Create($scriptText))',
+    '  if ($null -ne $global:LASTEXITCODE) { exit [int]$global:LASTEXITCODE }',
+    '  exit 0',
+    '} catch {',
+    '  [Console]::Error.WriteLine($_.ToString())',
+    '  exit 1',
     '}',
-    'if ($hasCommandError) { exit 1 }',
-    'if ($null -ne $nativeExitCode) { exit [int]$nativeExitCode }',
-    'if (-not $commandSucceeded) { exit 1 }',
-    'exit 0',
-  ].join('; ');
+  ].join('\n');
+  return Buffer.from(wrapper, 'utf16le').toString('base64');
 }
 
 /**
