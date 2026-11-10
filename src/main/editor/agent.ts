@@ -17,7 +17,7 @@ import { loadInstalledSkillInstructions } from './installedSkills';
 import { callMcpPluginTool, disposeMcpPluginRuntimes, listEnabledMcpTools } from './mcpPlugins';
 import { startTerminalCommand } from './terminalRuntime';
 import { getAgentTerminalGuidance, resolveTerminalShell } from './terminalShell';
-import { getToolRecoveryHint, isToolFailureResult, repeatedFailureSignature } from './agentFailureGuard';
+import { getToolRecoveryHint, isToolFailureResult } from './agentFailureGuard';
 import { listBuiltinAgentSkills } from './skills';
 import { hasSuccessfulTerminalVerification } from './agentVerification';
 import { openGeminiCompletionStream } from './agentProviders';
@@ -80,6 +80,7 @@ interface LlmSession {
   workspaceReadCache: Map<string, { size: number; mtimeMs: number; ctimeMs: number; content: string }>;
   workspaceListingCache: Map<string, string>;
   workspaceSearchCache: Map<string, string>;
+  workspaceReadRanges: Set<string>;
 }
 interface ToolCall { id: string; name: string; arguments: string; geminiThoughtSignature?: string; geminiFunctionCallId?: string }
 interface ToolDefinition {
@@ -106,7 +107,6 @@ function boundedIntegerEnvironment(name: string, fallback: number, min: number, 
 }
 
 // Agent runs have no fixed total tool-call or wall-clock ceiling. Users can stop a run at any time.
-const MAX_REPEATED_TOOL_FAILURES = boundedIntegerEnvironment('RK_AGENT_MAX_REPEATED_FAILURES', 3, 2, 10);
 const DEFAULT_COMMAND_TIMEOUT_SECONDS = boundedIntegerEnvironment('RK_AGENT_DEFAULT_COMMAND_TIMEOUT_SECONDS', 600, 10, 3600);
 const MAX_COMMAND_TIMEOUT_SECONDS = 3600;
 const MAX_READ_BYTES = 1024 * 1024;
@@ -132,8 +132,17 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'read_project_file',
-      description: 'Baca isi file teks dalam workspace. File sensitif seperti .env dan private key tidak bisa dibaca.',
-      parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'], additionalProperties: false },
+      description: 'Baca file teks workspace secara bertahap. Untuk file panjang, gunakan start_line dan end_line untuk mengambil bagian berikutnya. Pembacaan file yang sama disimpan dalam cache selama file tidak berubah; rentang identik tidak dikirim ulang. File sensitif seperti .env dan private key tetap dilindungi.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          start_line: { type: 'integer', minimum: 1, description: 'Baris awal, default 1.' },
+          end_line: { type: 'integer', minimum: 1, description: 'Baris akhir inklusif. Jika kosong, runtime mengambil bagian berikutnya maksimal sekitar 12.000 karakter.' },
+        },
+        required: ['path'],
+        additionalProperties: false,
+      },
     },
   },
   {
@@ -451,30 +460,56 @@ async function readProjectFile(root: string, requestedPath: string): Promise<str
  * tool result already present in this run's model context instead of charging
  * the provider for the full file contents again.
  */
-async function readProjectFileForSession(session: LlmSession, root: string, requestedPath: string): Promise<string> {
+async function readProjectFileForSession(session: LlmSession, root: string, requestedPath: string, requestedStartLine?: number, requestedEndLine?: number): Promise<string> {
   const resolved = await resolveWorkspacePath(root, requestedPath);
   const info = await stat(resolved.target);
   if (!info.isFile()) throw new Error('Path bukan file.');
-  if (info.size > MAX_READ_BYTES) throw new Error('File terlalu besar untuk dibaca langsung (maksimum 1 MB).');
 
-  const cached = session.workspaceReadCache.get(resolved.target);
-  if (cached && cached.size === info.size && cached.mtimeMs === info.mtimeMs && cached.ctimeMs === info.ctimeMs) {
-    return [
-      '[CACHE HIT — FILE SUDAH DIBACA]',
-      'File "' + resolved.rel + '" sudah dibaca dan isi lengkapnya tersedia pada hasil read_project_file sebelumnya di konteks run ini.',
-      'Jangan panggil read_project_file lagi untuk file yang sama. Gunakan isi sebelumnya. Jika masih membutuhkan fakta spesifik, gunakan search_project_files dengan simbol/query yang tepat atau baca file lain yang relevan.',
-      'Tidak ada pembacaan ulang atau pengiriman ulang isi file pada cache hit ini.',
-    ].join('\n');
+  let cached = session.workspaceReadCache.get(resolved.target);
+  if (!cached || cached.size !== info.size || cached.mtimeMs !== info.mtimeMs || cached.ctimeMs !== info.ctimeMs) {
+    const content = await readFile(resolved.target, 'utf8');
+    cached = { size: info.size, mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs, content };
+    session.workspaceReadCache.set(resolved.target, cached);
   }
 
-  const content = (await readFile(resolved.target, 'utf8')).slice(0, MAX_READ_BYTES);
-  session.workspaceReadCache.set(resolved.target, {
-    size: info.size,
-    mtimeMs: info.mtimeMs,
-    ctimeMs: info.ctimeMs,
-    content,
-  });
-  return content;
+  const lines = cached.content.split(/\\r?\\n/);
+  const totalLines = lines.length;
+  const startLine = requestedStartLine === undefined ? 1 : requestedStartLine;
+  if (!Number.isSafeInteger(startLine) || startLine < 1 || startLine > Math.max(1, totalLines)) {
+    throw new Error('start_line harus berada dalam rentang 1 sampai ' + totalLines + '.');
+  }
+  if (requestedEndLine !== undefined && (!Number.isSafeInteger(requestedEndLine) || requestedEndLine < startLine)) {
+    throw new Error('end_line harus berupa bilangan bulat yang sama atau lebih besar dari start_line.');
+  }
+
+  const maxChunkChars = 12_000;
+  let endLine = Math.min(totalLines, requestedEndLine ?? totalLines);
+  let chunk = lines.slice(startLine - 1, endLine).join('\\n');
+  if (requestedEndLine === undefined || chunk.length > maxChunkChars) {
+    while (endLine > startLine && chunk.length > maxChunkChars) {
+      endLine = Math.max(startLine, Math.floor((startLine + endLine) / 2));
+      chunk = lines.slice(startLine - 1, endLine).join('\\n');
+    }
+  }
+  const rangeKey = resolved.target + '|' + info.size + '|' + info.mtimeMs + '|' + info.ctimeMs + '|' + startLine + '-' + endLine;
+  if (session.workspaceReadRanges.has(rangeKey)) {
+    return [
+      '[CACHE HIT — RENTANG SUDAH DIKIRIM]',
+      'File "' + resolved.rel + '" pada baris ' + startLine + '–' + endLine + ' sudah dikirim ke konteks model pada pemanggilan sebelumnya.',
+      'Gunakan hasil pembacaan sebelumnya; lanjutkan dari baris berikutnya atau gunakan search_project_files untuk mencari simbol tertentu.',
+      'Isi file tidak dikirim ulang sehingga payload file tidak menambah biaya lagi.',
+    ].join('\\n');
+  }
+  session.workspaceReadRanges.add(rangeKey);
+  const nextLine = endLine < totalLines ? endLine + 1 : null;
+  return [
+    '[FILE: ' + resolved.rel + ']',
+    'Baris ' + startLine + '–' + endLine + ' dari ' + totalLines + '.',
+    nextLine ? 'Masih ada isi file. Lanjutkan dengan read_project_file path="' + resolved.rel + '", start_line=' + nextLine + ' (end_line boleh dikosongkan).' : 'Akhir file tercapai.',
+    '--- BEGIN FILE CONTENT ---',
+    chunk,
+    '--- END FILE CONTENT ---',
+  ].join('\\n');
 }
 
 function invalidateWorkspaceDiscoveryCaches(session: LlmSession): void {
@@ -791,8 +826,10 @@ async function executeTool(
     }
     case 'read_project_file': {
       const path = stringArg('path');
-      emit(session, { type: 'activity', message: 'Membaca file: ' + path });
-      return await readProjectFileForSession(session, root, path);
+      const startLine = args.start_line === undefined ? undefined : Number(args.start_line);
+      const endLine = args.end_line === undefined ? undefined : Number(args.end_line);
+      emit(session, { type: 'activity', message: 'Membaca file: ' + path + (startLine ? ' · baris ' + startLine : '') });
+      return await readProjectFileForSession(session, root, path, startLine, endLine);
     }
     case 'write_project_file': {
       const path = stringArg('path');
@@ -804,6 +841,7 @@ async function executeTool(
         try {
           const changedPath = await resolveWorkspacePath(root, result.change.path);
           session.workspaceReadCache.delete(changedPath.target);
+          session.workspaceReadRanges.clear();
         } catch { /* a successful write should still be reported even if cache invalidation cannot resolve the path */ }
         session.lastWorkspaceChangeAt = Date.now();
         if (isSourceCodeOrBuildConfigPath(result.change.path)) {
