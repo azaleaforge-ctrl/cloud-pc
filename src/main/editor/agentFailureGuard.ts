@@ -145,3 +145,51 @@ export function getToolRecoveryHint(toolName: string, result: string): string {
 
   return 'Panduan pemulihan tool: baca error lengkap, periksa prasyarat dan konteksnya, lalu ubah pendekatan sebelum mencoba lagi. Jangan mengulangi pemanggilan dengan argumen yang sama tanpa alasan teknis baru, dan jangan mengklaim operasi berhasil ketika hasil tool menyatakan gagal.';
 }
+
+
+/**
+ * Give the model a concrete alternative after an identical no-progress action
+ * has already been attempted repeatedly. The run itself remains alive.
+ */
+export function getRepeatedActionRecoveryHint(toolName: string): string {
+  if (toolName === 'read_project_file') {
+    return [
+      'Jangan membaca ulang file yang sama dengan rentang dan state yang sama.',
+      'Gunakan isi file yang sudah ada di riwayat tool sebagai sumber konteks.',
+      'Identifikasi fakta yang masih kurang, lalu cari simbol atau referensi terkait dengan search_project_files.',
+      'Bila perlu, baca hanya file lain yang relevan atau rentang lebih sempit; jangan mengulang inventory atau membaca seluruh folder.',
+    ].join(' ');
+  }
+  if (toolName === 'list_project_files') {
+    return [
+      'Jangan menginventarisasi folder yang sama lagi.',
+      'Gunakan hasil daftar file yang sudah tersedia; persempit ke subfolder spesifik atau gunakan search_project_files untuk menemukan simbol terkait.',
+      'Lanjutkan ke file yang relevan berdasarkan hasil sebelumnya.',
+    ].join(' ');
+  }
+  if (toolName === 'search_project_files') {
+    return [
+      'Jangan mengulang pencarian yang identik.',
+      'Persempit kata kunci, gunakan nama simbol atau pola yang lebih spesifik, atau baca file kandidat yang sudah ditemukan.',
+      'Manfaatkan hasil pencarian sebelumnya dan hindari memindai folder/proyek secara keseluruhan.',
+    ].join(' ');
+  }
+  if (toolName === 'run_terminal') {
+    return [
+      'Jangan menjalankan ulang command yang sama tanpa perubahan.',
+      'Gunakan stdout, stderr, exit code, dan shell aktif untuk menentukan penyebabnya.',
+      'Pilih command, executable, argumen, atau cara verifikasi berbeda yang benar-benar sesuai; jangan mengubah source code untuk menutupi kesalahan shell.',
+    ].join(' ');
+  }
+  if (toolName === 'todo_write') {
+    return [
+      'Panggil todo_read untuk memeriksa state tersimpan.',
+      'Perbaiki hanya transisi yang tidak valid dengan mempertahankan ID dan dependensi task; jangan kirim ulang payload yang sama.',
+    ].join(' ');
+  }
+  return [
+    'Jangan ulangi tindakan yang sama.',
+    'Gunakan hasil tool sebelumnya, identifikasi prasyarat yang belum terpenuhi, lalu pilih tool atau pendekatan lain yang dapat menghasilkan kemajuan nyata.',
+    'Jangan mengklaim berhasil tanpa bukti.',
+  ].join(' ');
+}

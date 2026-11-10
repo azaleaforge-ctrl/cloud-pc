@@ -9,6 +9,7 @@ import type {
   AgentProviderId,
   AgentRouterStatus,
   AgentRouterTestResult,
+  AgentSkillInfo,
   AgentSkillSelection,
   AgentRunResult,
   AgentTodo,
@@ -805,6 +806,27 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
   const checkpointActionInFlightRef = useRef<string | null>(null);
   const firstSessionLoadRef = useRef(true);
   const [activeSkills, setActiveSkills] = useState<AgentSkillSelection[]>([]);
+  const [availableSkills, setAvailableSkills] = useState<AgentSkillInfo[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void window.rk.agentListSkills()
+      .then((skills) => { if (alive) setAvailableSkills(skills); })
+      .catch(() => { if (alive) setAvailableSkills([]); });
+    return () => { alive = false; };
+  }, []);
+  const allAgentSkills = useMemo(() => {
+    const skills = new Map<string, AgentSkillSelection>();
+    for (const skill of availableSkills) {
+      skills.set(skill.id, { id: skill.id, name: skill.name, reason: skill.reason });
+    }
+    for (const skill of activeSkills) {
+      if (!skills.has(skill.id)) skills.set(skill.id, skill);
+    }
+    const activeIds = new Set(activeSkills.map((skill) => skill.id));
+    return [...skills.values()]
+      .map((skill) => ({ ...skill, active: activeIds.has(skill.id) }))
+      .sort((left, right) => Number(right.active) - Number(left.active) || left.name.localeCompare(right.name));
+  }, [availableSkills, activeSkills]);
   const [todos, setTodos] = useState<AgentTodo[]>([]);
   const [toolActivities, setToolActivities] = useState<AgentToolActivity[]>([]);
   const [lastRunResult, setLastRunResult] = useState<AgentRunResult | null>(null);
@@ -2231,8 +2253,10 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
               <section className="ai-openrouter-step ai-openrouter-management-step">
                 <div className="ai-openrouter-step-index">03</div>
                 <div className="ai-openrouter-step-body">
-                  <strong>Saldo akun OpenRouter (opsional)</strong>
-                  <p>Untuk membaca total kredit dibeli, total penggunaan akun, dan saldo tersisa, masukkan Management API Key terpisah. Key ini hanya digunakan untuk GET /credits, tidak dipakai untuk request model, dan disimpan terenkripsi di perangkat ini.</p>
+                  <strong>Hubungkan saldo akun OpenRouter</strong>
+                  <p>Saldo total akun hanya dapat dibaca dengan Management API Key dari OpenRouter. API key inference yang dipakai untuk chat tidak mempunyai izin untuk endpoint credits. Buat key khusus Management, salin saat ditampilkan, lalu tempelkan di bawah. Key ini hanya untuk membaca saldo, tidak dapat dipakai untuk request model, dan disimpan terenkripsi di perangkat ini.</p>
+                  <a className="ai-settings-test ai-openrouter-management-link" href="https://openrouter.ai/settings/management-keys" target="_blank" rel="noreferrer">Buka halaman Management API Keys</a>
+                  <small>Langkah: buka halaman tersebut → Create New Key → salin key → tempel di sini → Simpan & verifikasi. Jangan gunakan inference API key biasa.</small>
                   <label className="ai-settings-label" htmlFor="rk-openrouter-management-key">Management API Key</label>
                   <div className="ai-settings-key-row">
                     <input id="rk-openrouter-management-key" className="ai-settings-key" type="password" autoComplete="new-password"
@@ -2255,7 +2279,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                       </div>
                     </div>
                   ) : (
-                    <small>Belum ada Management API Key. Buat key khusus Management di dokumentasi OpenRouter. Fitur ini opsional; saldo tidak dapat dibaca memakai inference API key standar.</small>
+                    <small>Belum terhubung. Saldo total akan tetap “Belum tersedia” sampai Management API Key diverifikasi. Key inference biasa tidak dapat menggantikan key ini.</small>
                   )}
                   <small>{usdIdrRate?.rate ? 'Kurs referensi: 1 USD = ' + new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(usdIdrRate.rate) + ' IDR · ' + (usdIdrRate.date ?? 'tanggal tidak tersedia') : 'Kurs USD/IDR belum tersedia; nilai Rupiah akan muncul setelah kurs berhasil dimuat.'}</small>
                   <button type="button" className="ai-settings-test" onClick={() => void refreshUsdIdrRate(true)}>Perbarui kurs USD/IDR</button>
@@ -2917,9 +2941,9 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             </div>
             {routerStatus?.provider === 'openrouter' && openRouterAccount?.connected ? (
               <div className="ai-usage-billing">
-                <div><span>Saldo akun OpenRouter</span><strong>{openRouterCredits?.configured && openRouterCredits.balanceUsd !== null ? formatUsdAsIdr(openRouterCredits.balanceUsd, usdIdrRate?.rate) : 'Belum tersedia'}</strong></div>
-                <div><span>Total kredit dibeli akun</span><strong>{openRouterCredits?.configured ? formatUsdAsIdr(openRouterCredits.totalCreditsUsd, usdIdrRate?.rate) : 'Management API Key belum diatur'}</strong></div>
-                <div><span>Total penggunaan akun</span><strong>{openRouterCredits?.configured ? formatUsdAsIdr(openRouterCredits.totalUsageUsd, usdIdrRate?.rate) : 'Management API Key belum diatur'}</strong></div>
+                <div><span>Saldo akun OpenRouter</span><strong>{openRouterCredits?.configured && openRouterCredits.balanceUsd !== null ? formatUsdAsIdr(openRouterCredits.balanceUsd, usdIdrRate?.rate) : <button type="button" className="ai-usage-connect-link" onClick={() => { setSelectedProviderDraft('openrouter'); setSettingsOpen(true); }}>Hubungkan Management Key</button>}</strong></div>
+                <div><span>Total kredit dibeli akun</span><strong>{openRouterCredits?.configured ? formatUsdAsIdr(openRouterCredits.totalCreditsUsd, usdIdrRate?.rate) : <button type="button" className="ai-usage-connect-link" onClick={() => { setSelectedProviderDraft('openrouter'); setSettingsOpen(true); }}>Hubungkan Management Key</button>}</strong></div>
+                <div><span>Total penggunaan akun</span><strong>{openRouterCredits?.configured ? formatUsdAsIdr(openRouterCredits.totalUsageUsd, usdIdrRate?.rate) : <button type="button" className="ai-usage-connect-link" onClick={() => { setSelectedProviderDraft('openrouter'); setSettingsOpen(true); }}>Atur saldo OpenRouter</button>}</strong></div>
                 <div><span>Penggunaan API key · total</span><strong>{formatUsdAsIdr(openRouterAccount.usage, usdIdrRate?.rate)}</strong></div>
                 <div><span>Penggunaan hari ini</span><strong>{formatUsdAsIdr(openRouterAccount.usageDaily, usdIdrRate?.rate)}</strong></div>
                 <div><span>Penggunaan bulan ini</span><strong>{formatUsdAsIdr(openRouterAccount.usageMonthly, usdIdrRate?.rate)}</strong></div>
@@ -2928,7 +2952,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 {openRouterAccount.effectiveBudget?.limitUsd !== null && openRouterAccount.effectiveBudget?.limitUsd !== undefined ? (
                   <ProviderQuotaMeter label={'Budget efektif · ' + (openRouterAccount.effectiveBudget.scope ?? 'akun/workspace')} remaining={openRouterAccount.effectiveBudget.remainingUsd} limit={openRouterAccount.effectiveBudget.limitUsd} reset={openRouterAccount.effectiveBudget.resetsAt} formatValue={(value) => formatUsdAsIdr(value, usdIdrRate?.rate)} />
                 ) : null}
-                {openRouterCredits?.error ? <small className="ai-usage-warning">{openRouterCredits.error}</small> : null}
+                {openRouterCredits?.configured && openRouterCredits.error ? <small className="ai-usage-warning">{openRouterCredits.error}</small> : null}
+                {!openRouterCredits?.configured ? <small>Saldo akun belum dihubungkan. Buat Management API Key di pengaturan OpenRouter agar total kredit dan pemakaian akun tampil di sini.</small> : null}
                 <small>{openRouterAccount.isFreeTier === true ? 'Akun OpenRouter ditandai Free Tier. Model gratis tetap memiliki batas request dan kapasitas provider.' : openRouterAccount.isFreeTier === false ? 'Akun/key OpenRouter bukan Free Tier.' : 'Status Free/Paid tidak disediakan oleh endpoint key.'}</small>
                 <small>Usage API key hanya menggambarkan key inferensi yang aktif; saldo total akun dibaca terpisah memakai Management API Key.</small>
                 <small>OpenRouter tetap menghitung saldo dan tagihan dalam USD; konversi ini hanya untuk tampilan Ruang Kerja.</small>
@@ -2969,16 +2994,19 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
 
           <section className="ai-side-card ai-side-skills-card">
             <div className="ai-side-card-title">
-              <strong>Skill aktif</strong>
-              <span>{activeSkills.length}</span>
+              <strong>Skills</strong>
+              <span>{activeSkills.length}/{allAgentSkills.length}</span>
             </div>
             <div className="ai-side-scroll ai-side-skills-scroll">
-              {activeSkills.length ? activeSkills.map((skill) => (
-                <div className="ai-side-skill" key={skill.id} title={skill.reason}>
-                  <strong>{skill.name}</strong>
+              {allAgentSkills.length ? allAgentSkills.map((skill) => (
+                <div className={`ai-side-skill ${skill.active ? 'is-active' : 'is-inactive'}`} key={skill.id} title={skill.reason}>
+                  <div className="ai-side-skill-head">
+                    <strong>{skill.name}</strong>
+                    <span className="ai-side-skill-state">{skill.active ? 'Aktif' : 'Tidak aktif'}</span>
+                  </div>
                   {skill.reason ? <small>{skill.reason}</small> : null}
                 </div>
-              )) : <p className="ai-side-empty">Skill yang digunakan selama tugas akan muncul di sini.</p>}
+              )) : <p className="ai-side-empty">Memuat daftar skill…</p>}
             </div>
           </section>
 

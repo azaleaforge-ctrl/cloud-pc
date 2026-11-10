@@ -143,6 +143,25 @@ try {
     assert.equal(guard.repeatedNoProgressActionSignature('ask_user', '{"question":"Choose"}'), null);
   });
 
+  test('repeated reads instruct the agent to use existing context and a narrower alternative', () => {
+    const hint = guard.getRepeatedActionRecoveryHint('read_project_file');
+    assert.match(hint, /jangan membaca ulang file yang sama/i);
+    assert.match(hint, /search_project_files/);
+    assert.match(hint, /rentang lebih sempit/i);
+  });
+
+  test('repeated folder listing instructs the agent not to rescan the same folder', () => {
+    const hint = guard.getRepeatedActionRecoveryHint('list_project_files');
+    assert.match(hint, /jangan menginventarisasi folder yang sama/i);
+    assert.match(hint, /subfolder spesifik/i);
+  });
+
+  test('repeated terminal action instructs the agent to change command strategy', () => {
+    const hint = guard.getRepeatedActionRecoveryHint('run_terminal');
+    assert.match(hint, /jangan menjalankan ulang command yang sama/i);
+    assert.match(hint, /stdout, stderr, exit code/i);
+  });
+
   test('does not assign a repeated-failure signature to a successful result', () => {
     assert.equal(guard.repeatedFailureSignature('todo_write', 'Todo List diperbarui: 2/2 task completed.'), null);
   });
