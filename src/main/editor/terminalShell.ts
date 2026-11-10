@@ -87,33 +87,19 @@ export function resolveTerminalShell(): TerminalShellProfile {
 }
 
 function wrapPowerShellCommand(command: string): string {
-  // Encode the command and wrapper to avoid Windows command-line quoting differences.
-  // Invoke-Expression executes in the wrapper's current scope, so the automatic
-  // $LASTEXITCODE set by native processes can be captured reliably afterward.
+  // EncodedCommand avoids Windows command-line quoting differences. Invoke-Expression
+  // executes in the wrapper's current scope so native LASTEXITCODE is captured directly.
   const encodedCommand = Buffer.from(command, 'utf16le').toString('base64');
   const wrapper = [
     "$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)",
-    "$ErrorActionPreference = 'Continue'",
+    "$ErrorActionPreference = 'Stop'",
     '$PSNativeCommandUseErrorActionPreference = $false',
-    '$Error.Clear()',
     '$LASTEXITCODE = $null',
     "$scriptText = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromBase64String('" + encodedCommand + "'))",
-    '$errorCountBefore = $Error.Count',
     'try {',
     '  Invoke-Expression $scriptText',
     '  $commandSucceeded = $?',
     '  $nativeExitCode = $LASTEXITCODE',
-    '  $newErrorCount = [Math]::Max(0, $Error.Count - $errorCountBefore)',
-    '  $hasCommandError = $false',
-    '  for ($i = 0; $i -lt $newErrorCount; $i++) {',
-    '    $errorRecord = $Error[$i]',
-    "    if ($errorRecord.FullyQualifiedErrorId -notmatch 'NativeCommandError') {",
-    '      $hasCommandError = $true',
-    '      [Console]::Error.WriteLine($errorRecord.ToString())',
-    '      break',
-    '    }',
-    '  }',
-    '  if ($hasCommandError) { exit 1 }',
     '  if ($null -ne $nativeExitCode) { exit [int]$nativeExitCode }',
     '  if (-not $commandSucceeded) { exit 1 }',
     '  exit 0',
