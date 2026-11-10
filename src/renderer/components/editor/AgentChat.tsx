@@ -2941,7 +2941,7 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
             </div>
             {routerStatus?.provider === 'openrouter' && openRouterAccount?.connected ? (
               <div className="ai-usage-billing">
-                <div><span>Saldo akun OpenRouter</span><strong>{openRouterCredits?.configured && openRouterCredits.balanceUsd !== null ? formatUsdAsIdr(openRouterCredits.balanceUsd, usdIdrRate?.rate) : 'Belum tersedia'}</strong></div>
+                <div><span>Saldo akun OpenRouter</span><strong>{openRouterCredits?.configured && openRouterCredits.balanceUsd !== null ? formatUsdAsIdr(openRouterCredits.balanceUsd, usdIdrRate?.rate) : <button type="button" className="ai-usage-connect-link" onClick={() => { setSelectedProviderDraft('openrouter'); setSettingsOpen(true); }}>Hubungkan Management Key</button>}</strong></div>
                 <div><span>Total kredit dibeli akun</span><strong>{openRouterCredits?.configured ? formatUsdAsIdr(openRouterCredits.totalCreditsUsd, usdIdrRate?.rate) : <button type="button" className="ai-usage-connect-link" onClick={() => { setSelectedProviderDraft('openrouter'); setSettingsOpen(true); }}>Hubungkan Management Key</button>}</strong></div>
                 <div><span>Total penggunaan akun</span><strong>{openRouterCredits?.configured ? formatUsdAsIdr(openRouterCredits.totalUsageUsd, usdIdrRate?.rate) : <button type="button" className="ai-usage-connect-link" onClick={() => { setSelectedProviderDraft('openrouter'); setSettingsOpen(true); }}>Atur saldo OpenRouter</button>}</strong></div>
                 <div><span>Penggunaan API key · total</span><strong>{formatUsdAsIdr(openRouterAccount.usage, usdIdrRate?.rate)}</strong></div>
@@ -2952,7 +2952,8 @@ export function AgentChat({ wb, visible, onToggle }: Props) {
                 {openRouterAccount.effectiveBudget?.limitUsd !== null && openRouterAccount.effectiveBudget?.limitUsd !== undefined ? (
                   <ProviderQuotaMeter label={'Budget efektif · ' + (openRouterAccount.effectiveBudget.scope ?? 'akun/workspace')} remaining={openRouterAccount.effectiveBudget.remainingUsd} limit={openRouterAccount.effectiveBudget.limitUsd} reset={openRouterAccount.effectiveBudget.resetsAt} formatValue={(value) => formatUsdAsIdr(value, usdIdrRate?.rate)} />
                 ) : null}
-                {openRouterCredits?.error ? <small className="ai-usage-warning">{openRouterCredits.error}</small> : null}
+                {openRouterCredits?.configured && openRouterCredits.error ? <small className="ai-usage-warning">{openRouterCredits.error}</small> : null}
+                {!openRouterCredits?.configured ? <small>Saldo akun belum dihubungkan. Buat Management API Key di pengaturan OpenRouter agar total kredit dan pemakaian akun tampil di sini.</small> : null}
                 <small>{openRouterAccount.isFreeTier === true ? 'Akun OpenRouter ditandai Free Tier. Model gratis tetap memiliki batas request dan kapasitas provider.' : openRouterAccount.isFreeTier === false ? 'Akun/key OpenRouter bukan Free Tier.' : 'Status Free/Paid tidak disediakan oleh endpoint key.'}</small>
                 <small>Usage API key hanya menggambarkan key inferensi yang aktif; saldo total akun dibaca terpisah memakai Management API Key.</small>
                 <small>OpenRouter tetap menghitung saldo dan tagihan dalam USD; konversi ini hanya untuk tampilan Ruang Kerja.</small>
