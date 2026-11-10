@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { createRequire } from 'node:module';
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,6 +43,7 @@ try {
   await createDirectoryLink(join(project, 'private-key'), join(project, 'src', 'config-alias'));
   await createDirectoryLink(join(project, 'docs'), join(project, 'src', 'docs-alias'));
   await createDirectoryLink(outside, join(project, 'escape'));
+  const canonicalProject = await realpath(project);
 
   const securityBundle = join(temp, 'workspacePathSecurity.cjs');
   await build({
@@ -90,7 +91,7 @@ try {
       blockSensitive: true,
     });
     assert.equal(resolved.rel, 'src/new-folder/new-file.ts');
-    assert.equal(resolved.target, join(project, 'src', 'new-folder', 'new-file.ts'));
+    assert.equal(resolved.target, join(canonicalProject, 'src', 'new-folder', 'new-file.ts'));
   });
 
   await test('rejects canonical targets that resolve outside the project', async () => {
@@ -134,7 +135,7 @@ try {
   await test('IDE can read an internal link after canonical containment validation', async () => {
     const result = await service.readFile(join(project, 'src', 'docs-alias', 'safe.txt'));
     assert.equal(result.content, 'safe workspace content');
-    assert.equal(result.path, join(project, 'docs', 'safe.txt'));
+    assert.equal(result.path, join(canonicalProject, 'docs', 'safe.txt'));
   });
 
   await test('IDE writes reject internal symbolic-link traversal without changing the target', async () => {
