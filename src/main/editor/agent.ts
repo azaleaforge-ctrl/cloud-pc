@@ -1267,7 +1267,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       if (!key.startsWith(sessionId + ':')) continue;
       clearTimeout(item.timeout);
       pendingApprovals.delete(key);
-      item.resolve(approved);
+      item.resolve(approved ? 'once' : 'deny');
     }
   };
 
