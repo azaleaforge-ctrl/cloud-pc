@@ -29,43 +29,23 @@ try {
   });
   const { requiresTodoPlanForRequest, shouldBlockToolUntilTodoPlan } = require(bundlePath);
 
-  for (const name of ['list_project_files', 'read_project_file', 'search_project_files', 'todo_read', 'read_session_memory', 'search_web', 'read_web_page', 'check_package_version', 'get_current_time']) {
-    test('allows read-only discovery before Todo: ' + name, () => {
-      assert.equal(shouldBlockToolUntilTodoPlan(true, false, name), false);
-    });
-  }
-
-  test('does not require Todo for project exploration or read-only requests', () => {
-    assert.equal(requiresTodoPlanForRequest('Jelajahi struktur proyek dan baca README'), false);
-    assert.equal(requiresTodoPlanForRequest('Baca file package.json'), false);
-    assert.equal(requiresTodoPlanForRequest('Cari simbol konfigurasi'), false);
+  test('all workspace and terminal tools remain available without Todo', () => {
+    for (const name of [
+      'list_project_files', 'read_project_file', 'search_project_files',
+      'todo_read', 'todo_write', 'read_session_memory', 'write_session_memory',
+      'write_project_file', 'run_terminal', 'search_web', 'read_web_page',
+      'check_package_version', 'get_current_time', 'mcp_mutating_tool',
+    ]) {
+      assert.equal(shouldBlockToolUntilTodoPlan(true, false, name), false, name + ' must never be blocked');
+      assert.equal(shouldBlockToolUntilTodoPlan(true, true, name), false, name + ' must never be gated by Todo');
+    }
   });
 
-  test('requires Todo for explicit multi-step change intent', () => {
+  test('change-intent classification is informational only', () => {
     assert.equal(requiresTodoPlanForRequest('Perbaiki Agentic Coding AI dan tambahkan regression tests'), true);
     assert.equal(requiresTodoPlanForRequest('Refactor dan ubah konfigurasi project'), true);
-  });
-
-  test('allows todo_write to create the initial plan', () => {
-    assert.equal(shouldBlockToolUntilTodoPlan(true, false, 'todo_write'), false);
-  });
-
-  for (const name of ['write_project_file', 'run_terminal', 'write_session_memory', 'mcp_mutating_tool']) {
-    test('blocks mutating or unknown tools until Todo exists: ' + name, () => {
-      assert.equal(shouldBlockToolUntilTodoPlan(true, false, name), true);
-    });
-  }
-
-  test('does not require Todo for simple/non-substantive requests', () => {
-    assert.equal(shouldBlockToolUntilTodoPlan(false, false, 'write_project_file'), false);
-  });
-
-  test('does not block any tool while a Todo task is active', () => {
-    assert.equal(shouldBlockToolUntilTodoPlan(true, true, 'run_terminal'), false);
-  });
-
-  test('blocks mutations when Todo entries exist but none is in progress', () => {
-    assert.equal(shouldBlockToolUntilTodoPlan(true, false, 'write_project_file'), true);
+    assert.equal(requiresTodoPlanForRequest('Baca file package.json'), false);
+    assert.equal(shouldBlockToolUntilTodoPlan(requiresTodoPlanForRequest('Perbaiki aplikasi'), false, 'write_project_file'), false);
   });
 
   console.log('\nAgent Todo policy tests: ' + passed + ' passed, ' + failed + ' failed.');
