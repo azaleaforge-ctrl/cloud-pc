@@ -770,30 +770,6 @@ function toolActivityLabel(call: ToolCall): string {
   }
 }
 
-function isWorkspaceTool(name: string): boolean {
-  return name === 'list_project_files' || name === 'read_project_file' ||
-    name === 'write_project_file' || name === 'search_project_files' || name === 'run_terminal';
-}
-
-function agentProgressFingerprint(session: LlmSession): string {
-  // Exclude updatedAt/createdAt: repeating todo_write with identical status is not progress.
-  const todos = session.todos.map((todo) => ({
-    id: todo.id,
-    title: todo.title,
-    status: todo.status,
-    priority: todo.priority,
-    blockedBy: todo.blockedBy,
-    verification: todo.verification,
-    blockedReason: todo.blockedReason ?? '',
-    completionEvidence: todo.completionEvidence ?? '',
-  }));
-  return JSON.stringify({
-    lastCodeChangeAt: session.lastCodeChangeAt ?? 0,
-    lastWorkspaceChangeAt: session.lastWorkspaceChangeAt ?? 0,
-    codeChangeVersion: session.codeChangeVersion,
-    todos,
-  });
-}
 
 async function executeTool(
   session: LlmSession,
