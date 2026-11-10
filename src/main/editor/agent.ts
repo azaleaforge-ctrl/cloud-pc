@@ -18,7 +18,7 @@ import { loadInstalledSkillInstructions } from './installedSkills';
 import { callMcpPluginTool, disposeMcpPluginRuntimes, listEnabledMcpTools } from './mcpPlugins';
 import { startTerminalCommand } from './terminalRuntime';
 import { getAgentTerminalGuidance, resolveTerminalShell } from './terminalShell';
-import { getToolRecoveryHint, isToolFailureResult, repeatedFailureSignature, repeatedNoProgressActionSignature } from './agentFailureGuard';
+import { getRepeatedActionRecoveryHint, getToolRecoveryHint, isToolFailureResult, repeatedFailureSignature, repeatedNoProgressActionSignature } from './agentFailureGuard';
 import { listBuiltinAgentSkills } from './skills';
 import { hasSuccessfulTerminalVerification } from './agentVerification';
 import { openGeminiCompletionStream } from './agentProviders';
@@ -1330,7 +1330,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         'Jika keputusan pengguna benar-benar diperlukan, gunakan tool ask_user untuk menampilkan 3 opsi yang berbeda, konteks/dampak, dan alasan rekomendasi. Rekomendasi tidak berarti otomatis dipilih; tunggu jawaban pengguna. Untuk hal yang dapat diputuskan dengan aman dari kode, test, atau dokumentasi, jangan mengganggu pengguna dengan pertanyaan.',
         'Untuk tugas multi-langkah atau perubahan kode yang substantif, buat Todo List menggunakan todo_write sebelum tindakan yang mengubah workspace atau menjalankan command: write_project_file, run_terminal, penulisan memory, dan tool/plugin yang dapat mengubah keadaan. Discovery/read-only (list_project_files, read_project_file, search_project_files, todo_read, read_session_memory, serta riset web/registry) BOLEH dilakukan lebih dahulu tanpa Todo agar kamu dapat memahami proyek dan menyusun rencana berdasarkan fakta. Setelah discovery, buat Todo sebelum tindakan mutatif. Pada rencana awal, mulai satu task sebagai in_progress dan sisanya pending dengan blockedBy bila berurutan. JANGAN menandai task pending sebagai completed pada pembaruan yang sama saat task itu baru diaktifkan. Sebelum mengerjakan task, pastikan status task sudah in_progress melalui pembaruan todo_write yang berhasil diterima. Setelah pekerjaan dan kriteria verification benar-benar diperiksa, tandai completed pada panggilan todo_write berikutnya dengan completionEvidence spesifik. Jika todo_write gagal, jangan ulangi payload yang sama: panggil todo_read, ikuti validator, perbaiki status yang benar-benar tersimpan, lalu lanjutkan. Jangan mulai task dependen sebelum prasyarat completed. Jangan mengubah ID, judul, atau dependensi task selesai.',
         'Jangan tandai task completed hanya agar bisa maju. Setelah pekerjaan task dilakukan, verifikasi sesuai field verification dan berikan completionEvidence spesifik pada todo_write. Jika terhambat, tandai blocked dengan blockedReason dan jelaskan hambatan; jangan mengarang keberhasilan. Todo List adalah kontrak eksekusi, bukan dekorasi.',
-        'Lanjutkan agent loop selama pekerjaan masih dapat dilanjutkan, tetapi jangan mengulang kegagalan dengan variasi argumen kecil. Setelah tool gagal, analisis hasilnya dan ubah pendekatan. Untuk error todo_write, wajib todo_read sebelum pembaruan berikutnya. Untuk error terminal, perbaiki sintaks sesuai shell aktif; jangan mengubah source code yang tidak terkait untuk menutupi error shell. Sistem menghentikan run jika pengguna membatalkan, ada error fatal, run mencapai safety budget, akar kegagalan tool yang sama berulang, atau tidak ada kemajuan setelah instruksi koreksi.',
+        'Lanjutkan agent loop selama pekerjaan masih dapat dilanjutkan. Setelah tool gagal atau tindakan identik tidak menghasilkan kemajuan, analisis hasilnya dan pilih pendekatan berbeda; jangan mengulang baca file/folder yang sama, command yang sama, atau payload yang sama. Untuk error todo_write, wajib todo_read sebelum pembaruan berikutnya. Untuk error terminal, perbaiki sintaks sesuai shell aktif; jangan mengubah source code yang tidak terkait untuk menutupi error shell. Saat pola berulang terdeteksi, runtime melewati pemanggilan identik berikutnya dan memberi instruksi pemulihan agar kamu memakai hasil sebelumnya, mempersempit pencarian, membaca sumber lain yang relevan, atau memilih command/tool alternatif. Run hanya berhenti karena pengguna membatalkan, error fatal, atau safety budget keseluruhan tercapai; pengulangan tiga kali bukan alasan untuk menghentikan run.',
         'Mulai dengan inventory workspace yang disediakan, lalu gunakan read_project_file untuk membaca file relevan sebelum menulisnya. Gunakan search_project_files untuk mencari simbol/bug.',
         'write_project_file benar-benar membuat file atau menulis file ke disk pada folder project aktif. Setelah memakai tool, hasilnya akan muncul sebagai daftar perubahan dengan diff lama/baru.',
         'Path tool harus relatif ke root proyek atau absolute path di dalam root tersebut. Jangan menulis di luar root workspace.',
@@ -1415,6 +1415,8 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       let blockedReason: string | null = null;
       const repeatedFailures = new Map<string, number>();
       const repeatedNoProgressActions = new Map<string, number>();
+      const suppressedNoProgressActions = new Set<string>();
+      const recoveryInstructionsSent = new Set<string>();
 
       while (!session.killed) {
         if (Date.now() - runStartedAt >= MAX_AGENT_RUN_MS) {
@@ -1525,6 +1527,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
           })),
         });
 
+        let recoveryDirective: string | null = null;
         for (const call of orderedToolCalls) {
           if (session.killed) break;
           if (Date.now() - runStartedAt >= MAX_AGENT_RUN_MS) {
@@ -1546,22 +1549,27 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
           const startedActivity: AgentToolActivity = { id: activityId, name: call.name, status: 'running', detail: activityLabel, ts: Date.now() };
           emit(session, { type: 'tool-status', activity: startedActivity });
 
+          const repeatedActionSuppressed = Boolean(noProgressKey && suppressedNoProgressActions.has(noProgressKey));
           let result: string;
-          try {
-            if (shouldBlockToolUntilTodoPlan(requiresTodoPlan, session.todos.some((todo) => todo.status === 'in_progress'), call.name)) {
-              result = session.todos.length === 0
-                ? 'Tool ditahan: buat Todo List dengan todo_write terlebih dahulu untuk tugas multi-langkah, lalu ulangi tool ini.'
-                : 'Tool ditahan: tidak ada task Todo berstatus in_progress. Perbarui Todo List dengan todo_write dan aktifkan satu task yang siap dikerjakan; pertahankan ID task lama dan jangan mengubah task completed.';
-            } else {
-              result = await executeTool(session, userDataDir, root, call, pendingApprovals, pendingQuestions, mcpTools);
+          if (repeatedActionSuppressed) {
+            result = 'Tool dilewati: tindakan identik ini sudah dicoba tanpa perubahan state dan tidak dijalankan ulang agar tidak menghabiskan waktu/biaya. Gunakan hasil tool sebelumnya dan pilih pendekatan berbeda.';
+          } else {
+            try {
+              if (shouldBlockToolUntilTodoPlan(requiresTodoPlan, session.todos.some((todo) => todo.status === 'in_progress'), call.name)) {
+                result = session.todos.length === 0
+                  ? 'Tool ditahan: buat Todo List dengan todo_write terlebih dahulu untuk tugas multi-langkah, lalu ulangi tool ini.'
+                  : 'Tool ditahan: tidak ada task Todo berstatus in_progress. Perbarui Todo List dengan todo_write dan aktifkan satu task yang siap dikerjakan; pertahankan ID task lama dan jangan mengubah task completed.';
+              } else {
+                result = await executeTool(session, userDataDir, root, call, pendingApprovals, pendingQuestions, mcpTools);
+              }
+            } catch (error) {
+              result = 'Tool gagal: ' + ((error as Error).message || 'kesalahan tidak diketahui');
             }
-          } catch (error) {
-            result = 'Tool gagal: ' + ((error as Error).message || 'kesalahan tidak diketahui');
           }
 
           const rawResult = result;
-          const failed = isToolFailureResult(rawResult);
-          const failureKey = repeatedFailureSignature(call.name, rawResult);
+          const failed = !repeatedActionSuppressed && isToolFailureResult(rawResult);
+          const failureKey = repeatedActionSuppressed ? null : repeatedFailureSignature(call.name, rawResult);
 
           if (failed) {
             result = rawResult + '\n\n' + getToolRecoveryHint(call.name, rawResult);
@@ -1571,8 +1579,10 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
             type: 'tool-status',
             activity: {
               ...startedActivity,
-              status: failed ? 'failed' : 'completed',
-              detail: failed ? activityLabel + ' · ' + rawResult.replace(/\s+/g, ' ').slice(0, 180) : activityLabel + ' · selesai',
+              status: failed || repeatedActionSuppressed ? 'failed' : 'completed',
+              detail: repeatedActionSuppressed
+                ? activityLabel + ' · dilewati; gunakan hasil sebelumnya'
+                : failed ? activityLabel + ' · ' + rawResult.replace(/\s+/g, ' ').slice(0, 180) : activityLabel + ' · selesai',
               ts: Date.now(),
             },
           });
@@ -1586,15 +1596,21 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
             }
           }
 
-          if (noProgressKey) {
-            // Count repeated identical calls on failure too; slightly different error
-            // text must not let the model retry the same command forever.
+          if (noProgressKey && !repeatedActionSuppressed) {
+            // Count identical actions that leave workspace/Todo state unchanged.
+            // Once the threshold is reached, skip future identical calls instead
+            // of terminating the whole run or repeatedly executing an expensive read.
             const progressAfter = agentProgressFingerprint(session);
             if (progressAfter === progressBefore) {
               const repeatCount = (repeatedNoProgressActions.get(noProgressKey) ?? 0) + 1;
               repeatedNoProgressActions.set(noProgressKey, repeatCount);
               if (repeatCount >= MAX_IDENTICAL_NO_PROGRESS_ACTIONS) {
-                blockedReason = 'Agent mengulang tool "' + call.name + '" dengan argumen dan state yang sama tanpa kemajuan ' + repeatCount + ' kali. Run dihentikan untuk mencegah loop. Periksa output tool terakhir, ubah pendekatan, atau lanjutkan setelah ada perubahan nyata.';
+                suppressedNoProgressActions.add(noProgressKey);
+                const recoveryKey = 'no-progress:' + noProgressKey;
+                if (!recoveryInstructionsSent.has(recoveryKey)) {
+                  recoveryInstructionsSent.add(recoveryKey);
+                  recoveryDirective = 'GANTI PENDEKATAN — jangan menghentikan task. Tindakan "' + call.name + '" tidak menghasilkan perubahan state setelah ' + repeatCount + ' percobaan. Jangan mengulang tindakan identik ini; gunakan output yang sudah tersedia lalu lanjutkan dengan cara lain. ' + getRepeatedActionRecoveryHint(call.name);
+                }
               }
             }
           }
@@ -1602,8 +1618,12 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
           if (failureKey) {
             const failureCount = (repeatedFailures.get(failureKey) ?? 0) + 1;
             repeatedFailures.set(failureKey, failureCount);
-            if (failureCount >= MAX_REPEATED_TOOL_FAILURES) {
-              blockedReason = 'Tool "' + call.name + '" mengulang akar kegagalan yang sama ' + failureCount + ' kali walaupun detail argumen berubah. Agent dihentikan agar tidak berputar tanpa kemajuan. Error terakhir: ' + rawResult.replace(/\s+/g, ' ').slice(0, 220);
+            if (failureCount === MAX_REPEATED_TOOL_FAILURES) {
+              const recoveryKey = 'failure:' + failureKey;
+              if (!recoveryInstructionsSent.has(recoveryKey)) {
+                recoveryInstructionsSent.add(recoveryKey);
+                recoveryDirective = 'GANTI PENDEKATAN — jangan mengakhiri run hanya karena error berulang. Tool "' + call.name + '" menunjukkan akar kegagalan yang sama meskipun argumen berubah. Periksa error terakhir dan pilih jalur implementasi, tool, sumber, atau command alternatif. Jangan mengulang penyebab yang sama. Error terakhir: ' + rawResult.replace(/\s+/g, ' ').slice(0, 220) + ' ' + getRepeatedActionRecoveryHint(call.name);
+              }
             }
           }
 
@@ -1617,6 +1637,9 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
           if (blockedReason) break;
         }
 
+        if (recoveryDirective && !session.killed) {
+          conversation.push({ role: 'user', content: recoveryDirective });
+        }
         if (blockedReason) break;
       }
 
