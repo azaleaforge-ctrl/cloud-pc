@@ -121,6 +121,10 @@ export interface AgentTodo {
   updatedAt: number;
 }
 
+export type AgentPermissionDecision = 'deny' | 'once' | 'always';
+export type AgentReasoningEffort = 'low' | 'medium' | 'high' | 'maximal';
+export type AgentReasoningParameter = 'reasoning' | 'reasoning_effort';
+
 export interface AgentToolActivity {
   id: string;
   name: string;
