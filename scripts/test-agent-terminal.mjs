@@ -122,7 +122,7 @@ try {
       name: 'PowerShell test',
       family: 'powershell',
       interactiveArgs: [],
-      commandArgs: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command'],
+      commandArgs: ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand'],
     };
     const invocation = buildTerminalCommandInvocation('node -e "process.exit(7)"', powershellProfile);
     const wrapper = Buffer.from(invocation.args.at(-1), 'base64').toString('utf16le');
