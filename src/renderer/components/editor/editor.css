@@ -2012,6 +2012,25 @@ button.ed-status-item:hover {
   background: #fbbf24;
   color: #291a00;
 }
+.ai-permission-actions button.is-selected,
+.ai-permission-actions button:focus-visible {
+  outline: 2px solid #e2e8f0;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(148,163,184,.2);
+}
+.ai-permission-actions .ai-permission-always {
+  border-color: #2dd4bf;
+  background: #2dd4bf;
+  color: #062b29;
+}
+.ai-permission-actions button:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+.ai-permission-card:focus-visible {
+  outline: 2px solid rgba(45,212,191,.8);
+  outline-offset: 3px;
+}
 .ai-footer-workspace {
   align-self: center;
   color: var(--ed-text-3);
