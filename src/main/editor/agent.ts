@@ -10,7 +10,7 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import * as pty from '@lydell/node-pty';
 import type { IPty } from '@lydell/node-pty';
-import type { AgentAttachmentRef, AgentEntry, AgentEvent, AgentProviderId, AgentFileChange, AgentQuestionOption, AgentRunResult, AgentSkillInfo, AgentSkillSelection, AgentTodo, AgentToolActivity, ChatMessage, McpExposedTool, RouterConfig } from '../../shared/agents';
+import type { AgentAttachmentRef, AgentEntry, AgentEvent, AgentPermissionDecision, AgentProviderId, AgentReasoningEffort, AgentReasoningParameter, AgentFileChange, AgentQuestionOption, AgentRunResult, AgentSkillInfo, AgentSkillSelection, AgentTodo, AgentToolActivity, ChatMessage, McpExposedTool, RouterConfig } from '../../shared/agents';
 import { applyAgentTodoUpdate } from './agentTodo';
 import { requiresTodoPlanForRequest, shouldBlockToolUntilTodoPlan } from './agentTodoPolicy';
 import { installBuiltinSkills, loadAgentSkillInstructions, selectAgentSkills } from './skills';
@@ -29,6 +29,8 @@ import { checkPackageVersion, getCurrentTime, readWebPage, searchWeb, type Packa
 import { loadAgentSession, recordAgentFileCheckpoint, saveAgentSession } from './agentSessionStore';
 import { normalizeOpenAiToolCallMessages } from './openAiMessages';
 import { isSensitiveWorkspacePath, resolveWorkspacePath as resolveSecureWorkspacePath } from './workspacePathSecurity';
+import { createRememberedPermissionKey, RememberedPermissionStore } from './agentPermissions';
+import { buildReasoningRequestParameters } from './agentReasoning';
 
 type EmitAgentEvent = (event: AgentEvent, sessionId: string) => void;
 
@@ -38,11 +40,11 @@ export interface AgentService {
   listSkills(): AgentSkillInfo[];
   prepareAttachments(filePaths: string[]): Promise<AgentAttachmentRef[]>;
   beginConversation(conversationId: string): Promise<void>;
-  startChat(agentId: string, projectPath: string | null, onEvent: EmitAgentEvent, messages?: ChatMessage[], activePath?: string | null, conversationId?: string): Promise<string>;
+  startChat(agentId: string, projectPath: string | null, onEvent: EmitAgentEvent, messages?: ChatMessage[], activePath?: string | null, conversationId?: string, reasoningEffort?: AgentReasoningEffort, reasoningParameter?: AgentReasoningParameter | null): Promise<string>;
   startCli(agentId: string, projectPath: string, cols: number, rows: number, onEvent: EmitAgentEvent): Promise<string>;
   sendInput(sessionId: string, data: string): Promise<void>;
   resizeTerminal(sessionId: string, cols: number, rows: number): Promise<void>;
-  approveTool(sessionId: string, requestId: string, approved: boolean): Promise<void>;
+  approveTool(sessionId: string, requestId: string, decision: AgentPermissionDecision): Promise<void>;
   answerQuestion(sessionId: string, requestId: string, answer: string): Promise<void>;
   stopAgent(sessionId: string): Promise<void>;
   disposeAll(): void;
@@ -62,6 +64,8 @@ interface LlmSession {
   onEvent: EmitAgentEvent;
   killed: boolean;
   conversationId: string;
+  reasoningEffort?: AgentReasoningEffort;
+  reasoningParameter?: AgentReasoningParameter;
   memoryPath: string;
   isConversationCurrent: () => boolean;
   todos: AgentTodo[];
@@ -81,7 +85,7 @@ interface ToolDefinition {
   function: { name: string; description: string; parameters: Record<string, unknown> };
 }
 interface PendingApproval {
-  resolve: (approved: boolean) => void;
+  resolve: (decision: AgentPermissionDecision) => void;
   timeout: NodeJS.Timeout;
 }
 interface PendingUserQuestion {
@@ -566,18 +570,18 @@ async function searchProjectFiles(root: string, query: string, requestedPath: st
   return results.join('\n');
 }
 
-function askForCommandApproval(session: LlmSession, command: string, reason: string, approvals: Map<string, PendingApproval>): Promise<boolean> {
+function askForCommandApproval(session: LlmSession, command: string, reason: string, scopeLabel: string, approvals: Map<string, PendingApproval>): Promise<AgentPermissionDecision> {
   const requestId = randomUUID();
   const key = session.id + ':' + requestId;
-  return new Promise<boolean>((resolveApproval) => {
+  return new Promise<AgentPermissionDecision>((resolveApproval) => {
     const timeout = setTimeout(() => {
       const pending = approvals.get(key);
       if (!pending) return;
       approvals.delete(key);
-      pending.resolve(false);
+      pending.resolve('deny');
     }, 120_000);
     approvals.set(key, { resolve: resolveApproval, timeout });
-    emit(session, { type: 'permission-request', requestId, command, reason });
+    emit(session, { type: 'permission-request', requestId, command, reason, scopeLabel, allowAlways: true });
   });
 }
 
@@ -730,6 +734,7 @@ async function executeTool(
   approvals: Map<string, PendingApproval>,
   questions: Map<string, PendingUserQuestion>,
   mcpTools: McpExposedTool[],
+  rememberedPermissions: RememberedPermissionStore,
 ): Promise<string> {
   if (!root) return 'Tool gagal: belum ada folder proyek yang terbuka.';
   let args: Record<string, unknown>;
@@ -909,11 +914,25 @@ async function executeTool(
         return 'Tool gagal: timeout_seconds harus bilangan bulat antara 10 dan ' + MAX_COMMAND_TIMEOUT_SECONDS + '.';
       }
       const timeoutSeconds = requestedTimeout === undefined ? DEFAULT_COMMAND_TIMEOUT_SECONDS : Number(requestedTimeout);
-      emit(session, { type: 'activity', message: 'Menunggu persetujuan command terminal…' });
-      const approved = await askForCommandApproval(session, command, reason + ' · batas waktu ' + timeoutSeconds + ' detik', approvals);
-      if (!approved) {
+      const grantKey = createRememberedPermissionKey('terminal', root, { command });
+      const wasRemembered = rememberedPermissions.has(grantKey);
+      let decision: AgentPermissionDecision = wasRemembered ? 'always' : 'deny';
+      if (!wasRemembered) {
+        emit(session, { type: 'activity', message: 'Menunggu persetujuan command terminal…' });
+        decision = await askForCommandApproval(
+          session, command, reason + ' · batas waktu ' + timeoutSeconds + ' detik',
+          'Command yang sama persis hanya di workspace ini: ' + root, approvals,
+        );
+      } else {
+        emit(session, { type: 'activity', message: 'Izin tersimpan cocok; menjalankan command yang sama di workspace ini…' });
+      }
+      if (decision === 'deny') {
         emit(session, { type: 'activity', message: 'Command ditolak atau waktu persetujuan habis.' });
         return 'Pengguna menolak atau tidak menyetujui command dalam 2 menit. Jangan ulangi tanpa meminta persetujuan baru.';
+      }
+      if (decision === 'always' && !wasRemembered) {
+        try { await rememberedPermissions.remember(grantKey); }
+        catch (error) { return 'Tool gagal menyimpan izin permanen; command tidak dijalankan. ' + ((error as Error).message || 'Kesalahan penyimpanan izin.'); }
       }
       if (session.killed) return 'Command dibatalkan karena agent dihentikan sebelum eksekusi.';
       emit(session, { type: 'activity', message: 'Menjalankan command terminal…' });
@@ -923,13 +942,25 @@ async function executeTool(
       const mcpTool = mcpTools.find(item => item.exposedName === call.name);
       if (!mcpTool) return 'Tool tidak dikenal: ' + call.name;
       const preview = JSON.stringify(args).slice(0, 300);
-      const approved = await askForCommandApproval(
-        session,
-        'MCP · ' + mcpTool.pluginName + ' / ' + mcpTool.remoteName + ' ' + preview,
-        'Izinkan panggilan ke plugin MCP eksternal? Tool tersebut dapat membaca atau mengubah data sesuai izin proses pluginnya. Periksa nama dan argumen sebelum menyetujui.',
-        approvals,
-      );
-      if (!approved) return 'Tool gagal: panggilan MCP ditolak atau persetujuan kedaluwarsa.';
+      const grantKey = createRememberedPermissionKey('mcp', root, { plugin: mcpTool.pluginName, tool: mcpTool.remoteName, arguments: args });
+      const wasRemembered = rememberedPermissions.has(grantKey);
+      let decision: AgentPermissionDecision = wasRemembered ? 'always' : 'deny';
+      if (!wasRemembered) {
+        decision = await askForCommandApproval(
+          session,
+          'MCP · ' + mcpTool.pluginName + ' / ' + mcpTool.remoteName + ' ' + preview,
+          'Izinkan panggilan ke plugin MCP eksternal? Tool tersebut dapat membaca atau mengubah data sesuai izin proses pluginnya. Periksa nama dan argumen sebelum menyetujui.',
+          'Panggilan MCP identik (plugin, tool, dan argumen sama) hanya di workspace ini: ' + root,
+          approvals,
+        );
+      } else {
+        emit(session, { type: 'activity', message: 'Izin MCP tersimpan cocok; menjalankan panggilan identik…' });
+      }
+      if (decision === 'deny') return 'Tool gagal: panggilan MCP ditolak atau persetujuan kedaluwarsa.';
+      if (decision === 'always' && !wasRemembered) {
+        try { await rememberedPermissions.remember(grantKey); }
+        catch (error) { return 'Tool gagal menyimpan izin MCP permanen; panggilan tidak dijalankan. ' + ((error as Error).message || 'Kesalahan penyimpanan izin.'); }
+      }
       if (session.killed) return 'Tool gagal: agent dihentikan sebelum panggilan MCP dijalankan.';
       emit(session, { type: 'activity', message: 'Menjalankan MCP · ' + mcpTool.pluginName + ' / ' + mcpTool.remoteName });
       return await callMcpPluginTool(userDataDir, mcpTool, args);
@@ -1013,6 +1044,7 @@ async function openCompletionStream(
           stream: true,
           max_tokens: 6144,
           temperature: 0.2,
+          ...buildReasoningRequestParameters(session.reasoningEffort, session.reasoningParameter),
           ...(provider === 'openrouter' ? { usage: { include: true } } : {}),
           ...(provider === 'groq' ? { stream_options: { include_usage: true } } : {}),
         }),
@@ -1189,6 +1221,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
   const llmSessions = new Map<string, LlmSession>();
   const pendingApprovals = new Map<string, PendingApproval>();
   const pendingQuestions = new Map<string, PendingUserQuestion>();
+  const rememberedPermissions = new RememberedPermissionStore(join(app.getPath('userData'), 'ai-permissions.json'));
   const conversationTodos = new Map<string, AgentTodo[]>();
   const userDataDir = app.getPath('userData');
   const memorySessionsDir = join(userDataDir, 'ai-memory', 'sessions');
@@ -1259,6 +1292,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       if (session.agent.type !== 'llm-chat') throw new Error(session.agent.name + ' adalah CLI eksternal. Pilih Poolside untuk chat coding bawaan.');
       if (!projectPath) throw new Error('Belum ada folder proyek. Buka atau buat ruangan terlebih dahulu.');
       const root = await realpath(projectPath);
+      await rememberedPermissions.load();
       const inventory = await listProjectFiles(root, '.');
       let mcpTools: McpExposedTool[] = [];
       try {
@@ -1560,7 +1594,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
                   ? 'Tool ditahan: buat Todo List dengan todo_write terlebih dahulu untuk tugas multi-langkah, lalu ulangi tool ini.'
                   : 'Tool ditahan: tidak ada task Todo berstatus in_progress. Perbarui Todo List dengan todo_write dan aktifkan satu task yang siap dikerjakan; pertahankan ID task lama dan jangan mengubah task completed.';
               } else {
-                result = await executeTool(session, userDataDir, root, call, pendingApprovals, pendingQuestions, mcpTools);
+                result = await executeTool(session, userDataDir, root, call, pendingApprovals, pendingQuestions, mcpTools, rememberedPermissions);
               }
             } catch (error) {
               result = 'Tool gagal: ' + ((error as Error).message || 'kesalahan tidak diketahui');
@@ -1680,6 +1714,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         emit(session, { type: 'state', state: { status: 'error', agentId: session.agent.id, error: message } });
       }
     } finally {
+      emit(session, { type: 'skills', skills: [] });
       llmSessions.delete(session.id);
       settlePending(session.id, false);
     }
@@ -1697,7 +1732,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
       await beginConversation(conversationId);
     },
 
-    async startChat(agentId, projectPath, onEvent, messages = [], activePath = null, conversationId): Promise<string> {
+    async startChat(agentId, projectPath, onEvent, messages = [], activePath = null, conversationId, reasoningEffort, reasoningParameter): Promise<string> {
       const agent = agents.get(agentId);
       if (!agent) throw new Error('Agent tidak ditemukan: ' + agentId);
       const selectedConversation = conversationId || activeConversationId;
@@ -1717,6 +1752,8 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         onEvent,
         killed: false,
         conversationId: selectedConversation,
+        reasoningEffort: reasoningEffort && ['low', 'medium', 'high', 'maximal'].includes(reasoningEffort) ? reasoningEffort : 'low',
+        reasoningParameter: reasoningParameter === 'reasoning' || reasoningParameter === 'reasoning_effort' ? reasoningParameter : undefined,
         memoryPath: conversationMemoryPath(selectedConversation),
         isConversationCurrent: () => isCurrentConversation(selectedConversation),
         todos: [...initialTodos],
@@ -1791,13 +1828,13 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         try { cli.pty.resize(Math.max(1, cols), Math.max(1, rows)); } catch { /* terminal may be closing */ }
       }
     },
-    async approveTool(sessionId, requestId, approved): Promise<void> {
+    async approveTool(sessionId, requestId, decision): Promise<void> {
       const key = sessionId + ':' + requestId;
       const pending = pendingApprovals.get(key);
       if (!pending) return;
       clearTimeout(pending.timeout);
       pendingApprovals.delete(key);
-      pending.resolve(approved);
+      pending.resolve(decision === 'always' || decision === 'once' ? decision : 'deny');
     },
     async answerQuestion(sessionId, requestId, answer): Promise<void> {
       const cleanAnswer = answer.trim();
