@@ -13,7 +13,7 @@ import type { IPty } from '@lydell/node-pty';
 import type { AgentAttachmentRef, AgentEntry, AgentEvent, AgentPermissionDecision, AgentProviderId, AgentReasoningEffort, AgentReasoningParameter, AgentFileChange, AgentQuestionOption, AgentRunResult, AgentSkillInfo, AgentSkillSelection, AgentTodo, AgentToolActivity, ChatMessage, McpExposedTool, RouterConfig } from '../../shared/agents';
 import { applyAgentTodoUpdate } from './agentTodo';
 import { requiresTodoPlanForRequest, shouldBlockToolUntilTodoPlan } from './agentTodoPolicy';
-import { installBuiltinSkills, loadAgentSkillInstructions, selectAgentSkills } from './skills';
+import { installBuiltinSkills, loadAgentSkillInstructions, selectAgentSkills, selectSkillsForToolActivity } from './skills';
 import { loadInstalledSkillInstructions } from './installedSkills';
 import { callMcpPluginTool, disposeMcpPluginRuntimes, listEnabledMcpTools } from './mcpPlugins';
 import { startTerminalCommand } from './terminalRuntime';
@@ -1331,7 +1331,9 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
         : '';
       const persistedSession = await loadAgentSession(userDataDir, session.conversationId).catch(() => null);
       const conversationSummary = persistedSession?.summary ?? '';
-      emit(session, { type: 'skills', skills: skillSelections });
+      // Skills stay in the model's instructions for the run, while the right panel
+      // shows only the skill currently relevant to an executing tool step.
+      emit(session, { type: 'skills', skills: [] });
       let activeFileContext = '';
       if (activePath) {
         try {
@@ -1462,6 +1464,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
           break;
         }
 
+        emit(session, { type: 'skills', skills: [] });
         emit(session, { type: 'activity', message: 'Agent sedang bekerja · ' + totalToolCalls + ' pemanggilan tool selesai' });
         const toolChoice = codingIntent && !hasUsedWorkspaceTools ? 'required' : 'auto';
         let response: Response;
@@ -1581,6 +1584,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
           const actionSignature = repeatedNoProgressActionSignature(call.name, call.arguments);
           const noProgressKey = actionSignature ? actionSignature + ':' + progressBefore : null;
           const startedActivity: AgentToolActivity = { id: activityId, name: call.name, status: 'running', detail: activityLabel, ts: Date.now() };
+          emit(session, { type: 'skills', skills: selectSkillsForToolActivity(skillSelections, call.name, call.arguments) });
           emit(session, { type: 'tool-status', activity: startedActivity });
 
           const repeatedActionSuppressed = Boolean(noProgressKey && suppressedNoProgressActions.has(noProgressKey));
@@ -1609,6 +1613,7 @@ export function createAgentService(getRouterConfig: () => RouterConfig | null): 
             result = rawResult + '\n\n' + getToolRecoveryHint(call.name, rawResult);
           }
 
+          emit(session, { type: 'skills', skills: [] });
           emit(session, {
             type: 'tool-status',
             activity: {
