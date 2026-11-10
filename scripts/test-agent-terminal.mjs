@@ -41,6 +41,8 @@ function terminalCommand(mode, shell) {
     if (mode === 'streams') return "[Console]::Out.WriteLine('terminal-runtime-ok'); [Console]::Error.WriteLine('stderr-ok')";
     if (mode === 'fail') return 'exit 7';
     if (mode === 'native-fail') return 'node -e "process.exit(7)"';
+    if (mode === 'cmdlet-fail') return "Get-Item -LiteralPath '" + join(temp, 'missing-cmdlet-target.txt').replace(/'/g, "''") + "'; Write-Output 'continued-after-cmdlet-error'";
+    if (mode === 'native-stderr-success') return "node -e \"console.error('native-stderr-ok'); process.exit(0)\"";
     if (mode === 'location') return 'Get-Location | Select-Object -ExpandProperty Path';
     if (mode === 'hang') return 'Start-Sleep -Seconds 30';
     if (mode === 'large') return "1..1000 | ForEach-Object { 'x' }";
@@ -121,9 +123,12 @@ try {
       commandArgs: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command'],
     };
     const invocation = buildTerminalCommandInvocation('node -e "process.exit(7)"', powershellProfile);
-    assert.match(invocation.args.at(-1), /\$global:LASTEXITCODE = 0/);
+    assert.match(invocation.args.at(-1), /\$global:LASTEXITCODE = \$null/);
+    assert.match(invocation.args.at(-1), /\$errorCountBefore = \$global:Error\.Count/);
     assert.match(invocation.args.at(-1), /Invoke-Expression \$scriptText/);
+    assert.match(invocation.args.at(-1), /NativeCommandError/);
     assert.match(invocation.args.at(-1), /\$nativeExitCode = \$global:LASTEXITCODE/);
+    assert.doesNotMatch(invocation.args.at(-1), /\$global:LASTEXITCODE = 0/);
   });
 
   const outputEvents = [];
@@ -159,6 +164,22 @@ try {
     assert.equal(nativeFailedRun.status, 'failed');
     assert.equal(nativeFailedRun.exitCode, 7);
   });
+
+  if (shell.family === 'powershell') {
+    const cmdletFailedRun = await startTerminalCommand(options(terminalCommand('cmdlet-fail', shell))).promise;
+    test('reports PowerShell non-terminating cmdlet errors as failures even when a later cmdlet succeeds', () => {
+      assert.equal(cmdletFailedRun.status, 'failed');
+      assert.equal(cmdletFailedRun.exitCode, 1);
+      assert.match(cmdletFailedRun.output, /continued-after-cmdlet-error/);
+    });
+
+    const nativeStderrRun = await startTerminalCommand(options(terminalCommand('native-stderr-success', shell))).promise;
+    test('does not mistake native stderr output for a PowerShell cmdlet failure', () => {
+      assert.equal(nativeStderrRun.status, 'completed');
+      assert.equal(nativeStderrRun.exitCode, 0);
+      assert.match(nativeStderrRun.output, /native-stderr-ok/);
+    });
+  }
 
   const locationRun = await startTerminalCommand(options(terminalCommand('location', shell))).promise;
   test('executes the shell-language probe using the selected command interpreter', () => {

@@ -2,6 +2,7 @@ import { promises as fsp } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { shell } from 'electron';
 import { IGNORED_DIRS } from '../../shared/types';
+import { resolveWorkspacePath as resolveSecureWorkspacePath } from './workspacePathSecurity';
 import {
   EDITOR_MAX_FILE_BYTES,
   type EditorFileData,
@@ -44,14 +45,7 @@ function isInside(root: string, target: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
-/** Validasi path dari renderer: harus absolut dan berada di dalam root project. */
-function safeResolve(root: string, input: string): string {
-  if (typeof input !== 'string' || !input.trim()) throw new Error('Path tidak valid.');
-  if (!isAbsolute(input)) throw new Error('Path harus absolut.');
-  const abs = resolve(input);
-  if (!isInside(root, abs)) throw new Error('Path di luar folder project.');
-  return abs;
-}
+
 
 function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -72,22 +66,14 @@ function isBinaryBuffer(buf: Buffer): boolean {
 async function prepareWriteTarget(root: string, abs: string): Promise<void> {
   const parent = dirname(abs);
   await fsp.mkdir(parent, { recursive: true });
-  let realParent = parent;
-  try {
-    realParent = await fsp.realpath(parent);
-  } catch {
-    // parent baru saja dibuat; realpath gagal berarti tidak ada symlink untuk diikuti
-  }
+  const realParent = await fsp.realpath(parent);
   if (!isInside(root, resolve(realParent))) throw new Error('Path di luar folder project.');
-  try {
-    const link = await fsp.lstat(abs);
-    if (link.isSymbolicLink()) {
-      const real = await fsp.realpath(abs);
-      if (!isInside(root, resolve(real))) throw new Error('Path di luar folder project.');
-    }
-  } catch (err) {
-    if (err instanceof Error && err.message === 'Path di luar folder project.') throw err;
-    // file belum ada; aman ditulis
+  const existing = await fsp.lstat(abs).catch((err: NodeJS.ErrnoException) => {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  });
+  if (existing?.isSymbolicLink()) {
+    throw new Error('Operasi tulis melalui symbolic link tidak diizinkan.');
   }
 }
 
@@ -105,14 +91,15 @@ export function createWorkspaceService(getRoot: () => string | null): WorkspaceS
   return {
     async listDir(path: string): Promise<EditorFileEntry[]> {
       const root = requireRoot(getRoot);
-      const abs = safeResolve(root, path);
-      const dirents = await fsp.readdir(abs, { withFileTypes: true });
+      const resolved = await resolveSecureWorkspacePath(root, path);
+      const dirents = await fsp.readdir(resolved.target, { withFileTypes: true });
       const entries: EditorFileEntry[] = [];
       for (const dirent of dirents) {
-        const full = join(abs, dirent.name);
+        const full = join(resolved.target, dirent.name);
         try {
-          // stat mengikuti symlink supaya folder symlink tetap bisa dibuka
-          const stat = await fsp.stat(full);
+          // Resolve setiap entri sebelum stat agar symlink yang keluar dari root tidak terekspos.
+          const safeEntry = await resolveSecureWorkspacePath(root, full);
+          const stat = await fsp.stat(safeEntry.target);
           const isDir = stat.isDirectory();
           entries.push({
             name: dirent.name,
@@ -134,7 +121,8 @@ export function createWorkspaceService(getRoot: () => string | null): WorkspaceS
 
     async readFile(path: string): Promise<EditorFileData> {
       const root = requireRoot(getRoot);
-      const abs = safeResolve(root, path);
+      const resolved = await resolveSecureWorkspacePath(root, path);
+      const abs = resolved.target;
       const stat = await fsp.stat(abs);
       if (stat.isDirectory()) throw new Error('Path adalah folder, bukan file.');
       const size = stat.size;
@@ -166,8 +154,9 @@ export function createWorkspaceService(getRoot: () => string | null): WorkspaceS
     async writeFile(path: string, content: string): Promise<EditorWriteResult> {
       try {
         const root = requireRoot(getRoot);
-        const abs = safeResolve(root, path);
-        await prepareWriteTarget(root, abs);
+        const resolved = await resolveSecureWorkspacePath(root, path, { allowMissing: true, rejectSymlinks: true });
+        const abs = resolved.target;
+        await prepareWriteTarget(resolved.root, abs);
         await fsp.writeFile(abs, typeof content === 'string' ? content : String(content ?? ''), 'utf8');
         const stat = await fsp.stat(abs);
         return { ok: true, mtime: Math.round(stat.mtime.getTime()) };
@@ -179,8 +168,9 @@ export function createWorkspaceService(getRoot: () => string | null): WorkspaceS
     async createFile(path: string): Promise<EditorOpResult> {
       try {
         const root = requireRoot(getRoot);
-        const abs = safeResolve(root, path);
-        await prepareWriteTarget(root, abs);
+        const resolved = await resolveSecureWorkspacePath(root, path, { allowMissing: true, rejectSymlinks: true });
+        const abs = resolved.target;
+        await prepareWriteTarget(resolved.root, abs);
         try {
           await fsp.writeFile(abs, '', { encoding: 'utf8', flag: 'wx' });
         } catch (err) {
@@ -198,8 +188,9 @@ export function createWorkspaceService(getRoot: () => string | null): WorkspaceS
     async createFolder(path: string): Promise<EditorOpResult> {
       try {
         const root = requireRoot(getRoot);
-        const abs = safeResolve(root, path);
-        if (abs === root) return { ok: true };
+        const resolved = await resolveSecureWorkspacePath(root, path, { allowMissing: true, rejectSymlinks: true });
+        const abs = resolved.target;
+        if (abs === resolved.root) return { ok: true };
         await fsp.mkdir(abs, { recursive: true });
         return { ok: true };
       } catch (err) {
@@ -210,9 +201,11 @@ export function createWorkspaceService(getRoot: () => string | null): WorkspaceS
     async renamePath(from: string, to: string): Promise<EditorOpResult> {
       try {
         const root = requireRoot(getRoot);
-        const src = safeResolve(root, from);
-        const dest = safeResolve(root, to);
-        if (src === root) return { ok: false, error: 'Tidak bisa memindahkan folder project.' };
+        const srcResolved = await resolveSecureWorkspacePath(root, from, { rejectSymlinks: true });
+        const destResolved = await resolveSecureWorkspacePath(root, to, { allowMissing: true, rejectSymlinks: true });
+        const src = srcResolved.target;
+        const dest = destResolved.target;
+        if (src === srcResolved.root) return { ok: false, error: 'Tidak bisa memindahkan folder project.' };
         if (src === dest) return { ok: true };
         if (dest.startsWith(src + '\\') || dest.startsWith(src + '/')) {
           return { ok: false, error: 'Tidak bisa memindahkan folder ke dalam dirinya sendiri.' };
@@ -234,8 +227,9 @@ export function createWorkspaceService(getRoot: () => string | null): WorkspaceS
     async deletePath(path: string): Promise<EditorOpResult> {
       try {
         const root = requireRoot(getRoot);
-        const abs = safeResolve(root, path);
-        if (abs === root) return { ok: false, error: 'Tidak bisa menghapus folder project.' };
+        const resolved = await resolveSecureWorkspacePath(root, path, { rejectSymlinks: true });
+        const abs = resolved.target;
+        if (abs === resolved.root) return { ok: false, error: 'Tidak bisa menghapus folder project.' };
         try {
           await shell.trashItem(abs);
         } catch {
@@ -252,7 +246,7 @@ export function createWorkspaceService(getRoot: () => string | null): WorkspaceS
       query: string,
       opts?: { caseSensitive?: boolean; maxResults?: number },
     ): Promise<EditorSearchHit[]> {
-      const root = requireRoot(getRoot);
+      const root = await fsp.realpath(requireRoot(getRoot));
       const needle = typeof query === 'string' ? query : '';
       if (!needle) return [];
       const maxResults = Math.max(1, Math.min(opts?.maxResults ?? SEARCH_DEFAULT_MAX, 2000));
@@ -276,7 +270,7 @@ export function createWorkspaceService(getRoot: () => string | null): WorkspaceS
         }
         for (const dirent of dirents) {
           if (hits.length >= maxResults || visited >= SEARCH_MAX_FILES) return;
-          if (IGNORED.has(dirent.name)) continue;
+          if (IGNORED.has(dirent.name) || dirent.isSymbolicLink()) continue;
           const full = join(dir, dirent.name);
           if (dirent.isDirectory()) {
             await walk(full);

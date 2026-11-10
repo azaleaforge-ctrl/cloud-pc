@@ -28,6 +28,7 @@ import { prepareAgentAttachments, resolveAgentAttachments } from './agentAttachm
 import { checkPackageVersion, getCurrentTime, readWebPage, searchWeb, type PackageEcosystem } from './agentResearch';
 import { loadAgentSession, recordAgentFileCheckpoint, saveAgentSession } from './agentSessionStore';
 import { normalizeOpenAiToolCallMessages } from './openAiMessages';
+import { isSensitiveWorkspacePath, resolveWorkspacePath as resolveSecureWorkspacePath } from './workspacePathSecurity';
 
 type EmitAgentEvent = (event: AgentEvent, sessionId: string) => void;
 
@@ -116,7 +117,6 @@ const IGNORED_DIRS = new Set([
   '.cache', 'coverage', '.venv', 'venv', '__pycache__', '.idea',
   '.vscode', 'release', 'vendor', 'target',
 ]);
-const SENSITIVE_NAME = /(?:^\.env(?:$|\.)|(?:^|[._-])(?:secret|secrets|credential|credentials|token|private[_-]?key)(?:[._-]|$)|(?:^|[\\/])id_rsa$|\.(?:pem|pfx|key)$)/i;
 
 const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
@@ -384,7 +384,7 @@ function findCliBinary(command: string): string | null {
 }
 
 function isSensitive(pathValue: string): boolean {
-  return pathValue.split(/[\\/]/).some((part) => SENSITIVE_NAME.test(part));
+  return isSensitiveWorkspacePath(pathValue);
 }
 function isIgnoredDir(name: string): boolean { return IGNORED_DIRS.has(name); }
 
@@ -397,35 +397,11 @@ function assertWithinRoot(root: string, target: string): void {
 }
 
 async function resolveWorkspacePath(rootPath: string, requestedPath: string, allowMissing = false): Promise<{ root: string; target: string; rel: string }> {
-  const root = await realpath(rootPath);
-  const raw = (requestedPath || '.').trim() || '.';
-  const target = resolve(root, raw);
-  assertWithinRoot(root, target);
-  const rel = relative(root, target).split(sep).join('/');
-  if (isSensitive(rel) && rel !== '.') {
-    throw new Error('Akses ditolak untuk file yang berpotensi berisi secret atau kredensial.');
-  }
-
-  try {
-    const actual = await realpath(target);
-    assertWithinRoot(root, actual);
-    return { root, target: actual, rel };
-  } catch (error) {
-    if (!allowMissing || (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    let parent = dirname(target);
-    while (parent !== root && parent !== dirname(parent)) {
-      try {
-        const parentInfo = await lstat(parent);
-        if (parentInfo.isSymbolicLink()) throw new Error('Path ditolak: folder induk menggunakan symbolic link.');
-        parent = dirname(parent);
-      } catch (parentError) {
-        if ((parentError as NodeJS.ErrnoException).code !== 'ENOENT') throw parentError;
-        parent = dirname(parent);
-      }
-      if (parent === '.' || parent === dirname(parent)) break;
-    }
-    return { root, target, rel };
-  }
+  return resolveSecureWorkspacePath(rootPath, requestedPath, {
+    allowMissing,
+    rejectSymlinks: allowMissing,
+    blockSensitive: true,
+  });
 }
 
 async function listProjectFiles(root: string, requestedPath: string): Promise<string> {
