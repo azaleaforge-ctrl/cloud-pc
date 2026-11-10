@@ -188,7 +188,7 @@ export type AgentEvent =
   | { type: 'state'; state: AgentRunState }
   | { type: 'activity'; message: string }
   | { type: 'file-change'; change: AgentFileChange }
-  | { type: 'permission-request'; requestId: string; command: string; reason: string }
+  | { type: 'permission-request'; requestId: string; command: string; reason: string; scopeLabel: string; allowAlways: boolean }
   | { type: 'permission-result'; requestId: string; approved: boolean }
   | { type: 'question-request'; requestId: string; question: string; context: string; options: AgentQuestionOption[]; recommendedOption: number; recommendationReason: string }
   | { type: 'question-result'; requestId: string; answered: boolean }
